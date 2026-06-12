@@ -1,0 +1,80 @@
+/* ===== Frontend — AI Anime Creative Theme ===== */
+
+:root {
+  --primary: #7c3aed;
+  --primary-light: #a78bfa;
+  --primary-dark: #5b21b6;
+  --accent: #f59e0b;
+  --accent-pink: #ec4899;
+  --bg: #f5f3ff;
+  --card-bg: #ffffff;
+  --text: #374151;
+  --text-secondary: #6b7280;
+  --border: #e5e7eb;
+
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* === Global gradient accent === */
+.gradient-text {
+  background: linear-gradient(135deg, #7c3aed 0%, #ec4899 50%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* === Ant Design overrides === */
+.ant-btn-primary {
+  background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%) !important;
+  border-color: #7c3aed !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3) !important;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%) !important;
+}
+
+.ant-card {
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+
+.ant-input-affix-wrapper,
+.ant-input {
+  border-radius: 8px;
+}
+
+/* === Page header === */
+.page-hero {
+  background: linear-gradient(135deg, #7c3aed 0%, #a855f7 30%, #ec4899 70%, #f59e0b 100%);
+  padding: 48px 24px;
+  text-align: center;
+  color: #fff;
+  margin-bottom: 32px;
+  border-radius: 0 0 24px 24px;
+}
+
+.page-hero h2 {
+  color: #fff !important;
+}

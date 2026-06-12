@@ -1,0 +1,12 @@
+# OS files
+Thumbs.db
+*.stackdump
+*.syso
+*.exe.stackdump
+
+# IDE - global
+.idea/
+.vscode/
+*.sublime-workspace
+*.swp
+*.swo
