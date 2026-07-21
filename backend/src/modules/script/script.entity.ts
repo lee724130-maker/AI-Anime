@@ -7,6 +7,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from '../user/user.entity';
+import { SceneItem } from './script.service';
 
 @Entity('scripts')
 export class Script {
@@ -27,7 +28,7 @@ export class Script {
   content: string;
 
   @Column({ type: 'json', nullable: true })
-  scenes: any;
+  scenes: SceneItem[];
 
   @Column({ default: 'draft' })
   status: string;

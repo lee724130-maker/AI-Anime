@@ -6,27 +6,31 @@
 
 ## 当前进度
 
-> **状态**：第 4-7 周已完成 + 质量修复（2026-06-03）· 视频分辨率/时长后处理 + 跨应用算力同步 + 文档完善 · 全部编译零错误
+> **状态**：Phase 1-5 已完成（2026-07-15）· HappyHorse 免费额度模型配置完成（2026-07-16）· Drama UI 重构 + 资产库增强完成（2026-07-17）
 
 | 模块 | 状态 | 详情 |
 |------|:----:|------|
-| 后端框架 | ✅ | NestJS 11 + TypeScript 5.7，44 个 `.ts` 源文件（含 2 个测试文件） |
-| 前端用户端 | ✅ | React 19 + Vite 8 + antd 6，20 个源文件，Studio 一体化创作中心 |
-| 管理后台 | ✅ | React 19 + Vite 8 + antd 6，10 个源文件，5 个功能页面 |
-| MySQL / SQLite 数据库 | ✅ | 6 张业务表（users/characters/scripts/video_tasks/orders/system_configs），SQLite 为默认，MySQL 可选 |
+| 后端框架 | ✅ | NestJS 11 + TypeScript 5.7，48+ 个 `.ts` 源文件 |
+| 前端用户端 | ✅ | React 19 + Vite 8 + antd 6，37+ 个源文件，短剧资产库页面 |
+| 管理后台 | ✅ | React 19 + Vite 8 + antd 6，10+ 个源文件，6 个功能页面（含操作日志 tab） |
+| MySQL 数据库 | ✅ | 18 张业务表（含 drama_projects/outlines/episodes/segments/assets + model_configs + prompt_templates 等）|
 | 用户认证系统 | ✅ | 注册/登录/JWT/Passport/路由守卫 |
 | 角色权限系统 | ✅ | user/admin 隔离，`@Roles('admin')` + RolesGuard |
 | 剧本模块 | ✅ | 后端 CRUD + 前端列表/创建/编辑/详情 |
 | 角色模块 | ✅ | 后端 CRUD + 前端列表/创建/编辑/详情 |
-| 视频生成模块 | ✅ | 任务创建/状态轮询/Bull 队列/Seedance+FFmpeg 流水线 + **后处理** |
-| AI 服务聚合层 | ✅ | 火山引擎(Seedance+Seedream)/OpenAI/DeepSeek/通义万相/Runway，**7 个模型** |
+| 视频生成模块 | ✅ | 任务创建/状态轮询/Bull 队列/Seedance+FFmpeg 流水线 + **后处理** + HappyHorse 免费额度模型集成 |
+| AI 服务聚合层 | ✅ | 火山引擎(Seedance+Seedream+Doubao) / 阿里云(通义万相+**HappyHorse**+Qwen) / 智谱(GLM+CogView+CogVideoX) / OpenAI / DeepSeek / Runway — **5 家 Provider 21+ 模型** |
 | 网页视频播放 | ✅ | 静态文件服务/VideoPlayer/Range 请求支持 |
-| API Key 管理 | ✅ | 9 项配置，图片/视频 Key 分离，**Seedance 1.5 Pro 主力** |
-| 一体化创作中心 | ✅ | Studio：角色+剧本+视频设置，含分辨率/时长选项 |
-| 管理后台功能 | ✅ | 仪表盘/API密钥/用户管理/日志/系统配置 + **充值实时刷新** |
+| API Key 管理 | ✅ | 8 项配置，火山引擎 3 Key 合并为 1 个 `volcengine_api_key`，智谱 `zai_api_key` |
+| 一体化创作中心 | ✅ | Studio：角色+剧本+视频设置，含分辨率/时长/模型选择（含 HappyHorse） |
+| 管理后台功能 | ✅ | 仪表盘/API密钥/用户管理/日志(含操作日志tab)/系统配置 + **充值实时刷新** |
 | 订单模块 | ✅ | 套餐/创建/模拟支付/取消（mock-pay） |
 | 跨应用算力同步 | ✅ | Admin 充值 → Frontend 实时显示，无需重新登录 |
-| 项目文档 | ✅ | 4 份 README + ROADMAP.md |
+| 项目文档 | ✅ | 4 份 README + ROADMAP.md + AI-MODEL-STATUS.md |
+| 视频管理增强（网格/列表/筛选/下载） | ✅ | Phase 1：视频列表页重构 |
+| 剧本批量场景生成 | ✅ | Phase 2：多场景拆分 + 批量提交 |
+| 系统默认生成参数 | ✅ | Phase 3：后台配置默认分辨率/时长/风格/模型 |
+| **HappyHorse 免费额度配置** | ✅ | **2026-07-16：7 个 HappyHorse 模型（各剩 10 次）配置为阿里云视频最高优先级** |
 | 真实支付 | ⬜ | 支付宝/微信支付对接 |
 | 部署上线 | ⬜ | 尚未部署 |
 
@@ -567,7 +571,7 @@ backend 44 .ts ✅ | frontend 20 .tsx/.ts ✅ | admin 10 .tsx/.ts ✅
 | 视频详情 | `/video/:id` | 3秒轮询 + 完成/失败结果 + 视频播放器 |
 | 创作中心 | `/studio` | ①角色选择 ②剧本选择 ③视频设置（分辨率/时长/模型/风格）一键生成 |
 | 充值套餐 | `/order` | 3 档套餐选择 + 创建订单 + 模拟支付 + 订单历史 |
-| 个人中心 | `/user` | 用户信息展示 |
+| 个人中心 | `/user` | 用户头像/角色/算力/手机号/注册时间 + 充值入口 + 退出登录 |
 
 ### 管理后台功能（`admin/` — `localhost:5174`）
 
@@ -577,7 +581,7 @@ backend 44 .ts ✅ | frontend 20 .tsx/.ts ✅ | admin 10 .tsx/.ts ✅
 | 仪表盘 | `dashboard` | 4 个统计卡片 + 快捷入口 |
 | API 密钥 | `apikeys` | 6 项 AI 密钥配置 + 掩码显示 + 状态标签 |
 | 用户管理 | `users` | 用户列表 + 搜索 + 封禁/解封 + 手动充值 |
-| 系统日志 | `logs` | 全部任务表格 + ID搜索 + 状态筛选 + 自动刷新 |
+| 系统日志 | `logs` | 生成日志（带剧本标题/进度/规格/算力，服务端分页）+ 操作日志（管理员动作记录，服务端分页） |
 | 系统配置 | `config` | 站点名/公告/算力定价/每日限额/重试次数/AI 供应商切换 |
 
 ### 后端 API 全览（`backend/` — `localhost:3000`）
@@ -586,8 +590,9 @@ backend 44 .ts ✅ | frontend 20 .tsx/.ts ✅ | admin 10 .tsx/.ts ✅
 **用户模块** — `GET /api/user/profile`
 **剧本模块** — `GET list` `GET :id` `POST` `PUT :id` `DELETE :id`
 **角色模块** — `GET list` `GET :id` `POST` `PUT :id` `DELETE :id`
-**视频模块** — `POST generate` `GET list` `GET task/:taskId` `GET :id` `DELETE :id` `GET file/:filename`
-**管理模块** — `GET api-keys` `PUT api-keys` `GET dashboard` `GET generation-logs`
+**视频模块** — `POST generate` `GET list` `POST batch-delete` `POST batch-download` `POST :id/retry` `GET list?search=&status=&resolution=&sort=` `GET task/:taskId` `GET :id` `DELETE :id` `GET file/:filename`
+**剧本模块** — `GET :id/export` `POST /import`
+**管理模块** — `GET api-keys` `PUT api-keys` `GET dashboard` `GET generation-logs?page=&limit=&status=` `GET logs?page=&limit=`
 **订单模块** — `GET plans` `POST create` `GET list` `POST :id/mock-pay` `POST :id/cancel`
 
 ---
@@ -1187,3 +1192,691 @@ backend  ✅ npm run build (零错误)
 frontend ✅ npm run build (零错误)
 admin    ✅ npm run build (零错误)
 ```
+
+---
+
+## 今日开发记录（2026-06-12）
+
+> **范围**：Git 仓库清理 + 敏感文件处理 + 文档同步 + 首次推送至 GitHub
+
+### 一、仓库清理
+
+| 问题 | 修复 |
+|------|------|
+| `.git` 误初始化在 `C:\Users\Administrator\` | 删除后重新在项目根目录 `git init` |
+| `backend/` 内有嵌套 `.git` | 删除嵌套 `.git`，让根仓库统一追踪 |
+| 误添加的外部 gitlink | 清理仓库后消失 |
+
+### 二、敏感文件防护
+
+| 文件 | 处理 |
+|------|------|
+| `backend/.env`（含 DB 密码、JWT 密钥） | `backend/.gitignore` 已忽略 |
+| `backend/output/` 46 个生成视频 | `backend/.gitignore` 已忽略 |
+| `backend/data/dev.db` SQLite 测试库 | 新增 `/data` 到 `backend/.gitignore` |
+| `admin/bash.exe.stackdump` 崩溃转储 | 根 `.gitignore` 新增 `*.stackdump` |
+| `AI-Video.md` 中 DeepSeek `sk-xxx` 密钥 | 替换为 `sk-xxxx...` |
+
+### 三、新增文件
+
+| 文件 | 用途 |
+|------|------|
+| 根 `.gitignore` | OS 文件、崩溃转储、编辑器配置 |
+| `backend/.env.example` | 脱敏环境变量模板 |
+
+### 四、文档同步到实际项目
+
+- 概览表文件计数、数据库说明
+- 目录树（Order 模块/页面、Studio、UserManage、SystemConfig 去掉"空壳"）
+- API 全览表（新增 `file/:filename`、订单模块）
+- 下周任务状态（已完成的标记 ✅）
+
+### 五、首次推送至 GitHub
+
+```bash
+git remote add origin https://github.com/lee724130-maker/AI-Anime.git
+git push -u origin main --force
+```
+
+---
+
+## 今日开发记录（2026-06-15）
+
+> **范围**：支付流程 Bug 修复 + 安全加固 + 前端打磨
+
+### 一、安全修复
+
+| 问题 | 修复 |
+|------|------|
+| Admin 充值接受负数/零金额（可盗取算力） | 后端增加 `if (amount <= 0) throw BadRequestException` |
+| `Math.max(0, credits - cost)` 导致用户余额不足时也能0元生成 | 改为检查余额，不足则拒绝扣费并报错 |
+
+### 二、数据一致性修复
+
+| 问题 | 修复 |
+|------|------|
+| `mockPay()` 更新用户算力和订单状态是两步操作，无事务 | 使用 `QueryRunner` 事务包裹 |
+| `chargeForCompletedTask()` 同上 | 使用 `QueryRunner` 事务包裹 |
+| Admin 充值无审计记录 | 充值同时创建 `orders` 记录（`payment_provider='admin'`） |
+
+### 三、前端打磨
+
+| 问题 | 修复 |
+|------|------|
+| 创建订单按钮无 loading 状态，可重复点击 | 添加 `creatingPlan` 状态，按钮显示 loading |
+| 算力扣费失败时任务状态回退重试 | 改为直接完成但附带错误提示信息 |
+
+### 四、Studio / 主页顶栏用户信息
+
+- 点击用户区域（头像+用户名+算力）直接跳转个人中心
+- 白色背景 + 浅紫边框 + hover 动画效果
+- 移除下拉菜单和退出按钮，简化交互
+- 主页和 Studio 样式保持一致
+
+### 五、个人中心重设计
+
+| 功能 | 说明 |
+|------|------|
+| 用户头像 | 72px 紫色 Avatar + 首字母 |
+| 身份标签 | 普通用户 / 管理员 Tag |
+| 算力 + 手机号 + 加入时间 | 内联展示 |
+| 充值算力 / 退出登录 | 两个全宽操作按钮 |
+| 账户信息 | Descriptions 列表（ID/用户名/手机号/角色/算力/注册时间） |
+| 快捷统计 | 可用算力卡片 + 充值入口 |
+
+### 六、编译验证
+
+```
+backend  ✅ npm run build (零错误)
+frontend ✅ npm run build (零错误)
+admin    ✅ npm run build (零错误)
+```
+
+---
+
+## 三个已完善功能详情
+
+### 功能一：视频管理页面增强（Phase 1）
+
+**作用：** 替代原有的简陋视频列表，提供完整的视频管理 UI。
+
+**功能点：**
+- **网格/列表双视图** — 通过 Segmented 切换。网格模式用 Row/Col 响应式卡片展示封面图、状态标签、进度条、脚本标题、分辨率/时长/风格/算力消耗等元信息；列表模式用紧凑横向卡片展示
+- **状态筛选** — 顶部 Segmented 过滤全部/待处理/生成中/已完成/失败，5 秒自动轮询刷新进度
+- **下载按钮** — 对已完成视频，点击直接下载（`?download=1` 触发服务端 `Content-Disposition: attachment`）
+- **删除确认** — Popconfirm 删除任务
+
+**涉及文件：**
+- `frontend/src/pages/Video/index.tsx` — 主 UI 组件（视图切换、筛选、下载、删除）
+- `backend/src/modules/video/video.controller.ts` — `GET /api/video/list`（列表）、`GET /api/video/file/:filename`（文件服务 + 下载）
+- `backend/src/modules/video/video.service.ts` — `findByUser()`（分页查询）
+
+---
+
+### 功能二：剧本多场景拆分 + 批量生成（Phase 2）
+
+**作用：** 把一个包含多个场景的长剧本自动拆分，每个场景单独生成一条视频。
+
+**功能点：**
+- **场景智能拆分** — 先按 `\n---\n`（Markdown 分隔线）拆分；如果只有一个片段，降级按 `\n\n`（空行）拆分；再不行整个作为一个场景
+- **前端场景预览** — Script Detail 页面实时显示拆分出的场景数，每个场景显示前 200 字预览和字数统计
+- **批量生成 Modal** — 点击"批量生成视频"弹窗，列出所有场景确认，点"开始生成"后一次性发 POST
+- **后端 `batchCreate`** — 加载剧本，执行相同拆分逻辑，计算总算力消耗（单场景消耗 × 场景数），校验余额，遍历场景：为每个场景创建 `VideoTask` + 推送 Bull 队列 job，job 名称标记为 `"剧本标题 - 场景 i+1"`，便于追踪
+- **接口：** `POST /api/video/batch-generate`，接收 `{ script_id, resolution?, duration?, style?, model? }`
+
+**涉及文件：**
+- `backend/src/modules/video/video.service.ts` — `batchCreate()`（核心拆分 + 批量创建逻辑）
+- `backend/src/modules/video/video.controller.ts` — `POST /api/video/batch-generate` 路由
+- `frontend/src/pages/Script/Detail.tsx` — 场景预览 + 批量生成 Modal
+
+---
+
+### 功能三：系统配置默认生成参数（Phase 3）
+
+**作用：** 管理员在后台设置全局默认值，用户创建视频时自动填充，无需每次手动选择。
+
+**功能点：**
+- **后台配置 UI** — 新增「默认生成参数」卡片，四个字段：
+  - `default_resolution`：Select 下拉（480p/720p/1080p）
+  - `default_duration`：Select 下拉（5/10/15 秒）
+  - `default_style`：Select 下拉（动漫/真人）
+  - `default_model`：Input 输入框，留空则自动
+- **数据库存储** — 存入 `system_configs` 表，key 为 `default_resolution` / `default_duration` / `default_style` / `default_model`
+- **后端接口** — `GET /api/video/defaults` 查询四个 key，去掉 `default_` 前缀后返回 `{ resolution, duration, style, model }`
+- **前端自动填充** — Studio 页面和 Video/Create 页面在 mount 时调用 `GET /api/video/defaults`，用返回值预填分辨率/时长/风格/模型 Segmented 或 Select
+
+**数据流：**
+```
+Admin UI 保存 → PUT /api/admin/system/config → upsert system_configs 表
+    → 用户打开 Studio/Create 页面 → GET /api/video/defaults
+        → 前端 setFieldsValue/setState 自动填充默认值
+```
+
+**涉及文件：**
+- `admin/src/pages/SystemConfig/index.tsx` — 默认参数卡片 UI
+- `backend/src/modules/admin/admin.service.ts` — allowed keys 白名单 + upsert 逻辑
+- `backend/src/modules/video/video.service.ts` — `getDefaults()` 方法
+- `backend/src/modules/video/video.controller.ts` — `GET /api/video/defaults` 路由
+- `frontend/src/pages/Studio/index.tsx` — mount 时加载默认值
+- `frontend/src/pages/Video/Create.tsx` — mount 时加载默认值
+
+---
+
+## 辅助信息
+
+### 支付/算力体系（之前完成）
+- Admin 充值拒绝零/负数金额
+- `mockPay()` 和 `chargeForCompletedTask()` 使用 QueryRunner 事务保证原子性
+- Admin 充值也创建 `orders` 记录（`payment_provider='admin'`），方便审计
+
+### 关键约定
+- FFmpeg 字幕烧录需要 `-c:v libx264` 重新编码，不能用 `-c:v copy`
+- 字幕 SRT 编码 UTF-8，libass 自动回退到 MicrosoftYaHeiUI 显示中文
+- 通义万相视频 API：使用正确模型名、`X-DashScope-Async: enable` 请求头、`prompt_extend: false`、分辨率大写
+- 批量生成接口在创建任务前先算总算力消耗，余额不足则抛出 `BadRequestException`
+- 视频下载复用现有文件服务接口，加 `?download=1` 参数
+- 用户头像/名称/算力区域点击直接跳到 `/user` 个人中心，不用下拉菜单
+
+---
+
+## 今日开发记录（2026-06-15 · 第二段）
+
+> **范围**：角色双风格参考图 + 视频封面截取 + 多角色选择 + 长视频场景系统 + I2V 模型修复
+
+### 一、角色参考图双风格
+
+**问题**：角色只有一个 `reference_image`，但动漫模型（Seedream）生成的图做不了真人风格，通义万相生成的图又不像动漫。
+
+**方案**：拆分 `reference_image_anime` 和 `reference_image_realistic` 两个字段，生成时根据 `style` 选择对应的图。
+
+**修改文件**：
+
+| 文件 | 变更 |
+|------|------|
+| `backend/src/modules/character/character.entity.ts` | `reference_image` → `reference_image_anime` + `reference_image_realistic` |
+| `backend/src/modules/character/character.service.ts` | `generateReferenceImage()` 接收 `style` 参数，存到对应字段 |
+| `backend/src/modules/character/character.controller.ts` | `POST /api/character/:id/generate-reference?style=anime\|realistic` |
+| `backend/src/modules/character/character.module.ts` | 引入 UtilsModule（依赖 `AIServiceUtil`） |
+| `backend/src/modules/video/video.service.ts` | `create()`/`batchCreate()` 根据 `style` 选择 `reference_image_anime` 或 `reference_image_realistic` |
+| `backend/src/utils/ai-service.util.ts` | `generateImage()` 按 `style` 路由：realistic → 通义万相，anime → Seedream |
+| `backend/src/queues/video.processor.ts` | fallback 图片生成也传递 `style` |
+| `frontend/src/pages/Character/Detail.tsx` | 两个槽位：动漫/真人，各自有生成按钮和预览 |
+| `frontend/src/pages/Character/index.tsx` | 列表展示两个风格的标签 |
+
+### 二、视频封面截取
+
+**功能**：视频生成完成后，用 FFmpeg 截取第一帧作为封面图，存储在 `cover_url` 字段。
+
+**修改文件**：
+
+| 文件 | 变更 |
+|------|------|
+| `backend/src/utils/ffmpeg.util.ts` | 新增 `extractFrame()` 方法 |
+| `backend/src/queues/video.processor.ts` | 最终输出后调用 `extractFrame()`，保存为 `cover_url` |
+| `frontend/src/pages/Video/index.tsx` | 封面图模式：有 `cover_url` 用 `<img>`，否则用 `<video>` |
+| `frontend/src/pages/Studio/index.tsx` | 历史卡片同上 |
+
+### 三、Studio 多角色选择
+
+**功能**：从单角色改为灵活添加角色槽位（最多 5 个），每个槽位独立选择定位（男一号/女一号/男二/女二/备用），可从角色库选或手动输入。
+
+**修改文件**：`frontend/src/pages/Studio/index.tsx`
+
+### 四、后端多角色支持
+
+**修改文件**：
+
+| 文件 | 变更 |
+|------|------|
+| `backend/src/modules/video/video.controller.ts` | `generate`/`batch-generate` 接受 `characters` 数组 |
+| `backend/src/modules/video/video.service.ts` | `create()`/`batchCreate()` 提取 `characters` 数组，用第一个角色做主参考 |
+| `backend/src/queues/video.processor.ts` | 加载所有角色，以第一个的参考图做 I2V 首帧 |
+
+### 五、长视频场景系统
+
+**核心思路**：剧本（Script）作为主入口，拆分场景（Scene）→ 逐场生成（带前情提要上下文）→ 拼接为完整视频。
+
+**新增后端端点**：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/script/:id/split` | 按 `---` 或空行拆分剧本内容为场景列表 |
+| PUT | `/api/script/:id/scene/:index` | 更新单个场景的 prompt/时长 |
+| POST | `/api/script/:id/generate-all` | 逐个创建视频任务（第 N 场带前 N-1 场提要） |
+| POST | `/api/script/:id/stitch-all` | 拼接所有已完成场景视频 |
+
+**处理器增强**：任务完成后自动更新 `script.scenes[index].status = 'completed'` + video_url/cover_url
+
+**前端新增/修改**：
+
+| 页面 | 变更 |
+|------|------|
+| `Script/Detail.tsx` | 全新场景面板：拆分/编辑/生成全部/拼接全部 + 视频预览 + 状态轮询 |
+| `Script/Create.tsx` | 改造为  创建即用：保存后直接在本页展示场景面板 |
+| `Studio/index.tsx` | 选剧本后加载场景列表，生成按钮切换为"生成全部场景"模式 |
+
+### 六、I2V 模型跳过修复
+
+**问题**：`wan2.7-i2v-2026-04-25` 是 I2V 模型，要求 `input.media` 字段，但无参考图时传空导致报错 `Field required: input.media`。
+
+**修复**：`backend/src/utils/ai-service.util.ts` — `generateVideoWithTongyi()` 中检测模型名含 `-i2v` 且无 `options.imageUrl` 时自动跳过。
+
+### 七、编译验证
+
+```
+backend  ✅ npm run build (零错误)
+frontend ✅ npm run build (零错误)
+admin    ✅ npm run build (零错误)
+```
+
+### 八、未解决问题
+
+| 优先级 | 问题 | 说明 |
+|:--:|------|------|
+| 🔴 | 通义万相 403 | T2V 模型 `wan2.7-t2v-2026-04-25` 返回 403 Forbidden，API Key 可能过期/配额耗尽。I2V 模型（`wan2.7-i2v`）未报 403 但需要传图片。建议检查 `tongyi_api_key` 有效性或改 `video_provider` 为 `volcengine` |
+| 🟡 | 角色参考图 I2V 未验证 | 修复了 I2V 模型跳过逻辑，但尚未实际测试带图生成的链路 |
+
+### 九、当前文档统计
+
+- 项目文件：后端 44+ 源文件，前端 20+ 源文件，管理后台 10+ 源文件
+- 数据库表：6 张（users/characters/scripts/video_tasks/orders/system_configs）
+- AI 模型支持：Seedance / Seedream / 通义万相 / DeepSeek / OpenAI / Runway
+
+---
+
+## 今日开发记录（2026-06-16）
+
+> **范围**：宽高比全链路支持 + 时长路由重构 + UI 统一 + 视频拼接增强 + 模型状态文档化
+
+### 一、宽高比（ratio）全链路支持
+
+新增 6 种宽高比选项（9:16 / 16:9 / 1:1 / 4:3 / 3:4 / 21:9），贯穿全栈：
+
+| 层 | 变更 |
+|---|------|
+| `ai-service.util.ts` | `VideoGenerationOptions` 新增 `ratio` 字段；通义万相和 Seedance API 调用从硬编码 `'9:16'` 改为 `options.ratio`；新增 `resolveVideoDimensions()` 方法 |
+| `video.entity.ts` | 新增 `ratio` 列（默认 `'9:16'`） |
+| `video.controller.ts` | generate/batchGenerate 接口 body 增加 `ratio` |
+| `video.service.ts` | DTO + 角色参考图尺寸 + 存储 + 队列数据均包含 ratio |
+| `video.processor.ts` | 提取 `videoRatio`，`resolveDimensions()` 替代 `resolutionToSize()`，prompt 构建传递 ratio |
+| 前端 Studio/VideoCreate/Script | 新增 ratio 下拉选择器，6 种比例 |
+| admin SystemConfig | 新增 `default_ratio` 白名单 + UI 下拉 |
+
+### 二、时长与模型路由重构
+
+| 变更 | 说明 |
+|------|------|
+| 时长上限 15s | API 实测 `wan2.6-t2v` 仅支持 2-15s，移除 20s/30s 选项 |
+| 自动路由 `wan2.7-t2v` | >5s 未指定模型时走 `wan2.7-t2v`（wan2.6 额度已耗尽） |
+| 安全兜底 | processor `Math.min(duration, 15)` 防止超长值 |
+| 通义万相模型优先级 | `TONGYI_VIDEO_MODELS` 顺序调整：wan2.7-t2v 最前，wan2.6-t2v 降为 fallback |
+| `adjustVideo()` 移除 `-stream_loop` | 不再循环 5s 视频凑时长，AI 生成多长就多长 |
+
+### 三、UI 样式统一
+
+| 页面 | 变更 |
+|------|------|
+| Studio | 分辨率/时长/宽高比/风格 4 列 Select 下拉统一（Segmented → Select） |
+| Studio | 列宽调整：分辨率 sm=5，宽高比 sm=8，时长 sm=5，风格 sm=6 |
+| Video/Create | 分辨率/时长/风格 从 Segmented 改为 Select（移除 `Segmented` 依赖） |
+| Script/Detail | 生成弹窗 4 列布局新增宽高比 |
+| Script/Create | 生成设置新增宽高比行 |
+
+### 四、视频拼接增强
+
+| 变更 | 说明 |
+|------|------|
+| 已选列表 | 每个片段显示 `#ID 标题`（如 `#75 漫步古城 - 场景 1`），方便区分同标题视频 |
+| 视频选择列表 | 同样显示 `#ID 标题`，统一风格 |
+
+### 五、模型状态文档化
+
+新建 `AI-MODEL-STATUS.md`，记录：
+
+- 所有 22 个模型（图片/视频/TTS/LLM）的完整列表与状态
+- 已过期模型：`wan2.7-t2v-2026-04-25`（403）、`wan2.6-t2v`（额度耗尽）、`doubao-seedance-2.0` 系列（未激活）
+- 当前可用主力：Seedance 1.5 Pro（≤5s）、通义万相 wan2.7-t2v（≤15s）、Seedream 4.5（动漫图片）
+- 各 API 的 fallback 路由逻辑与代码位置速查
+
+### 六、通义万相备用模型扩充
+实测发现并添加 3 个可用模型作为 fallback 链：
+
+| 模型 ID | 类型 | 说明 |
+|---------|------|------|
+| `wanx2.1-t2v-plus` | T2V | 备用文生视频，支持 15s |
+| `wanx2.1-i2v-plus` | I2V | 备用图生视频 |
+| `wan2.6-i2v` | I2V | 备用图生视频 |
+
+fallback 链扩充为 9 个模型：`wan2.7-t2v` → `wanx2.1-t2v-plus` → `wan2.6-t2v` → `wan2.7-i2v` → `wanx2.1-i2v-plus` → `wan2.6-i2v` → `wan2.7-r2v` → `happyhorse-1.0-video-edit` → `wanx2.1-t2v-turbo`
+
+### 七、编译验证
+
+```
+backend  ✅ npm run build (零错误)
+frontend ✅ npm run build (零错误)
+admin    ✅ npm run build (零错误)
+```
+
+### 八、已知问题
+
+| 优先级 | 问题 | 说明 |
+|:--:|------|------|
+| 🟡 | 角色参考图 I2V 全链路 | I2V 模型跳过逻辑已修复，但带图生成尚未实际端到端测试 |
+| 🟢 | Seedance 2.0 激活 | 火山引擎充值后可激活，代码层已支持，激活即用无需改代码 |
+
+---
+
+## 项目总结（2026-06-16）
+
+### 完成的核心功能
+
+| 模块 | 状态 | 说明 |
+|------|:----:|------|
+| 用户认证 | ✅ | 注册/登录/JWT/路由守卫 |
+| 角色管理 | ✅ | CRUD + AI 参考图生成（动漫/真人双风格） |
+| 剧本管理 | ✅ | CRUD + 场景拆分 + 带上下文批量生成 |
+| 视频生成 | ✅ | Seedance ≤5s / 通义万相 ≤15s，9 模型 fallback 链 |
+| 视频场景生成 | ✅ | 多场景逐个生成 + 前情提要注入 + 自动拼接 |
+| 视频拼接 | ✅ | 多选/拖拽排序/裁剪/合并 |
+| 宽高比 | ✅ | 6 种比例全链路支持 |
+| 一体化创作中心 | ✅ | Studio 三步走：角色→剧本→视频设置 |
+| 算力系统 | ✅ | 套餐/充值/扣费/余额实时同步 |
+| 管理后台 | ✅ | 仪表盘/用户/密钥/日志/系统配置 |
+
+### 当前文件统计
+
+- 后端：44+ TypeScript 源文件
+- 前端用户端：23+ TypeScript/TSX 源文件
+- 管理后台：10+ TypeScript/TSX 源文件
+- 数据库表：6 张
+- 文档：5 份（README ×3 + AI-Video.md + AI-MODEL-STATUS.md + ROADMAP.md）
+
+### 推荐后续扩展（非阻塞）
+
+| 优先级 | 功能 | 说明 |
+|:--:|------|------|
+| 🔵 | 真实支付接入 | 替换 mock-pay 为支付宝/微信支付 |
+| 🔵 | 部署上线 | 生产环境部署（Docker/Nginx） |
+
+---
+
+## 今日开发记录（2026-06-16 · 第二段）
+
+> **范围**：9 项功能完善 + 角色参考图本地持久化 + 管理后台页面优化 + Bug 审计修复
+
+### 一、9 项功能新增
+
+| # | 功能 | 后端 | 前端 | Admin |
+|---|------|------|------|-------|
+| 1 | **UI 手动重试失败任务** | `POST /api/video/:id/retry` 重置状态+重新入队 | 列表+详情页重试按钮 | — |
+| 2 | **视频搜索/筛选** | list API 支持 `search`/`status`/`resolution` 参数 | 搜索框+状态/分辨率下拉 | — |
+| 3 | **视频批量删除** | `POST /api/video/batch-delete` | 多选框+全选+批量删除 | — |
+| 4 | **视频列表排序** | list API 支持 `sort=created_at\|duration` | 排序下拉 | — |
+| 5 | **剧本导入/导出 JSON** | `GET /:id/export` + `POST /import` | 导入/导出按钮 | — |
+| 6 | **管理后台操作日志** | `AdminLog` 实体 + 自动记录 recharge/ban/config 变更 | — | 日志页添加操作日志 tab |
+| 7 | **视频批量下载 ZIP** | `POST /api/video/batch-download` (archiver) | 多选+下载按钮 | — |
+| 8 | **接口限流** | `@nestjs/throttler` 全局 ThrottlerGuard 60s/100req | — | — |
+| 9 | **错误日志持久化** | Winston 写入 `logs/error.log`+`logs/combined.log` (7日轮转) | — | — |
+
+### 二、角色参考图本地持久化
+
+**问题**：AI 生成的参考图 URL 临时有效（1h 后过期），Character/Video 存远程 URL 导致后续页面空白。
+
+**修复**：
+| 文件 | 变更 |
+|------|------|
+| `character.service.ts` | `downloadToLocal()` — 生成后即时下载到 `output/ref_{id}_{style}.jpg`，DB 存本地 `/static/...` 路径 |
+| `video.service.ts` | 预生成角色参考图时同样下载到本地 |
+| `ai-service.util.ts` | Tongyi I2V 检测本地路径 → 读取为 base64 data URI；Seedance 原生支持本地文件 |
+
+### 三、Bug 审计修复
+
+| # | Bug | 根因 | 修复 |
+|---|-----|------|------|
+| 1 | Dashboard 查 SQL 报错 | `CURDATE()` 仅 MySQL 兼容，SQLite 报错 | 替换为 JS Date 参数（双数据库兼容） |
+| 2 | 批量删除/下载/拼接报错 | `findByIds()` 在 TypeORM 0.3 已移除 | 替换为 `findBy({ id: In(ids) })` |
+| 3 | Studio generate-all 缺时长 | POST body 缺少 `duration` 字段 | 前端补齐 duration 参数 |
+| 4 | Script 场景"查看视频"跳 `/video` | 硬编码路径未拼接 ID | 改为 `/video/${scene.task_id}`（Detail.tsx + Create.tsx） |
+| 5 | Admin Space 方向属性错误 | `orientation` 在 antd v5 是 `direction` | 改为 `direction="vertical"` |
+| 6 | 4 处未使用 import | 残留 import 导致编译警告 | 移除 |
+| 7 | `require('fs')` 不兼容 ESM | NestJS 使用 ESM 模块 | 改为 `import * as fs` |
+| 8 | Tongyi I2V 本地路径 null | `/static/...` 路径未转换 base64 | 检测并读取为 data URI |
+
+### 四、管理后台页面优化
+
+| 优化 | 说明 |
+|------|------|
+| **生成日志列补齐** | 新增 progress/resolution/duration/credit_cost 列 |
+| **生成日志剧本标题** | 后端 `getGenerationLogs` 使用 QueryBuilder + `leftJoinAndSelect('v.script')` 关联剧本标题 |
+| **服务端分页** | 两 tab 均从全量前端分页改造为服务端 `page/limit` 参数分页 |
+| **URL 路由化** | App 层 `{path: '/:sub'}` 子路由 + Dashboard 读取 `location.pathname` 决定当前页，子页可直接 `localhost:5174/users` 访问 |
+
+### 五、编译验证
+
+```
+backend  ✅ npm run build (零错误)
+frontend ✅ npm run build (零错误)
+admin    ✅ npm run build (零错误)
+```
+
+---
+
+## 今日开发记录（2026-07-16）
+
+> **范围**：HappyHorse 免费额度模型配置 + 代码降级链优化 + 文档更新
+
+### 一、HappyHorse 模型集成
+
+用户阿里云百炼账号有 7 个 HappyHorse 视频生成模型，各剩 10 次免费额度：
+
+| 模型 ID | 类型 | 免费额度到期 |
+|---------|------|:----------:|
+| `happyhorse-1.1-t2v` | 文生视频 | 2026/09/21 |
+| `happyhorse-1.1-i2v` | 图生视频 | 2026/09/21 |
+| `happyhorse-1.1-r2v` | 参考生视频 | 2026/09/21 |
+| `happyhorse-1.0-t2v` | 文生视频 | 2026/09/07 |
+| `happyhorse-1.0-i2v` | 图生视频 | 2026/09/07 |
+| `happyhorse-1.0-r2v` | 参考生视频 | 2026/09/07 |
+| `happyhorse-1.0-video-edit` | 视频编辑 | 2026/09/07 |
+
+#### 数据库 — `model_configs` 表
+
+- 删除所有旧阿里云模型（5 条）
+- 插入 14 条新模型配置（HappyHorse priority 1-7 + 万相 priority 8-14）
+- HappyHorse 模型参数：min_duration=3, max_duration=15, 支持 720p/1080p, 9:16/16:9/1:1
+
+#### 代码改动
+
+**`backend/src/utils/ai-service.util.ts`** — `getTongyiVideoModels()` 降级链重排
+
+- 将 HappyHorse 模型移至数组最前（T2V → I2V → R2V → Edit → 万相兜底）
+- 确保 DB 模型优先，无 DB 记录时使用此降级链
+
+**`backend/src/queues/video.processor.ts`** — 移除硬编码模型选择
+
+- 原逻辑：`videoDuration > 5` 时强制走 `wan2.7-t2v`（Seedance 仅支持 ≤5s）
+- 新逻辑：不指定默认模型，由 `generateVideoWithTongyi()` 自动按优先级链选择
+- HappyHorse 支持 3-15s，可以完全替代万相做长视频
+
+**`frontend/src/pages/Studio/index.tsx`** — 模型选择器更新
+
+- 添加 6 个 HappyHorse 模型选项（带 ⭐ 标识）
+- 保留万相 T2V/I2V 作为备选
+
+### 二、自动降级策略
+
+HappyHorse 免费额度用完后（API 返回 403），自动尝试列表中下一个模型：
+
+```
+happyhorse-1.1-t2v → happyhorse-1.1-i2v → happyhorse-1.1-r2v
+→ happyhorse-1.0-t2v → happyhorse-1.0-i2v → happyhorse-1.0-r2v
+→ happyhorse-1.0-video-edit → wan2.7-t2v → 万相兜底
+```
+
+### 三、注意事项
+
+- HappyHorse 可能有**水印**限制（代码已传 `watermark: false` 参数）
+- HappyHorse 可能有**动漫风格**限制（百炼平台策略，无法绕过）
+- T2V（文生视频）直接从文本生成，不需要输入图片
+- I2V（图生视频）需要先通过 `generateImage()` 生成图片再传参
+- R2V（参考生视频）需要参考图
+
+### 四、今日编译验证
+
+```
+backend  ✅ npm run build (零错误)
+```
+
+### 五、文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `AI-MODEL-STATUS.md` | 阿里云模型区重写，新增 HappyHorse 表 + 优先级说明 + 代码位置更新 |
+| `AI-Video.md` | 进度区更新 + 今日日志 |
+| `CHANGELOG.md` | 新增 2026-07-16 条目 |
+| `项目测试流程.md` | 新增 HappyHorse 测试项 |
+| `backend/seed-happyhorse.sql` | 新建 - MySQL 种子脚本 |
+
+---
+
+## 今日开发记录（2026-07-17）
+
+> **范围**：Drama UI 重构 + 资产库增强 + 编辑弹框改造 + 重复检测 + 文档更新
+
+### 一、后端 500 路由冲突修复
+
+`drama.controller.ts` 中 `@Get(':id')` 注册在 `@Get('ping')`/`@Get('model-info')` 之前，导致 Express 将 `ping`/`model-info` 匹配为 `:id` 参数，`NaN` 传入 MySQL 抛出 `Unknown column 'NaN'`。
+
+**修复**：将 `@Get(':id')` 移至最后，`ping` 和 `model-info` 正常响应。
+
+### 二、样式/比例/分辨率从 Project 下放至 Episode
+
+- `DramaEpisode` 实体新增 `style`/`ratio`/`resolution` 三列
+- Project create/edit 表单移除 style/ratio/resolution 字段
+- 视频生成逻辑改为读取 episode 级别设置
+- `Episodes.tsx` 新增每集"画面设置"Modal
+- `EpisodeDetail.tsx` 显示当前设置标签
+
+### 三、样式关键词从存储的提示词中移除
+
+以下文件不再将 `styleLabel`（如 "anime style"）写入数据库存储的 `prompt` 字段：
+
+| 文件 | 方法 |
+|------|------|
+| `drama.service.ts` | 自动生成资产图片的 prompt |
+| `video.service.ts` | `generateTaskVideo`、`batchGenerate` |
+| `character.service.ts` | 所有角色 prompt 生成 |
+| `video.processor.ts` | `buildImagePrompt`、`buildVideoPrompt` |
+
+style 现在仅通过 `generateImage`/`generateVideo` 的 `style` 参数运行时传递，由 `ai-service.util.ts` 在调用时前置拼接。
+
+### 四、段落时长智能规划
+
+`planSegmentDuration()` 方法将段落内容发送 LLM，返回 `{ duration, timeline }`，保存 `duration` 到 `DramaSegment`，`timeline` 写入 `prompt_cn` 字段。
+
+### 五、资产提示词智能规划
+
+`planAssetPrompt()` 将资产信息发送 LLM，返回优化后的 `{ prompt, prompt_cn }` 并存入数据库，不含风格关键词。
+
+### 六、重复资产检测
+
+`addAsset()` 方法新增唯一性检查：同一 `project_id + type + name` 不可重复添加，返回“同类型同名资产已存在，不能重复添加”错误。`importFromGlobal()` 已有同样检查。
+
+### 七、Global Asset 生成增强
+
+`POST /api/global-assets/:id/generate` 新增接受 `width`/`height`/`style` 参数，通过 `@Body()` 装饰器传入并转发至 AI 服务。
+
+### 八、Global Assets 页面样式同步
+
+`GlobalAssets.tsx` 完全对齐 `Assets.tsx`：
+- 文字按钮（2x2 网格）
+- 生成参数 Modal（风格/宽高比/画质选择器）
+- 网格列宽一致（`xs=24 sm=12 md=8 lg=6`）
+
+### 九、编辑提示词弹框重构（大小资产库同步）
+
+**触发方式**：
+- 卡片上的"编辑提示词"按钮
+- 点击卡片上被截断的提示词文本（3 行省略号）
+
+**弹框布局**：
+
+```
+┌────────────────────────────────────────┐
+│  中文提示词                              │
+│  [TextArea - 可编辑, 4行]                 │
+│                                          │
+│  [ 智能规划 ]    [ 中文转英文 ]              │
+│                                          │
+│  英文提示词（只读）                        │
+│  [TextArea - 只读, 灰色背景, 4行]          │
+└────────────────────────────────────────┘
+```
+
+- 智能规划：调用 LLM 重新生成中英文提示词
+- 中文转英文：调用 LLM 将中文翻译为英文，填入英文框
+- 保存时同时更新 `prompt_cn` 和 `prompt`
+
+### 十、小资产库样式调整
+
+- 提示词文本 CSS `-webkit-line-clamp: 3` 截断 3 行 + 省略号
+- 移除 `Tooltip` 悬浮显示（替代为点击进入编辑弹框）
+- "保存到大资产库"按钮添加 `#f5f5f5` 浅灰背景 + hover/active 效果
+
+### 十一、受影响文件清单
+
+| 文件 | 变更类型 |
+|------|:--------:|
+| `backend/src/modules/drama/drama.controller.ts` | 路由重排序 + 新增 translate/plan 端点 |
+| `backend/src/modules/drama/drama.service.ts` | 新增 `planSegmentDuration`、`planAssetPrompt`、`translateAssetPrompt`、`updateEpisodeSettings`；`addAsset` 加重复检测；移除样式关键词 |
+| `backend/src/modules/drama/drama-episode.entity.ts` | 新增 `style`/`ratio`/`resolution` 列 |
+| `backend/src/modules/video/video.service.ts` | 移除 `styleLabel` |
+| `backend/src/modules/character/character.service.ts` | 移除 `styleLabel` |
+| `backend/src/queues/video.processor.ts` | `buildImagePrompt`/`buildVideoPrompt` 移除样式关键词 |
+| `backend/src/modules/global-asset/global-asset.controller.ts` | 新增 translate/plan-prompt 端点；generate 接受 body 参数 |
+| `backend/src/modules/global-asset/global-asset.service.ts` | 新增 `translatePrompt`、`planPrompt`；`generateImage` 接受 width/height/style |
+| `frontend/src/pages/Drama/Assets.tsx` | 文字按钮、网格布局、Modal 编辑、生成参数 Modal、3行截断、点击编辑 |
+| `frontend/src/pages/Drama/GlobalAssets.tsx` | 同步 Assets 样式 + 编辑弹框重构 |
+| `frontend/src/pages/Drama/Episodes.tsx` | 画面设置 Modal + 标签 |
+| `frontend/src/pages/Drama/EpisodeDetail.tsx` | 时长下拉框、智能规划 |
+| `frontend/src/pages/Drama/Create.tsx` | 移除 style/ratio/resolution |
+| `frontend/src/pages/Drama/Detail.tsx` | 移除 style 选择器 |
+| `frontend/src/pages/Drama/index.tsx` | 项目列表精简 |
+### 十二、Seedream 水印设置补全
+
+`ai-service.util.ts` 中 Seedream（火山引擎）图片生成请求体缺少 `watermark: false` 参数，导致生成的图片可能带有 AI 水印。已补加到火山引擎 `/v3/images/generations` 请求体中。
+
+之前已配置 `watermark: false` 的模型：通义万相、CogView-4、阿里云视频、Seedance。至此所有支持去水印参数的模型均已覆盖。
+### 十三、片段生成接入 Bull 队列
+
+将 drama 模块的片段生成从同步阻塞改为异步队列（Bull）。
+
+**改动：**
+
+| 文件 | 变更 |
+|------|------|
+| `queues/drama-segment.processor.ts` | **新建** — 监听 `drama-segment` 队列的 `generate` 任务，调用 `DramaService.executeSegmentGeneration()` |
+| `queues/queue.module.ts` | 注册 `drama-segment` 队列 + `DramaSegmentProcessor` provider |
+| `modules/drama/drama.module.ts` | 注册 `drama-segment` 队列 + 导出 `BullModule` |
+| `modules/drama/drama.service.ts` | 注入 `@InjectQueue('drama-segment')`；`generateSegment()` 改为提交队列任务并返回 `{ jobId, status: 'queued' }`；原同步逻辑重命名为 `executeSegmentGeneration()`；新增 `getSegmentStatus()` |
+| `modules/drama/drama.controller.ts` | 新增 `GET episodes/:episodeId/segments/:segmentId/status` 状态轮询端点 |
+| `frontend/.../EpisodeDetail.tsx` | 生成时改为提交任务 + 每 2 秒轮询状态，完成/失败后刷新 |
+
+**效果：**
+- 生成请求立即返回，不阻塞 HTTP 响应
+- 前端通过轮询实时获取生成进度
+- 批量生成时各片段独立排队，互不阻塞
+- 为后续失败重试、进度通知打下基础
+
+### 十四、编译验证
+
+```
+backend  ✅ npm run build (零错误)
+```
+
+### 十五、文档更新
+
+| 文件 | 变更 |
+|------|------|
+| `AI-Video.md` | 进度区更新 + 今日日志 |
+| `CHANGELOG.md` | 新增 2026-07-17 条目 |

@@ -29,6 +29,12 @@ export class Character {
   @Column({ length: 500, nullable: true })
   avatar_url: string;
 
+  @Column({ name: 'reference_image_anime', length: 500, nullable: true })
+  reference_image_anime: string;
+
+  @Column({ name: 'reference_image_realistic', length: 500, nullable: true })
+  reference_image_realistic: string;
+
   @Column({ length: 100, nullable: true })
   lora_model_id: string;
 

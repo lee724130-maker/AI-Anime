@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Order } from './order.entity';
 import { User } from '../user/user.entity';
+import { SystemConfig } from '../admin/admin.entity';
 
-export const CREDIT_PLANS = [
+export const DEFAULT_CREDIT_PLANS = [
   { key: 'starter', name: '入门包', amount: 9.9, credits: 120, badge: '适合试用' },
   { key: 'creator', name: '创作者包', amount: 29.9, credits: 420, badge: '推荐' },
   { key: 'studio', name: '工作室包', amount: 99.0, credits: 1800, badge: '批量生产' },
@@ -12,19 +13,34 @@ export const CREDIT_PLANS = [
 
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly orderRepo: Repository<Order>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(SystemConfig)
+    private readonly configRepo: Repository<SystemConfig>,
+    private readonly dataSource: DataSource,
   ) {}
 
-  getPlans() {
-    return CREDIT_PLANS;
+  private async getPlansFromDb() {
+    const record = await this.configRepo.findOne({ where: { config_key: 'credit_plans' } });
+    if (record?.config_value) {
+      try { return JSON.parse(record.config_value); }
+      catch { this.logger.warn('credit_plans JSON 解析失败，使用默认套餐'); }
+    }
+    return null;
+  }
+
+  async getPlans() {
+    return (await this.getPlansFromDb()) || DEFAULT_CREDIT_PLANS;
   }
 
   async create(userId: number, planKey: string, provider = 'manual') {
-    const plan = CREDIT_PLANS.find((item) => item.key === planKey);
+    const plans = await this.getPlans();
+    const plan = plans.find((item: any) => item.key === planKey);
     if (!plan) throw new BadRequestException('充值套餐不存在');
 
     const orderNo = `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -57,15 +73,28 @@ export class OrderService {
     if (order.status === 'paid') return order;
     if (order.status !== 'pending') throw new BadRequestException('订单状态不可支付');
 
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException('用户不存在');
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    user.credits = (user.credits || 0) + order.credits;
-    order.status = 'paid';
-    order.paid_at = new Date();
+    try {
+      const user = await queryRunner.manager.findOne(User, { where: { id: userId } });
+      if (!user) throw new NotFoundException('用户不存在');
 
-    await this.userRepo.save(user);
-    return this.orderRepo.save(order);
+      user.credits = (user.credits || 0) + order.credits;
+      order.status = 'paid';
+      order.paid_at = new Date();
+
+      await queryRunner.manager.save(user);
+      await queryRunner.manager.save(order);
+      await queryRunner.commitTransaction();
+      return order;
+    } catch (err) {
+      try { await queryRunner.rollbackTransaction(); } catch {}
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async cancel(userId: number, orderId: number) {

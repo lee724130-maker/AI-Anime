@@ -10,3 +10,32 @@ Thumbs.db
 *.sublime-workspace
 *.swp
 *.swo
+
+# Logs and local diagnostics
+*.log
+*.pid
+debug-crash.ps1
+crash-debug-*.log
+
+# Node
+node_modules/
+
+# Build output
+dist/
+output/
+uploads/
+data/
+
+# Temp / test files
+*.mjs
+*.err
+seed-*.sql
+test-ffmpeg.js
+backend/api-test-results.md
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store

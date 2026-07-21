@@ -24,6 +24,7 @@ const PROVIDER_OPTIONS = {
     { value: 'volcengine', label: '火山引擎 Doubao' },
     { value: 'openai', label: 'OpenAI GPT-4o' },
     { value: 'deepseek', label: 'DeepSeek' },
+    { value: 'zhipu', label: '智谱 GLM-5V' },
   ],
 };
 
@@ -47,6 +48,11 @@ export default function SystemConfigPage() {
         image_provider: data.image_provider || 'auto',
         video_provider: data.video_provider || 'auto',
         llm_provider: data.llm_provider || 'auto',
+        default_resolution: data.default_resolution || '720p',
+        default_duration: Number(data.default_duration) || 5,
+        default_ratio: data.default_ratio || '9:16',
+        default_style: data.default_style || 'anime',
+        default_model: data.default_model || '',
       });
     } catch { message.error('获取配置失败'); }
     finally { setLoading(false); }
@@ -70,13 +76,13 @@ export default function SystemConfigPage() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <Title level={3}><SettingOutlined style={{ marginRight: 8, color: '#722ed1' }} />系统配置</Title>
+        <Title level={3}><SettingOutlined className="page-header-icon" style={{ color: '#722ed1' }} />系统配置</Title>
         <Text type="secondary">全局参数管理与 AI 供应商切换</Text>
       </div>
 
-      <Form form={form} onFinish={handleSave} layout="vertical" style={{ maxWidth: 700 }}>
-
-        <Card title="🌐 站点设置" style={{ marginBottom: 20, borderRadius: 12 }}>
+      <Form form={form} onFinish={handleSave} layout="vertical" style={{ width: '100%' }}>
+        <Card title={<span><span style={{ marginRight: 6 }}>🌐</span>站点设置</span>}
+          style={{ marginBottom: 20 }}>
           <Form.Item name="site_name" label="站点名称">
             <Input placeholder="AI 动漫短剧" />
           </Form.Item>
@@ -85,23 +91,24 @@ export default function SystemConfigPage() {
           </Form.Item>
         </Card>
 
-        <Card title="☁️ AI 供应商切换" style={{ marginBottom: 20, borderRadius: 12 }}
-          extra={<CloudServerOutlined style={{ fontSize: 20, color: '#722ed1' }} />}>
+        <Card title={<span><CloudServerOutlined style={{ marginRight: 6 }} /> AI 供应商切换</span>}
+          style={{ marginBottom: 20 }}>
           <Paragraph type="secondary" style={{ marginBottom: 16 }}>
             选择使用的 AI 服务供应商，设置后即刻生效。需先在「API 密钥配置」中填写对应密钥。
           </Paragraph>
           <Form.Item name="image_provider" label="图片生成">
-            <Select options={PROVIDER_OPTIONS.image} style={{ width: '100%' }} />
+            <Select options={PROVIDER_OPTIONS.image} />
           </Form.Item>
           <Form.Item name="video_provider" label="视频生成">
-            <Select options={PROVIDER_OPTIONS.video} style={{ width: '100%' }} />
+            <Select options={PROVIDER_OPTIONS.video} />
           </Form.Item>
           <Form.Item name="llm_provider" label="文本对话 (LLM)">
-            <Select options={PROVIDER_OPTIONS.llm} style={{ width: '100%' }} />
+            <Select options={PROVIDER_OPTIONS.llm} />
           </Form.Item>
         </Card>
 
-        <Card title="💰 算力定价" style={{ marginBottom: 20, borderRadius: 12 }}>
+        <Card title={<span><span style={{ marginRight: 6 }}>💰</span>算力定价</span>}
+          style={{ marginBottom: 20 }}>
           <Paragraph type="secondary" style={{ marginBottom: 16 }}>各分辨率视频生成消耗的算力数量</Paragraph>
           <Form.Item name="credit_cost_480p" label="480p 消耗算力">
             <InputNumber min={1} max={1000} style={{ width: '100%' }} addonAfter="算力/次" />
@@ -114,7 +121,8 @@ export default function SystemConfigPage() {
           </Form.Item>
         </Card>
 
-        <Card title="🛡️ 限制策略" style={{ marginBottom: 20, borderRadius: 12 }}>
+        <Card title={<span><span style={{ marginRight: 6 }}>🛡️</span>限制策略</span>}
+          style={{ marginBottom: 20 }}>
           <Form.Item name="daily_generation_limit" label="每用户每日生成上限">
             <InputNumber min={0} max={9999} style={{ width: '100%' }} addonAfter="次" />
           </Form.Item>
@@ -123,9 +131,54 @@ export default function SystemConfigPage() {
           </Form.Item>
         </Card>
 
+        <Card title={<span><span style={{ marginRight: 6 }}>⚙️</span>默认生成参数</span>}
+          style={{ marginBottom: 20 }}>
+          <Form.Item name="default_resolution" label="默认分辨率">
+            <Select options={[
+              { value: '480p', label: '480p' },
+              { value: '720p', label: '720p' },
+              { value: '1080p', label: '1080p' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="default_duration" label="默认时长（秒）">
+            <Select options={[
+              { value: 5, label: '5 秒' },
+              { value: 10, label: '10 秒' },
+              { value: 15, label: '15 秒' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="default_ratio" label="默认宽高比">
+            <Select options={[
+              { value: '9:16', label: '9:16 竖屏' },
+              { value: '16:9', label: '16:9 横屏' },
+              { value: '1:1', label: '1:1 方屏' },
+              { value: '4:3', label: '4:3 传统' },
+              { value: '3:4', label: '3:4 海报' },
+              { value: '21:9', label: '21:9 超宽' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="default_style" label="默认风格">
+            <Select options={[
+              { value: 'anime', label: '🎨 动漫' },
+              { value: 'realistic', label: '📷 真人' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="default_model" label="默认模型（留空则自动）">
+            <Input placeholder="留空则按优先级自动选择" />
+          </Form.Item>
+        </Card>
+
+        <Card title={<span><span style={{ marginRight: 6 }}>💳</span>充值套餐</span>}
+          style={{ marginBottom: 20 }}>
+          <Form.Item name="credit_plans" label="套餐配置（JSON）"
+            tooltip="格式：[{key, name, amount, credits, badge}]，留空则使用默认三档套餐">
+            <Input.TextArea rows={5} placeholder='[{"key":"starter","name":"入门包","amount":9.9,"credits":120,"badge":"适合试用"},{"key":"creator","name":"创作者包","amount":29.9,"credits":420,"badge":"推荐"},{"key":"studio","name":"工作室包","amount":99,"credits":1800,"badge":"批量生产"}]' />
+          </Form.Item>
+        </Card>
+
         <Space>
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving} size="large"
-            style={{ background: '#001529', borderColor: '#001529', borderRadius: 8 }}>
+            style={{ background: '#001529', borderColor: '#001529' }}>
             保存全部配置
           </Button>
           <Button icon={<ReloadOutlined />} onClick={fetchConfig} size="large">重置</Button>

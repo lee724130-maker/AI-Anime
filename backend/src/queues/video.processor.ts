@@ -28,35 +28,44 @@ export class VideoProcessor {
 
   @Process('generate')
   async handleGenerate(job: any) {
-    const { taskId, userId, scriptId, scriptTitle, characterId, characterName, characterDesc, prompt, resolution, duration, style, model } = job.data;
+    const { taskId, userId, scriptId, scriptTitle, characterId, characterName, characterDesc, prompt, resolution, duration, style, model, referenceImage, characters, sceneIndex, ratio } = job.data;
     const videoResolution = resolution || '720p';
-    const videoDuration = duration || 5;
-    this.logger.log(`Processing video task #${taskId} — ${videoResolution}, ${videoDuration}s`);
+    const videoRatio = ratio || '9:16';
+    const videoDuration = Math.min(duration || 5, 15);
+    // No hardcoded model default — let auto-select chain pick best model
+    const effectiveModel = model || '';
+    const allChars = (characters || []).filter(Boolean);
+    this.logger.log(`Processing video task #${taskId} — ${videoResolution} ${videoRatio}, ${videoDuration}s${referenceImage ? ', with reference image' : ''}${allChars.length > 1 ? `, ${allChars.length} characters` : ''}`);
 
     try {
       await this.videoService.updateStatus(taskId, { status: 'processing', progress: 5 });
 
-      // --- Fetch or create character ---
-      let character: Character | null = null;
+      // --- Fetch or create characters ---
+      let characters: Character[] = [];
+      const charItems = allChars.length > 0 ? allChars : [{ character_id: characterId, character_name: characterName, character_desc: characterDesc }];
 
-      if (characterId) {
-        character = await this.characterRepo.findOne({ where: { id: characterId, user_id: userId } });
+      for (const item of charItems) {
+        if (!item) continue;
+        let ch: Character | null = null;
+        if (item.character_id) {
+          ch = await this.characterRepo.findOne({ where: { id: item.character_id, user_id: userId } });
+        }
+        if (!ch && (item.character_name || item.character_desc)) {
+          ch = this.characterRepo.create({
+            user_id: userId,
+            name: item.character_name || '未命名角色',
+            description: item.character_desc || '',
+          });
+          ch = await this.characterRepo.save(ch);
+        }
+        if (ch) characters.push(ch);
       }
 
-      // If no character selected but name/desc provided, create on-the-fly
-      if (!character && (characterName || characterDesc)) {
-        character = this.characterRepo.create({
-          user_id: userId,
-          name: characterName || '未命名角色',
-          description: characterDesc || '',
-        });
-        character = await this.characterRepo.save(character);
-        this.logger.log(`Created character on-the-fly: ${character.name}`);
+      if (characters.length > 0) {
+        this.logger.log(`Using ${characters.length} character(s): ${characters.map(c => c.name).join(', ')}`);
       }
 
-      if (character) {
-        this.logger.log(`Using character: ${character.name} — ${character.description?.slice(0, 50) || '(no description)'}`);
-      }
+      const primaryCharacter = characters[0] || null;
 
       // --- Fetch script or use custom prompt ---
       let script: Script | null = null;
@@ -82,65 +91,89 @@ export class VideoProcessor {
       }
 
       // --- Step 1+2: Generate video ---
-      const videoPrompt = this.buildVideoPrompt(character, script, customPrompt, style || 'anime');
+      const videoPrompt = this.buildVideoPrompt(primaryCharacter, script, customPrompt, style || 'anime');
       let imageUrl = '';
       let videoUrl = '';
 
-      // Try Seedance direct text-to-video first (no image needed!)
-      await this.videoService.updateStatus(taskId, { progress: 15 });
-      this.logger.log(`Step 1/4: Seedance text-to-video (${videoResolution}, ${videoDuration}s)...`);
-      videoUrl = await this.aiService.generateVideo(
-        { imageUrl: '', prompt: videoPrompt, duration: videoDuration, resolution: videoResolution, model: model || undefined },
-        videoPrompt,
-      );
-      await this.videoService.updateStatus(taskId, { progress: 35 });
-
-      // Determine what we got back
-      const isRemoteVideo = videoUrl && (videoUrl.startsWith('http://') || videoUrl.startsWith('https://'));
-      const isLocalPlaceholder = videoUrl && !videoUrl.startsWith('http') && videoUrl.length > 0;
-
-      if (isRemoteVideo) {
-        // Seedance returned a real video URL — download it for local compositing
-        this.logger.log(`Got real video from Seedance: ${videoUrl.slice(0, 80)}...`);
-        videoUrl = await this.downloadToTemp(videoUrl, 'seedance_video');
-      } else if (isLocalPlaceholder) {
-        // Fallback: generate image first, then animate to video
-        this.logger.log(`Seedance unavailable, generating image first...`);
-        const imagePrompt = this.buildImagePrompt(character, script, style || 'anime');
-        this.logger.log(`Image prompt: ${imagePrompt.slice(0, 100)}...`);
-        const [imgW, imgH] = this.resolutionToSize(videoResolution);
-        const imageUrls = await this.aiService.generateImage({
-          prompt: imagePrompt,
-          width: imgW,
-          height: imgH,
-          numImages: 1,
-        });
-        imageUrl = imageUrls[0] || '';
-        this.logger.log(`Image result: ${imageUrl ? imageUrl.slice(0, 80) : '(empty)'}...`);
-
-        this.logger.log(`Step 2/4: Animating image to video (${videoResolution}, ${videoDuration}s)...`);
-        await this.videoService.updateStatus(taskId, { progress: 50 });
+      // If a reference image is available, use I2V directly for character consistency
+      if (referenceImage) {
+        await this.videoService.updateStatus(taskId, { progress: 15, reference_image: referenceImage });
+        this.logger.log(`Step 1+2/4: I2V with reference image (${videoResolution}, ${videoDuration}s)...`);
         videoUrl = await this.aiService.generateVideo(
-          { imageUrl, prompt: videoPrompt, duration: videoDuration, resolution: videoResolution, model: model || undefined },
+          { imageUrl: referenceImage, prompt: videoPrompt, duration: videoDuration, resolution: videoResolution, ratio: videoRatio, model: effectiveModel || undefined, style },
           videoPrompt,
         );
-        this.logger.log(`Video result: ${videoUrl ? videoUrl.slice(0, 80) : '(empty)'}...`);
-      } else {
-        // videoUrl is empty — all AI services failed, generate placeholder
-        this.logger.warn(`⚠️ No video generated — creating local test pattern (${videoResolution}, ${videoDuration}s)`);
-        videoUrl = this.aiService.generatePlaceholderVideo({ imageUrl: '', duration: videoDuration, resolution: videoResolution });
+        imageUrl = referenceImage;
+        // If I2V failed, fall through to normal pipeline
+        if (!videoUrl || videoUrl.length === 0) {
+          this.logger.warn(`I2V with reference image failed, falling back to normal pipeline`);
+        } else {
+          // Download remote video if needed
+          if (videoUrl.startsWith('http://') || videoUrl.startsWith('https://')) {
+            videoUrl = await this.downloadToTemp(videoUrl, 'seedance_video');
+          }
+        }
+      }
+
+      // Fallback: normal pipeline (T2V or image generation + I2V)
+      if (!videoUrl) {
+        // Try Seedance direct text-to-video first (no image needed!)
+        await this.videoService.updateStatus(taskId, { progress: 15 });
+        this.logger.log(`Step 1/4: Seedance text-to-video (${videoResolution}, ${videoDuration}s)...`);
+        videoUrl = await this.aiService.generateVideo(
+          { imageUrl: '', prompt: videoPrompt, duration: videoDuration, resolution: videoResolution, ratio: videoRatio, model: effectiveModel || undefined, style },
+          videoPrompt,
+        );
+        await this.videoService.updateStatus(taskId, { progress: 35 });
+
+        // Determine what we got back
+        const isRemoteVideo = videoUrl && (videoUrl.startsWith('http://') || videoUrl.startsWith('https://'));
+        const isLocalPlaceholder = videoUrl && !videoUrl.startsWith('http') && videoUrl.length > 0;
+
+        if (isRemoteVideo) {
+          // Seedance returned a real video URL — download it for local compositing
+          this.logger.log(`Got real video from Seedance: ${videoUrl.slice(0, 80)}...`);
+          videoUrl = await this.downloadToTemp(videoUrl, 'seedance_video');
+        } else if (isLocalPlaceholder) {
+          // Fallback: generate image first, then animate to video
+          this.logger.log(`Seedance unavailable, generating image first...`);
+          const imagePrompt = this.buildImagePrompt(primaryCharacter, script, style || 'anime');
+          this.logger.log(`Image prompt: ${imagePrompt.slice(0, 100)}...`);
+          const [imgW, imgH] = this.resolveDimensions(videoResolution, videoRatio);
+          const imageUrls = await this.aiService.generateImage({
+            prompt: imagePrompt,
+            width: imgW,
+            height: imgH,
+            numImages: 1,
+            style: style || 'anime',
+          });
+          imageUrl = imageUrls[0] || '';
+          this.logger.log(`Image result: ${imageUrl ? imageUrl.slice(0, 80) : '(empty)'}...`);
+
+          this.logger.log(`Step 2/4: Animating image to video (${videoResolution}, ${videoDuration}s)...`);
+          await this.videoService.updateStatus(taskId, { progress: 50 });
+          videoUrl = await this.aiService.generateVideo(
+            { imageUrl, prompt: videoPrompt, duration: videoDuration, resolution: videoResolution, ratio: videoRatio, model: effectiveModel || undefined, style },
+            videoPrompt,
+          );
+          this.logger.log(`Video result: ${videoUrl ? videoUrl.slice(0, 80) : '(empty)'}...`);
+        } else {
+          // videoUrl is empty — all AI services failed, generate placeholder
+          this.logger.warn(`No video generated — creating local test pattern (${videoResolution} ${videoRatio}, ${videoDuration}s)`);
+          videoUrl = this.aiService.generatePlaceholderVideo({ imageUrl: '', duration: videoDuration, resolution: videoResolution, ratio: videoRatio });
+        }
       }
 
       // Safety check: if videoUrl is still empty, create a fallback
       if (!videoUrl || videoUrl.length === 0) {
         this.logger.warn(`⚠️ videoUrl is empty, generating emergency fallback`);
-        videoUrl = this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration);
+        videoUrl = this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration, videoRatio);
       }
 
       // --- Step 3: Generate TTS audio ---
       await this.videoService.updateStatus(taskId, { progress: 65 });
       this.logger.log(`Step 3/4: Generating narration audio...`);
-      const ttsText = this.buildTTSText(script, character, customPrompt);
+      const ttsText = this.buildTTSText(script, primaryCharacter, customPrompt);
       this.logger.log(`TTS text: ${ttsText.slice(0, 100)}...`);
 
       let audioPath = '';
@@ -206,7 +239,7 @@ export class VideoProcessor {
         }
         if (!localImagePath || !fs.existsSync(localImagePath)) {
           this.logger.warn(`Image file not found: ${localImagePath}, generating fallback...`);
-          localImagePath = this.aiService.generateEmergencyPlaceholder(videoResolution, 1);
+          localImagePath = this.aiService.generateEmergencyPlaceholder(videoResolution, 1, videoRatio);
         }
         finalOutput = await this.ffmpeg.composite({
           imagePaths: [localImagePath],
@@ -214,13 +247,13 @@ export class VideoProcessor {
           subtitlePath: subtitlePath || undefined,
           duration: videoDuration,
           fps: 24,
-          resolution: this.resolutionToFFmpeg(videoResolution),
+          resolution: this.resolutionToFFmpeg(videoResolution, videoRatio),
           format: 'mp4',
         });
       } else {
         // Last resort: generate from scratch
         this.logger.warn(`⚠️ No image or video available — creating emergency placeholder`);
-        finalOutput = this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration);
+        finalOutput = this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration, videoRatio);
         if (audioPath && fs.existsSync(audioPath)) {
           finalOutput = await this.ffmpeg.compositeVideoWithAudio(
             finalOutput,
@@ -235,7 +268,7 @@ export class VideoProcessor {
       this.logger.log(`Raw output: ${finalOutput}`);
 
       // --- Post-process: adjust resolution & duration to match user's selection ---
-      const targetRes = this.resolutionToFFmpeg(videoResolution);
+      const targetRes = this.resolutionToFFmpeg(videoResolution, videoRatio);
       const adjustedOutput = await this.ffmpeg.adjustVideo(finalOutput, targetRes, videoDuration);
       if (adjustedOutput !== finalOutput) {
         this.logger.log(`Video adjusted to ${targetRes}, ${videoDuration}s`);
@@ -244,15 +277,57 @@ export class VideoProcessor {
 
       this.logger.log(`Final video: ${finalOutput}`);
 
+      // --- Extract cover frame from the final video ---
+      let coverImagePath = '';
+      try {
+        coverImagePath = await this.ffmpeg.extractFrame(finalOutput);
+        if (coverImagePath) {
+          this.logger.log(`Cover image extracted: ${coverImagePath}`);
+        }
+      } catch (coverErr: any) {
+        this.logger.warn(`Cover extraction skipped: ${coverErr.message}`);
+      }
+
       // Build web-accessible URLs
       const videoFilename = path.basename(finalOutput);
       const videoWebUrl = `/static/${videoFilename}`;
-      let coverWebUrl = imageUrl;
-      if (coverWebUrl && !coverWebUrl.startsWith('http')) {
-        coverWebUrl = `/static/${path.basename(coverWebUrl)}`;
+      let coverWebUrl = '';
+      if (coverImagePath) {
+        coverWebUrl = `/static/${path.basename(coverImagePath)}`;
+      } else if (imageUrl && imageUrl.startsWith('http')) {
+        coverWebUrl = imageUrl;
+      } else if (imageUrl) {
+        coverWebUrl = `/static/${path.basename(imageUrl)}`;
+      } else {
+        coverWebUrl = videoWebUrl; // fallback
       }
-      if (!coverWebUrl) {
-        coverWebUrl = videoWebUrl; // fallback cover
+
+      // Charge credits first (before marking completed, so if charge fails we can mark failed)
+      try {
+        await this.videoService.chargeForCompletedTask(taskId);
+      } catch (chargeErr: any) {
+        this.logger.warn(`Credit charge failed for task #${taskId}: ${chargeErr.message}. Video will still be available.`);
+        await this.videoService.updateStatus(taskId, {
+          status: 'completed',
+          video_url: videoWebUrl,
+          cover_url: coverWebUrl,
+          completed_at: new Date(),
+          progress: 100,
+          error_msg: `视频生成成功，但算力扣费失败：${chargeErr.message}`,
+        });
+        // Update script scene if applicable
+        if (sceneIndex !== undefined && scriptId) {
+          try {
+            const s = await this.scriptRepo.findOne({ where: { id: scriptId, user_id: userId } });
+            if (s && s.scenes && Array.isArray(s.scenes) && s.scenes[sceneIndex]) {
+              s.scenes[sceneIndex].status = 'completed';
+              s.scenes[sceneIndex].video_url = videoWebUrl;
+              s.scenes[sceneIndex].cover_url = coverWebUrl;
+              await this.scriptRepo.save(s);
+            }
+          } catch (_) { this.logger.warn(`场景 ${sceneIndex} 状态更新失败（任务 ${taskId} 已完成）`); }
+        }
+        return { success: true, videoUrl: finalOutput, coverUrl: imageUrl, chargeFailed: true };
       }
 
       await this.videoService.updateStatus(taskId, {
@@ -262,7 +337,22 @@ export class VideoProcessor {
         completed_at: new Date(),
         progress: 100,
       });
-      await this.videoService.chargeForCompletedTask(taskId);
+
+      // Update script scene status if this task belongs to a scene
+      if (sceneIndex !== undefined && scriptId) {
+        try {
+          const s = await this.scriptRepo.findOne({ where: { id: scriptId, user_id: userId } });
+          if (s && s.scenes && Array.isArray(s.scenes) && s.scenes[sceneIndex]) {
+            s.scenes[sceneIndex].status = 'completed';
+            s.scenes[sceneIndex].video_url = videoWebUrl;
+            s.scenes[sceneIndex].cover_url = coverWebUrl;
+            await this.scriptRepo.save(s);
+            this.logger.log(`Updated script scene ${sceneIndex} status to completed`);
+          }
+        } catch (sceneErr: any) {
+          this.logger.warn(`Failed to update script scene: ${sceneErr.message}`);
+        }
+      }
 
       this.logger.log(`✅ Video task #${taskId} completed successfully`);
       return { success: true, videoUrl: finalOutput, coverUrl: imageUrl };
@@ -277,54 +367,45 @@ export class VideoProcessor {
       } else {
         await this.videoService.updateStatus(taskId, { status: 'failed', error_msg: error.message, completed_at: new Date(), progress: 100 });
         this.logger.error(`Task #${taskId} failed after ${retryCount} retries`);
+        // Update script scene if applicable
+        if (sceneIndex !== undefined && scriptId) {
+          try {
+            const s = await this.scriptRepo.findOne({ where: { id: scriptId, user_id: userId } });
+            if (s && s.scenes && Array.isArray(s.scenes) && s.scenes[sceneIndex]) {
+              s.scenes[sceneIndex].status = 'failed';
+              s.scenes[sceneIndex].error_msg = error.message;
+              await this.scriptRepo.save(s);
+            }
+          } catch (_) { this.logger.warn(`场景 ${sceneIndex} 失败状态更新异常（任务 ${taskId}）`); }
+        }
       }
     }
   }
 
   /** Build image generation prompt from character + script */
   private buildImagePrompt(character: Character | null, script: Script | null, style = 'anime'): string {
-    const isRealistic = style === 'realistic';
     const parts: string[] = [];
 
-    if (isRealistic) {
-      parts.push('真人实拍, live action, realistic photo, no animation');
-    } else {
-      parts.push('anime style, 动漫风格, 二次元, Japanese anime illustration, cel shade, hand-drawn, no realistic, no真人');
-    }
-
     if (character) {
-      parts.push(`${isRealistic ? 'Character' : 'Anime character'}: ${character.name}`);
+      parts.push(`Character: ${character.name}`);
       if (character.description) {
         parts.push(character.description);
       }
     } else {
-      parts.push(isRealistic
-        ? 'a real person, natural expression'
-        : 'anime character, beautiful face, expressive eyes');
+      parts.push('a person, natural expression');
     }
 
     if (script?.title) {
       parts.push(`Scene from: ${script.title}`);
     }
 
-    if (isRealistic) {
-      parts.push('photorealistic, cinematic, 9:16 vertical');
-    } else {
-      parts.push('cinematic lighting, vibrant colors, 9:16 vertical');
-    }
+    parts.push('full body, front view, high quality');
     return parts.join(', ');
   }
 
   /** Build video generation prompt */
   private buildVideoPrompt(character: Character | null, script: Script | null, customPrompt?: string, style = 'anime'): string {
-    const isRealistic = style === 'realistic';
     const parts: string[] = [];
-
-    if (isRealistic) {
-      parts.push('真人实拍, live action, realistic video, no animation');
-    } else {
-      parts.push('anime style, 动漫风格, 二次元, Japanese animation, cel shade, 赛璐珞风格, hand-drawn, no realistic, no live action, no真人');
-    }
 
     if (customPrompt) {
       parts.push(customPrompt);
@@ -342,11 +423,7 @@ export class VideoProcessor {
       parts.push(cleanText.slice(0, 200));
     }
 
-    if (isRealistic) {
-      parts.push('cinematic quality, 9:16 vertical');
-    } else {
-      parts.push('cinematic quality, 9:16 vertical');
-    }
+    parts.push('cinematic quality, 9:16 vertical');
     return parts.join('，');
   }
 
@@ -401,18 +478,18 @@ export class VideoProcessor {
   }
 
   /** Map resolution label to pixel dimensions (9:16 vertical) */
-  private resolutionToSize(resolution: string): [number, number] {
-    switch (resolution) {
-      case '480p': return [480, 854];
-      case '1080p': return [1080, 1920];
-      case '720p':
-      default: return [720, 1280];
+  private resolveDimensions(resolution: string, ratio: string): [number, number] {
+    const [rw, rh] = ratio.split(':').map(Number);
+    const base = parseInt(resolution);
+    if (rw <= rh) {
+      return [base, Math.round(base * rh / rw)];
     }
+    return [Math.round(base * rw / rh), base];
   }
 
-  /** Map resolution label to FFmpeg format string */
-  private resolutionToFFmpeg(resolution: string): string {
-    const [w, h] = this.resolutionToSize(resolution);
+  /** Map resolution + ratio to FFmpeg format string */
+  private resolutionToFFmpeg(resolution: string, ratio: string): string {
+    const [w, h] = this.resolveDimensions(resolution, ratio);
     return `${w}x${h}`;
   }
 

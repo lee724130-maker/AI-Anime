@@ -1,5 +1,3 @@
-/* ===== Admin Panel — Professional Dark Theme ===== */
-
 :root {
   --admin-dark: #001529;
   --admin-dark-light: #002140;
@@ -19,38 +17,88 @@
   -webkit-font-smoothing: antialiased;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-body {
-  min-height: 100vh;
-  background: var(--admin-bg);
-}
+body { min-height: 100vh; background: var(--admin-bg); }
 
-#root {
-  min-height: 100vh;
-}
+#root { min-height: 100vh; }
 
-/* === Layout overrides === */
-.ant-layout-sider {
-  background: var(--admin-dark) !important;
-}
-
-.ant-layout-sider .ant-menu {
-  background: transparent;
-}
-
+/* Layout */
+.ant-layout-sider { background: var(--admin-dark) !important; }
+.ant-layout-sider .ant-menu { background: transparent; }
 .ant-layout-header {
   background: #fff !important;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
   padding: 0 24px !important;
 }
 
-/* === Card tweaks === */
+/* Cards */
 .ant-card {
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  transition: box-shadow 0.2s;
+}
+.ant-card:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+
+/* Tables */
+.ant-table-wrapper .ant-table-thead > tr > th {
+  background: #fafafa !important;
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
+}
+
+/* Forms */
+.ant-form-item { margin-bottom: 18px; }
+.ant-form-item-label > label { font-weight: 500; }
+
+/* Inputs */
+.ant-input, .ant-input-affix-wrapper, .ant-input-number, .ant-select-selector {
+  border-radius: 6px !important;
+}
+
+/* Buttons */
+.ant-btn { border-radius: 6px; }
+
+/* Tabs */
+.ant-tabs-nav { margin-bottom: 16px; }
+
+/* Tags */
+.ant-tag { border-radius: 4px; }
+
+/* Modals */
+.ant-modal-content { border-radius: 12px; }
+.ant-modal-header { border-radius: 12px 12px 0 0; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #b0b0b0; }
+
+/* Stat card hover */
+.stat-card { transition: all 0.2s; cursor: default; }
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+
+/* Quick link card */
+.quick-link-card { transition: all 0.25s; }
+.quick-link-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+}
+
+/* Page header icon */
+.page-header-icon { margin-right: 8px; vertical-align: -2px; }
+
+/* Login page */
+.login-left-panel { animation: loginFadeIn 0.6s ease; }
+.login-form-panel { animation: loginSlideIn 0.5s ease; }
+
+@keyframes loginFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes loginSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
 }

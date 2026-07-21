@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, Table, Typography, Tag, Space, Input, Button, message, Popconfirm, Modal, InputNumber } from 'antd';
 import {
   UserOutlined, ReloadOutlined,
-  StopOutlined, CheckCircleOutlined, DollarOutlined,
+  StopOutlined, CheckCircleOutlined, DollarOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -38,6 +38,16 @@ export default function UserManagePage() {
     } catch { message.error('操作失败'); }
   };
 
+  const handleDelete = async (id: number) => {
+    try {
+      await api.delete(`/api/admin/users/${id}`);
+      message.success('用户已删除');
+      fetchUsers();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '删除失败');
+    }
+  };
+
   const handleRecharge = async () => {
     if (!rechargeUser || rechargeAmount <= 0) return;
     try {
@@ -68,7 +78,7 @@ export default function UserManagePage() {
       render: (v: string) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', key: 'actions', width: 180,
+      title: '操作', key: 'actions', width: 200,
       render: (_: any, record: any) => (
         <Space size="small">
           <Button size="small" icon={<DollarOutlined />} onClick={() => { setRechargeUser(record); setRechargeAmount(100); setRechargeOpen(true); }}>
@@ -82,6 +92,9 @@ export default function UserManagePage() {
               {record.status === 1 ? '封禁' : '解封'}
             </Button>
           </Popconfirm>
+          <Popconfirm title="确定要删除该用户吗？此操作不可恢复！" onConfirm={() => handleDelete(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -90,11 +103,11 @@ export default function UserManagePage() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <Title level={3}><UserOutlined style={{ marginRight: 8, color: '#1890ff' }} />用户管理</Title>
+        <Title level={3}><UserOutlined className="page-header-icon" style={{ color: '#1890ff' }} />用户管理</Title>
         <Text type="secondary">管理所有注册用户，支持封禁/解封和手动充值算力</Text>
       </div>
 
-      <Card style={{ marginBottom: 16 }}>
+      <Card styles={{ body: { padding: '16px 24px' } }} style={{ marginBottom: 16 }}>
         <Space>
           <Input.Search placeholder="搜索用户名或手机号" value={keyword}
             onChange={e => setKeyword(e.target.value)} onSearch={() => { setPage(1); fetchUsers(1, keyword); }}
@@ -103,14 +116,14 @@ export default function UserManagePage() {
         </Space>
       </Card>
 
-      <Card>
+      <Card styles={{ body: { padding: 0 } }}>
         <Table dataSource={users} columns={columns} rowKey="id" loading={loading} size="middle"
           pagination={{ current: page, total, pageSize: 20, showTotal: t => `共 ${t} 人`, onChange: (p) => { setPage(p); fetchUsers(p); } }}
           scroll={{ x: 1000 }} />
       </Card>
 
       <Modal title="手动充值" open={rechargeOpen} onOk={handleRecharge} onCancel={() => setRechargeOpen(false)}
-        okText="确认充值" cancelText="取消">
+        okText="确认充值" cancelText="取消" width={420}>
         <Space orientation="vertical" style={{ width: '100%' }}>
           <Text>用户：<strong>{rechargeUser?.username}</strong>（当前算力：{rechargeUser?.credits}）</Text>
           <Text type="secondary">充值数量：</Text>

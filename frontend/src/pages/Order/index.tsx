@@ -22,6 +22,7 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
+import AppHeader from '../../components/AppHeader';
 
 const { Title, Text } = Typography;
 
@@ -55,6 +56,7 @@ export default function OrderPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState<number | null>(null);
+  const [creatingPlan, setCreatingPlan] = useState<string | null>(null);
   const navigate = useNavigate();
   const { user, refreshUser } = useAuthStore();
 
@@ -77,12 +79,15 @@ export default function OrderPage() {
   }, []);
 
   const createOrder = async (planKey: string) => {
+    setCreatingPlan(planKey);
     try {
       const { data } = await api.post('/api/order/create', { plan: planKey, provider: 'manual' });
       setOrders((prev) => [data, ...prev]);
       message.success('订单已创建');
     } catch (err: any) {
       message.error(err.response?.data?.message || '创建订单失败');
+    } finally {
+      setCreatingPlan(null);
     }
   };
 
@@ -137,16 +142,19 @@ export default function OrderPage() {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fb', padding: 24 }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <Space style={{ marginBottom: 20 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>返回首页</Button>
-        </Space>
-
+    <div style={{ minHeight: '100vh', background: '#f8f9fb' }}>
+      <AppHeader />
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 0' }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <Title level={3} style={{ margin: 0 }}>算力充值</Title>
+        </div>
+        <Button className="back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} style={{ marginBottom: 16 }}>返回</Button>
+      </div>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 32px' }}>
         <Card style={{ marginBottom: 20, borderRadius: 8 }}>
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
             <div>
-              <Title level={3} style={{ marginBottom: 4 }}>算力充值</Title>
+              <Title level={3} style={{ marginBottom: 4 }}>套餐选择</Title>
               <Text type="secondary">当前账号：{user?.username || '-'}，剩余 {user?.credits ?? 0} 算力</Text>
             </div>
             <WalletOutlined style={{ fontSize: 34, color: '#7c3aed' }} />
@@ -173,11 +181,12 @@ export default function OrderPage() {
                   <Button
                     type="primary"
                     block
+                    loading={creatingPlan === plan.key}
                     icon={<CheckCircleOutlined />}
                     style={{ marginTop: 20 }}
                     onClick={() => createOrder(plan.key)}
                   >
-                    创建充值订单
+                    {creatingPlan === plan.key ? '创建中...' : '创建充值订单'}
                   </Button>
                 </Card>
               </Col>

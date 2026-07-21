@@ -1,21 +1,33 @@
 import { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, Typography, Space, message, Spin, Tag } from 'antd';
+import { Card, Form, Input, Button, Typography, Space, message, Spin, Tag, Collapse, Alert, Row, Col, Tooltip } from 'antd';
 import {
-  KeyOutlined,
-  SaveOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-  CheckCircleOutlined,
+  KeyOutlined, SaveOutlined, CheckCircleOutlined, CloseCircleOutlined,
+  VideoCameraOutlined, PictureOutlined, AudioOutlined, RobotOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
 const { Title, Text, Paragraph } = Typography;
+
+const CAP_ICONS: Record<string, { icon: string; label: string; color: string }> = {
+  video: { icon: '🎬', label: '视频生成', color: '#52c41a' },
+  image: { icon: '🖼', label: '图片生成', color: '#1890ff' },
+  text:  { icon: '💬', label: '文本对话', color: '#722ed1' },
+  audio: { icon: '🔊', label: '语音配音', color: '#fa8c16' },
+  avatar:{ icon: '🗣', label: '数字人',    color: '#eb2f96' },
+};
+
+interface ApiKeyModel {
+  id: string;
+  name: string;
+  priority: number;
+}
 
 interface ApiKeyItem {
   key: string;
   label: string;
   description: string;
+  capabilities: string[];
+  models: Record<string, ApiKeyModel[]>;
   isSet: boolean;
   maskedValue: string;
   updatedAt: string | null;
@@ -26,12 +38,8 @@ export default function ApiKeyManagePage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [keys, setKeys] = useState<ApiKeyItem[]>([]);
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
-  const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchKeys();
-  }, []);
+  useEffect(() => { fetchKeys(); }, []);
 
   const fetchKeys = async () => {
     setLoading(true);
@@ -39,12 +47,7 @@ export default function ApiKeyManagePage() {
       const { data } = await api.get('/api/admin/api-keys');
       setKeys(data);
       form.resetFields();
-    } catch (err: any) {
-      if (err.response?.status === 403) {
-        message.error('无权限访问，仅管理员可操作');
-        navigate('/');
-        return;
-      }
+    } catch {
       message.error('获取 API 密钥列表失败');
     } finally {
       setLoading(false);
@@ -54,11 +57,8 @@ export default function ApiKeyManagePage() {
   const handleSave = async (values: Record<string, string>) => {
     setSaving(true);
     try {
-      // Only send non-empty values (don't overwrite with empty)
       const payload: Record<string, string> = {};
-      Object.entries(values).forEach(([k, v]) => {
-        if (v !== undefined) payload[k] = v || '';
-      });
+      Object.entries(values).forEach(([k, v]) => { if (v !== undefined) payload[k] = v || ''; });
       await api.put('/api/admin/api-keys', payload);
       message.success('API 密钥已保存');
       fetchKeys();
@@ -69,141 +69,132 @@ export default function ApiKeyManagePage() {
     }
   };
 
-  const toggleShow = (key: string) => {
-    setShowKeys((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
         <Title level={3} style={{ marginBottom: 4 }}>
-          <KeyOutlined style={{ marginRight: 8, color: '#722ed1' }} />
+          <KeyOutlined style={{ color: '#722ed1', marginRight: 8 }} />
           API 密钥配置
         </Title>
-        <Text type="secondary">
-          配置第三方 AI 服务的 API 密钥，密钥将加密存储在服务器端，不会暴露到前端
-        </Text>
+        <Text type="secondary">每个密钥对应一个 AI 服务供应商，填写后即可在系统配置中启用对应能力</Text>
       </div>
 
+      <Alert
+        type="info" showIcon
+        message="所有密钥仅存储在服务器端数据库，通过此页面可随时修改。填写新密钥后点击保存即可覆盖旧密钥。"
+        style={{ marginBottom: 20 }}
+      />
+
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 80 }}>
-          <Spin size="large" />
-        </div>
+        <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
       ) : (
         <Form form={form} onFinish={handleSave} layout="vertical">
-          <Card
-            title="AI 服务密钥"
-            extra={
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={saving}
-                icon={<SaveOutlined />}
-                style={{ background: '#001529', borderColor: '#001529' }}
-              >
-                保存全部
-              </Button>
-            }
-          >
+          <Row gutter={[16, 16]}>
             {keys.map((item) => (
-              <Card
-                key={item.key}
-                type="inner"
-                size="small"
-                style={{ marginBottom: 16 }}
-                title={
-                  <Space>
-                    <span>{item.label}</span>
-                    {item.isSet ? (
-                      <Tag color="success" icon={<CheckCircleOutlined />}>
-                        已配置
-                      </Tag>
-                    ) : (
-                      <Tag color="default">未配置</Tag>
-                    )}
-                  </Space>
-                }
-                extra={
-                  item.isSet && (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      更新于: {item.updatedAt ? new Date(item.updatedAt).toLocaleString('zh-CN') : '-'}
-                    </Text>
-                  )
-                }
-              >
-                <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-                  {item.description}
-                </Paragraph>
-
-                {item.isSet && (
-                  <div
-                    style={{
-                      background: '#f5f5f5',
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      marginBottom: 12,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <Text code style={{ fontSize: 13 }}>
-                      {showKeys[item.key] ? '••••••••（已隐藏）' : item.maskedValue}
-                    </Text>
-                    <Button
-                      type="link"
-                      size="small"
-                      icon={showKeys[item.key] ? <EyeInvisibleOutlined /> : <EyeOutlined />}
-                      onClick={() => toggleShow(item.key)}
-                    >
-                      {showKeys[item.key] ? '隐藏' : '查看'}
-                    </Button>
-                  </div>
-                )}
-
-                <Form.Item
-                  name={item.key}
-                  style={{ marginBottom: 0 }}
-                  extra="输入新密钥以替换旧密钥，留空不修改"
+              <Col xs={24} key={item.key}>
+                <Card
+                  style={{ borderRadius: 8 }}
+                  styles={{ body: { padding: 20 } }}
                 >
-                  <Input.Password
-                    placeholder={item.isSet ? '输入新密钥（留空则不修改）' : `请输入 ${item.label}`}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                </Form.Item>
-              </Card>
-            ))}
-          </Card>
+                  <Row justify="space-between" align="middle" style={{ marginBottom: 14 }}>
+                    <Col>
+                      <Space size={12}>
+                        <Text strong style={{ fontSize: 15 }}>{item.label}</Text>
+                        {item.isSet
+                          ? <Tag color="success" icon={<CheckCircleOutlined />}>已配置</Tag>
+                          : <Tag color="default" icon={<CloseCircleOutlined />}>未配置</Tag>
+                        }
+                      </Space>
+                    </Col>
+                    {item.isSet && item.updatedAt && (
+                      <Col>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          更新于: {new Date(item.updatedAt).toLocaleString('zh-CN')}
+                        </Text>
+                      </Col>
+                    )}
+                  </Row>
 
-          <div style={{ marginTop: 16, textAlign: 'right' }}>
+                  {/* 能力标签 */}
+                  <Space wrap style={{ marginBottom: 14 }}>
+                    {item.capabilities.map((cap) => {
+                      const c = CAP_ICONS[cap] || { icon: '🔧', label: cap, color: '#999' };
+                      return (
+                        <Tag key={cap} style={{
+                          padding: '2px 10px', fontSize: 13, borderRadius: 4,
+                          border: `1px solid ${c.color}20`,
+                        }}>
+                          <span style={{ marginRight: 4 }}>{c.icon}</span>
+                          {c.label}
+                        </Tag>
+                      );
+                    })}
+                  </Space>
+
+                  {/* 模型列表 */}
+                  {Object.keys(item.models).length > 0 && (
+                    <div style={{
+                      background: '#fafafa', borderRadius: 6, padding: '10px 14px',
+                      marginBottom: 14, fontSize: 13,
+                    }}>
+                      {Object.entries(item.models).map(([cap, models]) => (
+                        <div key={cap} style={{ marginBottom: models === Object.values(item.models).flat() ? 0 : 4 }}>
+                          <Text type="secondary" style={{ fontSize: 12, marginRight: 8 }}>
+                            {CAP_ICONS[cap]?.icon || '🔧'} {CAP_ICONS[cap]?.label || cap}：
+                          </Text>
+                          {models.map((m, i) => (
+                            <Text key={m.id} style={{
+                              color: m.priority === 1 ? '#262626' : '#8c8c8c',
+                              fontWeight: m.priority === 1 ? 500 : 400,
+                            }}>
+                              {i > 0 && <span style={{ color: '#d9d9d9', margin: '0 6px' }}>→</span>}
+                              {m.name}
+                              {m.priority > 1 && <Text style={{ fontSize: 11, color: '#8c8c8c', marginLeft: 4 }}>(备用)</Text>}
+                            </Text>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 10 }}>
+                    {item.description}
+                  </Paragraph>
+
+                  {/* 当前密钥（已配置时显示） */}
+                  {item.isSet && (
+                    <div style={{
+                      background: '#f9f9f9', padding: '6px 14px', borderRadius: 6,
+                      marginBottom: 10, fontFamily: 'monospace', fontSize: 13, color: '#595959',
+                    }}>
+                      {item.maskedValue}
+                    </div>
+                  )}
+
+                  {/* 输入框 */}
+                  <Form.Item name={item.key} style={{ marginBottom: 0 }}
+                    extra="输入新密钥以替换旧密钥，留空不修改">
+                    <Input.Password
+                      placeholder={item.isSet ? '输入新密钥（留空则不修改）' : `请输入 ${item.label} API Key`}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </Form.Item>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+
+          <div style={{ marginTop: 20, textAlign: 'right' }}>
             <Space>
-              <Button onClick={fetchKeys} disabled={saving}>
-                重置
-              </Button>
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={saving}
-                icon={<SaveOutlined />}
-                size="large"
-                style={{ background: '#001529', borderColor: '#001529' }}
-              >
+              <Button onClick={fetchKeys} disabled={saving}>重置</Button>
+              <Button type="primary" htmlType="submit" loading={saving} icon={<SaveOutlined />} size="large"
+                style={{ background: '#001529', borderColor: '#001529' }}>
                 保存全部密钥
               </Button>
             </Space>
           </div>
         </Form>
       )}
-
-      {/* Info card */}
-      <Card title="🔐 安全提示" style={{ marginTop: 24 }} type="inner">
-        <ul style={{ margin: 0, paddingLeft: 20, color: '#666' }}>
-          <li>所有 API 密钥仅存储在服务器端，通过管理员后台可随时修改</li>
-          <li>密钥永远不会出现在前端代码、Git 仓库或日志中</li>
-          <li>建议定期更换密钥，保障账户安全</li>
-          <li>系统会在调用 AI 服务失败时自动尝试备用模型</li>
-        </ul>
-      </Card>
     </div>
   );
 }

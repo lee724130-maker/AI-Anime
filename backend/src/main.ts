@@ -1,12 +1,15 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { join } from 'path';
 import * as fs from 'fs';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
 
   app.enableCors({ origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'], credentials: true });
 
@@ -19,7 +22,7 @@ async function bootstrap() {
   }
   app.useStaticAssets(outputDir, {
     prefix: '/static/',
-    setHeaders: (res, filePath) => {
+    setHeaders: (res: any, filePath: string) => {
       if (filePath.endsWith('.mp4')) {
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Accept-Ranges', 'bytes');
@@ -29,7 +32,5 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  console.log(`Server running at http://localhost:${port}`);
-  console.log(`Static files served from: ${outputDir}`);
 }
 bootstrap();

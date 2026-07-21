@@ -1,11 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { exec } from 'child_process';
+import { execSync, exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 const execAsync = promisify(exec);
+
+function findFfmpeg(): string {
+  try {
+    const p = require('@ffmpeg-installer/ffmpeg').path;
+    if (fs.existsSync(p)) return p;
+  } catch { /* fall through */ }
+  try { execSync('ffmpeg -version', { stdio: 'pipe' }); return 'ffmpeg'; } catch { /* fall through */ }
+  return 'ffmpeg';
+}
 
 export interface FFmpegCompositeOptions {
   imagePaths: string[];
@@ -22,14 +31,34 @@ export interface FFmpegCompositeOptions {
 export class FFmpegUtil {
   private readonly logger = new Logger(FFmpegUtil.name);
   private readonly outputDir: string;
+  private readonly ffmpegPath: string;
+  private readonly ffprobePath: string;
 
   constructor() {
-    // Use project-relative path to avoid Windows short-name (~) issues
     this.outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
+    this.ffmpegPath = findFfmpeg();
+    this.ffprobePath = this.resolveFfprobe();
+    this.logger.log(`FFmpeg binary: ${this.ffmpegPath}`);
+    this.logger.log(`FFprobe binary: ${this.ffprobePath}`);
     this.logger.log(`FFmpeg output directory: ${this.outputDir}`);
+  }
+
+  private resolveFfprobe(): string {
+    const bundled = this.ffmpegPath.replace(/ffmpeg(\.exe)?$/, 'ffprobe$1');
+    if (fs.existsSync(bundled)) return bundled;
+    try {
+      const p = require('@ffprobe-installer/ffprobe').path;
+      if (fs.existsSync(p)) return p;
+    } catch { /* fall through */ }
+    try { execSync('ffprobe -version', { stdio: 'pipe' }); return 'ffprobe'; } catch { /* fall through */ }
+    return this.ffmpegPath;
+  }
+
+  private ff(args: string, opts?: { timeout?: number }): Promise<{ stderr: string; stdout: string }> {
+    return execAsync(`"${this.ffmpegPath}" ${args}`, { timeout: opts?.timeout || 120000 });
   }
 
   /**
@@ -141,7 +170,7 @@ export class FFmpegUtil {
       const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
       this.logger.log(`FFmpeg command: ffmpeg ${displayCmd}`);
 
-      const { stderr } = await execAsync(`ffmpeg ${displayCmd}`, { timeout: 60000 });
+      const { stderr } = await this.ff(`${displayCmd}`, { timeout: 60000 });
       if (stderr) {
         this.logger.debug(`FFmpeg stderr: ${stderr.slice(0, 200)}`);
       }
@@ -213,7 +242,7 @@ export class FFmpegUtil {
       const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
       this.logger.log(`FFmpeg audio-merge command: ffmpeg ${displayCmd}`);
 
-      const { stderr } = await execAsync(`ffmpeg ${displayCmd}`, { timeout: 60000 });
+      const { stderr } = await this.ff(`${displayCmd}`, { timeout: 60000 });
       if (stderr) {
         this.logger.debug(`FFmpeg stderr: ${stderr.slice(0, 200)}`);
       }
@@ -266,12 +295,45 @@ export class FFmpegUtil {
   }
 
   /**
+   * Merge multiple video files into one via concat demuxer
+   */
+  async mergeVideos(videoPaths: string[] | { path: string }[]): Promise<string> {
+    if (!videoPaths || videoPaths.length === 0) {
+      throw new Error('No video files to merge');
+    }
+    const extract = (p: string | { path: string }) => (typeof p === 'string' ? p : p.path);
+    const validPaths = videoPaths.map(extract).filter((p) => p && fs.existsSync(p));
+    if (validPaths.length === 0) {
+      throw new Error('No valid video files to merge');
+    }
+
+    const outPath = path.join(this.outputDir, `merged_${Date.now()}.mp4`);
+    const concatFile = path.join(this.outputDir, `concat_${Date.now()}.txt`);
+    const concatContent = validPaths
+      .map((p) => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
+      .join('\n');
+    fs.writeFileSync(concatFile, concatContent);
+
+    await this.ff(`-f concat -safe 0 -i "${concatFile}" -c copy "${outPath}"`);
+    return outPath;
+  }
+
+  /**
+   * Extract a single frame from a video (returns image path)
+   */
+  async extractFrame(videoPath: string, atSeconds = 1): Promise<string> {
+    const outPath = path.join(this.outputDir, `frame_${Date.now()}.jpg`);
+    await this.ff(`-y -i "${videoPath}" -ss ${atSeconds} -vframes 1 "${outPath}"`);
+    return outPath;
+  }
+
+  /**
    * Extract audio duration (in seconds)
    */
   async getAudioDuration(audioPath: string): Promise<number> {
     try {
       const { stdout } = await execAsync(
-        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`,
+        `"${this.ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${audioPath}"`,
         { timeout: 10000 },
       );
       return parseFloat(stdout.trim()) || 5;
@@ -286,7 +348,7 @@ export class FFmpegUtil {
   async getVideoInfo(videoPath: string): Promise<{ width: number; height: number; duration: number }> {
     try {
       const { stdout } = await execAsync(
-        `ffprobe -v error -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+        `"${this.ffprobePath}" -v error -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
         { timeout: 10000 },
       );
       const lines = stdout.trim().split('\n').map(Number);
@@ -362,7 +424,7 @@ export class FFmpegUtil {
       const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
       this.logger.log(`Adjust video command: ffmpeg ${displayCmd}`);
 
-      await execAsync(`ffmpeg ${displayCmd}`, { timeout: 120000 });
+      await this.ff(`${displayCmd}`, { timeout: 120000 });
       this.logger.log(`Video adjusted: ${outPath}`);
       return outPath;
     } catch (err: any) {

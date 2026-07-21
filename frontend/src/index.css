@@ -78,3 +78,21 @@ body {
 .page-hero h2 {
   color: #fff !important;
 }
+
+/* === Back button === */
+.back-btn {
+  transition: all 0.2s ease !important;
+}
+.back-btn:hover {
+  color: #7c3aed !important;
+  border-color: #7c3aed !important;
+  background: #f5f3ff !important;
+  box-shadow: 0 2px 8px rgba(124,58,237,0.15) !important;
+}
+.back-btn:active {
+  color: #5b21b6 !important;
+  border-color: #5b21b6 !important;
+  background: #ede9fe !important;
+  box-shadow: 0 1px 3px rgba(124,58,237,0.2) !important;
+  transform: scale(0.97);
+}

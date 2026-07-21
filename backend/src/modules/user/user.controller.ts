@@ -11,4 +11,10 @@ export class UserController {
   getProfile(@Req() req) {
     return this.userService.getProfile(req.user.id);
   }
+
+  @Get('dashboard')
+  @UseGuards(JwtAuthGuard)
+  getDashboard(@Req() req) {
+    return this.userService.getDashboard(req.user.id);
+  }
 }

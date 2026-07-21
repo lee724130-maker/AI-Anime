@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AdminService } from '../modules/admin/admin.service';
+import { ModelConfigService } from '../modules/admin/model-config.service';
 import axios, { AxiosInstance } from 'axios';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
@@ -12,15 +13,19 @@ export interface ImageGenerationOptions {
   height?: number;
   style?: string;
   numImages?: number;
+  model?: string;
 }
 
 export interface VideoGenerationOptions {
-  imageUrl: string;
+  imageUrl?: string;
+  media?: Array<{ type: string; url: string }>;
   prompt?: string;
   duration?: number;
   fps?: number;
-  resolution?: string; // e.g. '720x1280', '1080x1920'
-  model?: string; // specific model ID to use, overrides priority chain
+  resolution?: string;
+  ratio?: string;
+  style?: string;
+  model?: string;
 }
 
 export interface TTSOptions {
@@ -35,7 +40,41 @@ export class AIServiceUtil {
   private readonly logger = new Logger(AIServiceUtil.name);
   private clients: Map<string, AxiosInstance> = new Map();
 
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly modelConfigService: ModelConfigService,
+  ) {}
+
+  private async getActiveModels(capability: string) {
+    return this.modelConfigService.findActive(capability);
+  }
+
+  private validateModelParams(model: any, options: { resolution?: string; ratio?: string; duration?: number }) {
+    const errors: string[] = [];
+    if (model.supported_resolutions) {
+      const resolutions = JSON.parse(model.supported_resolutions);
+      if (options.resolution && !resolutions.includes(options.resolution)) {
+        errors.push(`分辨率 ${options.resolution} 不被 ${model.model_name} 支持（支持: ${resolutions.join(', ')}）`);
+      }
+    }
+    if (model.supported_ratios) {
+      const ratios = JSON.parse(model.supported_ratios);
+      if (options.ratio && !ratios.includes(options.ratio)) {
+        errors.push(`比例 ${options.ratio} 不被 ${model.model_name} 支持（支持: ${ratios.join(', ')}）`);
+      }
+    }
+    if (model.min_duration && options.duration && options.duration < model.min_duration) {
+      errors.push(`时长 ${options.duration}s 小于 ${model.model_name} 最短 ${model.min_duration}s`);
+    }
+    if (model.max_duration && options.duration && options.duration > model.max_duration) {
+      errors.push(`时长 ${options.duration}s 超过 ${model.model_name} 最长 ${model.max_duration}s`);
+    }
+    return errors;
+  }
+
+  private logModelUsage(modelId: string, prompt: string, success: boolean, errorMsg?: string) {
+    this.logger.log(`[MODEL_USAGE] model=${modelId} success=${success} prompt_preview=${prompt.slice(0, 80)}${errorMsg ? ` error=${errorMsg}` : ''}`);
+  }
 
   private async getApiKey(key: string): Promise<string | null> {
     return this.adminService.getConfigValue(key);
@@ -49,19 +88,58 @@ export class AIServiceUtil {
   async generateImage(options: ImageGenerationOptions): Promise<string[]> {
     const provider = await this.getConfigValue('image_provider') || 'auto';
 
+    // Inject style keywords and strip conflicting ones
+    if (options.style === 'realistic') {
+      let p = options.prompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '');
+      options = { ...options, prompt: `photorealistic,真人实拍质感,超写实风格,highly detailed real person,真实照片,${p}` };
+    } else if (options.style === 'anime') {
+      let p = options.prompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
+      options = { ...options, prompt: `anime style,动漫风格,Animation,Japanese anime,セル画調,精美二次元,${p}` };
+    }
+    // If a specific model is requested, route by model prefix and use exclusively
+    if (options.model) {
+      this.logger.log(`Using requested image model: ${options.model}`);
+      if (options.model.startsWith('ep-')) {
+        const key = await this.getApiKey('volcengine_api_key');
+        if (key) return await this.generateImageWithSeedream(key, options);
+        throw new Error('火山引擎 Key 未配置，无法使用 ' + options.model);
+      }
+      if (options.model.startsWith('wan') || options.model.startsWith('wanx') || options.model.startsWith('happyhorse')) {
+        const key = await this.getApiKey('tongyi_api_key');
+        if (key) return await this.generateImageWithTongyi(key, options);
+        throw new Error('阿里云 Key 未配置，无法使用 ' + options.model);
+      }
+      if (options.model.startsWith('CogView') || options.model.startsWith('cogview')) {
+        const key = await this.getApiKey('zai_api_key');
+        if (key) return await this.generateImageWithZhipu(key, options);
+        throw new Error('智谱 Key 未配置，无法使用 ' + options.model);
+      }
+      if (options.model.startsWith('dall-e')) {
+        const key = await this.getApiKey('openai_api_key');
+        if (key) return await this.generateImageWithOpenAI(key, options);
+        throw new Error('OpenAI Key 未配置，无法使用 ' + options.model);
+      }
+    }
+
+    const isRealistic = options.style === 'realistic';
+
+    // Realistic → 通义万相 (阿里云); Anime → 智谱 CogView-4
+    const tongyiKey = await this.getApiKey('tongyi_api_key');
+    const zhipuKey = await this.getApiKey('zai_api_key');
+
+    if (isRealistic && tongyiKey) {
+      this.logger.log('Using 阿里云通义万相 for image generation (realistic)');
+      try { return await this.generateImageWithTongyi(tongyiKey, options); }
+      catch (err: any) { this.logger.warn(`通义万相 failed: ${err.message}`); }
+    }
+
+    // Forced provider routing (non-auto)
     if (provider === 'volcengine') {
-      const key = await this.getApiKey('seedream_api_key') || await this.getApiKey('volcengine_api_key');
+      const key = await this.getApiKey('volcengine_api_key');
       if (key) {
         this.logger.log('Using 火山引擎 Seedream (forced) for image generation');
         try { return await this.generateImageWithSeedream(key, options); }
         catch (err: any) { this.logger.warn(`Seedream failed: ${err.message}`); }
-      }
-    } else if (provider === 'aliyun') {
-      const key = await this.getApiKey('tongyi_api_key');
-      if (key) {
-        this.logger.log('Using 阿里云通义万相 (forced) for image generation');
-        try { return await this.generateImageWithTongyi(key, options); }
-        catch (err: any) { this.logger.warn(`通义万相 failed: ${err.message}`); }
       }
     } else if (provider === 'openai') {
       const key = await this.getApiKey('openai_api_key');
@@ -70,31 +148,37 @@ export class AIServiceUtil {
         try { return await this.generateImageWithOpenAI(key, options); }
         catch (err: any) { this.logger.warn(`OpenAI failed: ${err.message}`); }
       }
+    } else if (provider === 'zhipu') {
+      const key = await this.getApiKey('zai_api_key');
+      if (key) {
+        this.logger.log('Using 智谱 CogView-4 (forced) for image generation');
+        try { return await this.generateImageWithZhipu(key, options); }
+        catch (err: any) { this.logger.warn(`CogView-4 failed: ${err.message}`); }
+      }
     }
 
-    // Auto mode (default priority chain)
-    const seedreamKey = await this.getApiKey('seedream_api_key');
-    const volcengineKey = await this.getApiKey('volcengine_api_key');
+    // Auto mode fallback chain (priority: 百炼 → 火山 → OpenAI → 智谱)
     const openaiKey = await this.getApiKey('openai_api_key');
-    const tongyiKey = await this.getApiKey('tongyi_api_key');
+    const volcKey = await this.getApiKey('volcengine_api_key');
 
-    if (seedreamKey) {
-      this.logger.log('Using 豆包 Seedream (dedicated key) for image generation');
-      try { return await this.generateImageWithSeedream(seedreamKey, options); }
-      catch (err: any) { this.logger.warn(`Seedream failed: ${err.message}`); }
+    if (tongyiKey) {
+      this.logger.log('Using 通义万相 for image generation');
+      try { return await this.generateImageWithTongyi(tongyiKey, options); }
+      catch (err: any) { this.logger.warn(`通义万相 failed: ${err.message}`); }
     }
-    if (volcengineKey) {
-      this.logger.log('Trying 火山引擎通用 Key for Seedream...');
-      try { return await this.generateImageWithSeedream(volcengineKey, options); }
-      catch (err: any) { this.logger.warn(`Seedream via volcengine key failed: ${err.message}`); }
+    if (volcKey) {
+      this.logger.log('Using 火山引擎 Seedream for image generation');
+      try { return await this.generateImageWithSeedream(volcKey, options); }
+      catch (err: any) { this.logger.warn(`Seedream failed: ${err.message}`); }
     }
     if (openaiKey) {
       this.logger.log('Using OpenAI DALL·E for image generation');
-      return this.generateImageWithOpenAI(openaiKey, options);
+      try { return await this.generateImageWithOpenAI(openaiKey, options); }
+      catch (err: any) { this.logger.warn(`OpenAI failed: ${err.message}`); }
     }
-    if (tongyiKey) {
-      this.logger.log('Using 通义万相 for image generation');
-      return this.generateImageWithTongyi(tongyiKey, options);
+    if (zhipuKey) {
+      this.logger.log('Using 智谱 CogView-4 for image generation');
+      return this.generateImageWithZhipu(zhipuKey, options);
     }
 
     this.logger.warn('No image API key configured. Using placeholder image.');
@@ -131,12 +215,35 @@ export class AIServiceUtil {
     }
   }
 
-  /** Seedream model IDs in priority order (try newest first, fall back to older) */
-  private readonly SEEDREAM_MODELS = [
-    'doubao-seedream-4-5-251128',   // 4.5 (免费在线推理)
-    'doubao-seedream-4-0-250828',   // 4.0
-    'doubao-seedream-1-0-pro',      // 1.0 Pro
-  ];
+  /** Generate image using 智谱 CogView-4 — OpenAI compatible */
+  private async generateImageWithZhipu(
+    apiKey: string,
+    options: ImageGenerationOptions,
+  ): Promise<string[]> {
+    try {
+      const response = await axios.post(
+        'https://api.z.ai/api/paas/v4/images/generations',
+        {
+          model: 'CogView-4-250304',
+          prompt: options.prompt,
+          n: options.numImages || 1,
+          size: `${options.width || 1024}x${options.height || 1024}`,
+          watermark: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 120000,
+        },
+      );
+      return (response.data.data || []).map((img: any) => img.url);
+    } catch (err: any) {
+      this.logger.error(`CogView-4 image generation failed: ${err.message}`);
+      throw err;
+    }
+  }
 
   /** Generate image using 火山引擎 Seedream (豆包) — OpenAI compatible */
   private async generateImageWithSeedream(
@@ -145,58 +252,51 @@ export class AIServiceUtil {
   ): Promise<string[]> {
     const w = options.width || 1080;
     const h = options.height || 1920;
-    // Map our size to Seedream supported ratios
     let size = '1024x1024';
-    if (w / h > 1.5) size = '2560x1440';       // 16:9
-    else if (h / w > 1.5) size = '1440x2560';   // 9:16 vertical (抖音)
-    else if (w / h > 1.2) size = '2304x1728';   // 4:3
-    else if (h / w > 1.2) size = '1728x2304';   // 3:4
+    if (w / h > 1.5) size = '2560x1440';
+    else if (h / w > 1.5) size = '1440x2560';
+    else if (w / h > 1.2) size = '2304x1728';
+    else if (h / w > 1.2) size = '1728x2304';
 
-    // Try each model in priority order
+    const models = await this.getActiveModels('image');
+    const volcengineModels = models.filter((m: any) => m.provider === 'volcengine' && m.model_id.startsWith('ep-'));
+    const modelIds = volcengineModels.length ? volcengineModels.map((m: any) => m.model_id) : [
+      'ep-20260715151858-tt8z7',
+      'ep-20260410175357-mm5sq',
+    ];
+
     let lastError: any;
-    for (const model of this.SEEDREAM_MODELS) {
+    for (const modelId of modelIds) {
       try {
-        this.logger.log(`Trying Seedream model: ${model}`);
+        const dbModel = volcengineModels.find((m: any) => m.model_id === modelId);
+        if (dbModel) {
+          const errs = this.validateModelParams(dbModel, {});
+          if (errs.length) { this.logger.warn(`Seedream ${modelId} param validation: ${errs.join(', ')}`); }
+        }
+
+        this.logger.log(`Trying Seedream model: ${modelId}`);
         const response = await axios.post(
           'https://ark.cn-beijing.volces.com/api/v3/images/generations',
-          {
-            model,
-            prompt: options.prompt,
-            size,
-            n: options.numImages || 1,
-            response_format: 'url',
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: 120000,
-          },
+          { model: modelId, prompt: options.prompt, size, n: options.numImages || 1, response_format: 'url', watermark: false },
+          { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
         );
         const urls = (response.data.data || []).map((img: any) => img.url).filter(Boolean);
         if (urls.length > 0) {
-          this.logger.log(`Seedream (${model}) generated ${urls.length} image(s)`);
+          this.logger.log(`Seedream (${modelId}) generated ${urls.length} image(s)`);
+          this.logModelUsage(modelId, options.prompt, true);
           return urls;
         }
       } catch (err: any) {
         lastError = err;
         const errMsg = err.response?.data?.error?.message || err.message;
-        this.logger.warn(`Seedream model ${model} failed: ${errMsg}`);
-        // If it's a "model not activated" error, try next model
-        if (errMsg.includes('not activated') || errMsg.includes('ModelNotOpen') || err.response?.status === 404) {
-          continue;
-        }
-        // For other errors (auth, network, etc.), stop trying
+        this.logger.warn(`Seedream model ${modelId} failed: ${errMsg}`);
+        this.logModelUsage(modelId, options.prompt, false, errMsg);
+        if (errMsg.includes('not activated') || errMsg.includes('ModelNotOpen') || err.response?.status === 404) continue;
         throw err;
       }
     }
 
-    // All models failed
     this.logger.error(`All Seedream models failed. Last error: ${lastError?.message}`);
-    if (lastError?.response?.data) {
-      this.logger.error(`Response: ${JSON.stringify(lastError.response.data)}`);
-    }
     throw lastError || new Error('All Seedream models unavailable');
   }
 
@@ -217,6 +317,7 @@ export class AIServiceUtil {
           parameters: {
             size: `${options.width || 1024}*${options.height || 1024}`,
             n: options.numImages || 1,
+            watermark: false,
           },
         },
         {
@@ -239,11 +340,20 @@ export class AIServiceUtil {
   async generateVideo(options: VideoGenerationOptions, textPrompt?: string): Promise<string> {
     const provider = await this.getConfigValue('video_provider') || 'auto';
 
+    // Inject style keywords and strip conflicting ones
+    if (options.style === 'realistic' && textPrompt) {
+      textPrompt = textPrompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '');
+      textPrompt = `photorealistic,真人实拍质感,超写实风格,${textPrompt}`;
+    } else if (options.style === 'anime' && textPrompt) {
+      textPrompt = textPrompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
+      textPrompt = `anime style,动漫风格,Animation,精美二次元,${textPrompt}`;
+    }
+
     // If a specific model is requested, route by model prefix and use exclusively
     if (options.model) {
       this.logger.log(`Using requested model: ${options.model}`);
-      if (options.model.startsWith('doubao-seedance')) {
-        const key = await this.getApiKey('seedance_api_key') || await this.getApiKey('volcengine_api_key');
+      if (options.model.startsWith('ep-')) {
+        const key = await this.getApiKey('volcengine_api_key');
         if (key) return await this.generateVideoWithSeedance(key, options, textPrompt);
         throw new Error('火山引擎 Key 未配置，无法使用 ' + options.model);
       }
@@ -252,11 +362,16 @@ export class AIServiceUtil {
         if (key) return await this.generateVideoWithTongyi(key, options, textPrompt);
         throw new Error('阿里云 Key 未配置，无法使用 ' + options.model);
       }
+      if (options.model.startsWith('CogVideo')) {
+        const key = await this.getApiKey('zai_api_key');
+        if (key) return await this.generateVideoWithZhipu(key, options, textPrompt);
+        throw new Error('智谱 Key 未配置，无法使用 ' + options.model);
+      }
       // Unknown model prefix — fall through to provider-based routing
     }
 
     if (provider === 'volcengine') {
-      const key = await this.getApiKey('seedance_api_key') || await this.getApiKey('volcengine_api_key');
+      const key = await this.getApiKey('volcengine_api_key');
       if (!key) throw new Error('火山引擎 Key 未配置，但视频供应商设为 volcengine');
       this.logger.log('Using 火山引擎 Seedance (forced) for video generation');
       return await this.generateVideoWithSeedance(key, options, textPrompt);
@@ -265,6 +380,11 @@ export class AIServiceUtil {
       if (!key) throw new Error('阿里云 Key 未配置，但视频供应商设为 aliyun');
       this.logger.log('Using 阿里云通义万相 (forced) for video generation');
       return await this.generateVideoWithTongyi(key, options, textPrompt);
+    } else if (provider === 'zhipu') {
+      const key = await this.getApiKey('zai_api_key');
+      if (!key) throw new Error('智谱 Key 未配置，但视频供应商设为 zhipu');
+      this.logger.log('Using 智谱 CogVideoX (forced) for video generation');
+      return await this.generateVideoWithZhipu(key, options, textPrompt);
     } else if (provider === 'runway') {
       const key = await this.getApiKey('runway_api_key');
       if (!key) throw new Error('Runway Key 未配置，但视频供应商设为 runway');
@@ -272,25 +392,32 @@ export class AIServiceUtil {
       return await this.generateVideoWithRunway(key, options);
     }
 
-    // Auto mode (default priority chain)
-    const seedanceKey = await this.getApiKey('seedance_api_key');
-    const volcengineKey = await this.getApiKey('volcengine_api_key');
+    // Auto mode (default priority chain: 百炼 → 火山 → Runway → 智谱)
+    const tongyiKey = await this.getApiKey('tongyi_api_key');
+    const zhipuKey = await this.getApiKey('zai_api_key');
+    const volcKey = await this.getApiKey('volcengine_api_key');
     const runwayKey = await this.getApiKey('runway_api_key');
+    const activeVideoModels = await this.getActiveModels('video');
 
-    if (seedanceKey) {
-      this.logger.log('Using Seedance (dedicated key) for video generation');
-      try { return await this.generateVideoWithSeedance(seedanceKey, options, textPrompt); }
+    if (tongyiKey) {
+      this.logger.log('Using 通义万相 for video generation');
+      try { return await this.generateVideoWithTongyi(tongyiKey, options, textPrompt); }
+      catch (err: any) { this.logger.error(`通义万相 failed: ${err.message}`); }
+    }
+    if (volcKey && activeVideoModels.some((m: any) => m.provider === 'volcengine')) {
+      this.logger.log('Using 火山引擎 Seedance for video generation');
+      try { return await this.generateVideoWithSeedance(volcKey, options, textPrompt); }
       catch (err: any) { this.logger.error(`Seedance failed: ${err.message}`); }
     }
-    if (volcengineKey && volcengineKey !== seedanceKey) {
-      this.logger.log('Trying 火山引擎通用 Key for Seedance...');
-      try { return await this.generateVideoWithSeedance(volcengineKey, options, textPrompt); }
-      catch (err: any) { this.logger.error(`Seedance via volcengine key failed: ${err.message}`); }
-    }
-    if (runwayKey) {
+    if (runwayKey && activeVideoModels.some((m: any) => m.provider === 'runway')) {
       this.logger.log('Using Runway Gen-3 for video generation');
       try { return await this.generateVideoWithRunway(runwayKey, options); }
       catch (err: any) { this.logger.error(`Runway failed: ${err.message}`); }
+    }
+    if (zhipuKey && activeVideoModels.some((m: any) => m.provider === 'zhipu')) {
+      this.logger.log('Using 智谱 CogVideoX for video generation');
+      try { return await this.generateVideoWithZhipu(zhipuKey, options, textPrompt); }
+      catch (err: any) { this.logger.error(`CogVideoX failed: ${err.message}`); }
     }
 
     this.logger.warn('No video API key configured. Using FFmpeg Ken Burns effect.');
@@ -310,23 +437,63 @@ export class AIServiceUtil {
     this.logger.log(`通义万相 video prompt: ${prompt.slice(0, 120)}...`);
     const res = options.resolution || '720p';
     const duration = options.duration || 5;
-    const ratio = '9:16';
+    const ratio = options.ratio || '9:16';
 
-    const modelsToTry = options.model ? [options.model] : this.TONGYI_VIDEO_MODELS;
+    if (options.model) {
+      const dbModels = await this.getActiveModels('video');
+      const dbModel = dbModels.find((m: any) => m.model_id === options.model);
+      if (dbModel) {
+        const errs = this.validateModelParams(dbModel, options);
+        if (errs.length) throw new Error(errs.join('; '));
+      }
+    }
+
+    const modelsToTry = options.model ? [options.model] : await this.getTongyiVideoModels();
     let lastError: any;
     for (const model of modelsToTry) {
       try {
         this.logger.log(`Trying 通义万相 model: ${model}`);
+
+        // Skip I2V/R2V models when no image provided
+        const needsImage = model.includes('-i2v') || model.includes('-r2v');
+        const hasMedia = !!(options.media?.length || options.imageUrl);
+        if (needsImage && !hasMedia) {
+          this.logger.warn(`Skipping ${model} — no input image/reference provided`);
+          continue;
+        }
+
+        const input: any = { prompt };
+        // Add negative prompt when realistic style to exclude anime
+        if (options.style === 'realistic') {
+          input.negative_prompt = '动画,动漫,二次元,anime,cartoon,illustration,手绘,cel shade,赛璐珞,绘画感';
+        } else if (options.style === 'anime') {
+          input.negative_prompt = '真人实拍,photorealistic,真实照片,写实';
+        }
+        // Support both single imageUrl and media array (R2V multi-reference)
+        if (options.media && options.media.length > 0) {
+          // Convert local file paths to base64 for each media item
+          input.media = options.media.map(m => ({
+            ...m,
+            url: m.url.startsWith('/static/')
+              ? `data:image/jpeg;base64,${fs.readFileSync(path.join(process.cwd(), 'output', path.basename(m.url))).toString('base64')}`
+              : m.url,
+          }));
+        } else if (options.imageUrl) {
+          input.media = options.imageUrl.startsWith('/static/')
+            ? `data:image/jpeg;base64,${fs.readFileSync(path.join(process.cwd(), 'output', path.basename(options.imageUrl))).toString('base64')}`
+            : options.imageUrl;
+        }
+
         const submitRes = await axios.post(
           'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis',
           {
             model,
-            input: { prompt },
+            input,
             parameters: {
               duration,
               resolution: res.toUpperCase(), // 720p → 720P
               ratio,
-              prompt_extend: false,
+              prompt_extend: true,
               watermark: false,
             },
           },
@@ -397,12 +564,9 @@ export class AIServiceUtil {
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
     const outputPath = path.join(outputDir, `placeholder_video_${Date.now()}.mp4`);
     const dur = options.duration || 5;
-    const res = options.resolution || '1080x1920';
-    // Parse resolution label like '480p', '720p', '1080p'
-    let resStr = res;
-    if (res === '480p') resStr = '480x854';
-    else if (res === '720p') resStr = '720x1280';
-    else if (res === '1080p') resStr = '1080x1920';
+    const ratio = options.ratio || '9:16';
+    const [w, h] = this.resolveVideoDimensions(options.resolution || '720p', ratio);
+    const resStr = `${w}x${h}`;
 
     try {
       // If imageUrl is a local file, use it; otherwise generate test pattern
@@ -427,7 +591,7 @@ export class AIServiceUtil {
     } catch (err: any) {
       // Emit a proper fallback — never return empty string
       this.logger.error(`Placeholder video generation failed: ${err.message}, trying emergency fallback...`);
-      return this.generateEmergencyPlaceholder(res, options.duration || 5);
+      return this.generateEmergencyPlaceholder(options.resolution || '720p', options.duration || 5, ratio);
     }
   }
 
@@ -435,19 +599,12 @@ export class AIServiceUtil {
    * Emergency fallback: generate a bare-minimum video when everything else fails.
    * Uses the simplest possible ffmpeg command to guarantee a valid output file.
    */
-  generateEmergencyPlaceholder(resolution: string, duration: number): string {
+  generateEmergencyPlaceholder(resolution: string, duration: number, ratio?: string): string {
     const outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
     const outputPath = path.join(outputDir, `emergency_${Date.now()}.mp4`);
 
-    // Map resolution to pixel dimensions
-    let width = 720, height = 1280;
-    switch (resolution) {
-      case '480p': width = 480; height = 854; break;
-      case '1080p': width = 1080; height = 1920; break;
-      case '720p':
-      default: width = 720; height = 1280; break;
-    }
+    const [width, height] = this.resolveVideoDimensions(resolution, ratio || '9:16');
 
     try {
       // Generate a colored test card with text — very simple, very reliable
@@ -477,25 +634,33 @@ export class AIServiceUtil {
     }
   }
 
-  /** Seedance model IDs in priority order (try newest first, fall back to older) */
-  private readonly SEEDANCE_MODELS = [
-    'doubao-seedance-1-5-pro-251215',    // 1.5 Pro ⭐ 主力
-    'doubao-seedance-2-0-260128',        // 2.0 (需充值)
-    'doubao-seedance-2-0-fast-260128',   // 2.0 Fast
-    'doubao-seedance-1-0-pro-fast-251015', // 1.0 Pro Fast
-    'doubao-seedance-1-0-pro-250528',    // 1.0 Pro (兜底)
-  ];
+  /** Get Seedance model IDs from DB or fallback to hardcoded defaults */
+  private async getSeedanceModels(): Promise<string[]> {
+    const models = await this.getActiveModels('video');
+    const seedanceModels = models.filter((m: any) => m.provider === 'volcengine');
+    if (seedanceModels.length) return seedanceModels.map((m: any) => m.model_id);
+    return [
+      'ep-20260715152154-4kc87',
+      'ep-20260715152610-7hnr7',
+    ];
+  }
 
-  /** 通义万相 video models in priority order */
-  private readonly TONGYI_VIDEO_MODELS = [
-    'wan2.7-t2v-2026-04-25',     // 用户确认有免费额度
-    'wan2.7-t2v',
-    'wan2.7-i2v-2026-04-25',
-    'wan2.7-r2v',
-    'happyhorse-1.0-video-edit',
-    'wan2.6-t2v',
-    'wanx2.1-t2v-turbo',
-  ];
+  /** Get Tongyi video model IDs from DB or fallback to hardcoded defaults */
+  private async getTongyiVideoModels(): Promise<string[]> {
+    const models = await this.getActiveModels('video');
+    const tongyiModels = models.filter((m: any) => m.provider === 'aliyun');
+    if (tongyiModels.length) return tongyiModels.map((m: any) => m.model_id);
+    return [
+      'happyhorse-1.1-t2v', 'happyhorse-1.1-i2v',
+      'happyhorse-1.1-r2v', 'happyhorse-1.0-t2v',
+      'happyhorse-1.0-i2v', 'happyhorse-1.0-r2v',
+      'happyhorse-1.0-video-edit',
+      'wan2.7-videoedit', 'wan2.7-t2v', 'wanx2.1-t2v-plus', 'wan2.6-t2v',
+      'wan2.7-i2v', 'wanx2.1-i2v-plus', 'wan2.6-i2v',
+      'wan2.7-r2v', 'wanx2.1-t2v-turbo', 'wan2.5-t2v-preview',
+      'wan2.7-t2v-2026-06-12', 'wan2.7-i2v-2026-04-25', 'wan2.7-r2v-2026-06-12',
+    ];
+  }
 
   /** Base URL for content generation tasks API */
   private readonly CONTENT_TASKS_URL = 'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks';
@@ -546,13 +711,27 @@ export class AIServiceUtil {
     const seedanceResolution = options.resolution || '720p';
     const parameters: any = {
       resolution: seedanceResolution,
-      ratio: '9:16',
+      ratio: options.ratio || '9:16',
       duration: options.duration || 5,
       watermark: false,
     };
 
-    // Try models — either the specified one or the full priority chain
-    const modelsToTry = options.model ? [options.model] : this.SEEDANCE_MODELS;
+    // Validate params against selected model if specified
+    if (options.model) {
+      const allModels = await this.getSeedanceModels();
+      const matched = allModels.find((m: string) => m === options.model);
+      if (matched) {
+        const dbModels = await this.getActiveModels('video');
+        const dbModel = dbModels.find((m: any) => m.model_id === options.model);
+        if (dbModel) {
+          const errs = this.validateModelParams(dbModel, options);
+          if (errs.length) throw new Error(errs.join('; '));
+        }
+      }
+    }
+
+    // Try models — either the specified one or the full priority chain from DB
+    const modelsToTry = options.model ? [options.model] : await this.getSeedanceModels();
     let lastError: any;
     for (const model of modelsToTry) {
       try {
@@ -661,6 +840,59 @@ export class AIServiceUtil {
 
     this.logger.error(`Seedance task ${taskId} timed out after ${maxAttempts * 5}s`);
     return null;
+  }
+
+  /** Generate video using 智谱 CogVideoX — async task-based API */
+  private async generateVideoWithZhipu(
+    apiKey: string,
+    options: VideoGenerationOptions,
+    textPrompt?: string,
+  ): Promise<string> {
+    const prompt = textPrompt || options.prompt || '';
+    try {
+      const response = await axios.post(
+        'https://api.z.ai/api/paas/v4/video/generations',
+        {
+          model: 'CogVideoX-3',
+          prompt,
+          duration: options.duration || 5,
+          image_url: options.imageUrl || undefined,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+      const taskId = response.data?.id || response.data?.task_id;
+      if (!taskId) {
+        return response.data?.data?.[0]?.url || response.data?.video_url || '';
+      }
+      // Poll for result
+      for (let i = 0; i < 60; i++) {
+        await this.delay(5000);
+        const pollRes = await axios.get(
+          `https://api.z.ai/api/paas/v4/video/result?task_id=${taskId}`,
+          {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            timeout: 15000,
+          },
+        );
+        const status = pollRes.data?.task_status || pollRes.data?.status;
+        if (status === 'succeeded' || status === 'SUCCEEDED') {
+          return pollRes.data?.data?.[0]?.url || pollRes.data?.video_url || '';
+        }
+        if (status === 'failed' || status === 'FAILED') {
+          throw new Error(`CogVideoX task failed: ${pollRes.data?.message || 'unknown'}`);
+        }
+      }
+      throw new Error('CogVideoX task timed out');
+    } catch (err: any) {
+      this.logger.error(`CogVideoX generation failed: ${err.message}`);
+      throw err;
+    }
   }
 
   /** Generate video using Runway Gen-3 */
@@ -785,18 +1017,25 @@ export class AIServiceUtil {
         } catch (err: any) { this.logger.warn(`Qwen failed: ${err.message}`); }
       }
     } else if (provider === 'volcengine') {
-      const key = await this.getApiKey('seedance_api_key') || await this.getApiKey('volcengine_api_key');
+      const key = await this.getApiKey('volcengine_api_key');
       if (key) {
         this.logger.log('Using 火山引擎 Doubao (forced) for chat');
-        try {
-          return await this.chatWithOpenAI(
-            key,
-            'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
-            'doubao-1-5-pro-256k-250715',
-            messages,
-            options,
-          );
-        } catch (err: any) { this.logger.warn(`Doubao failed: ${err.message}`); }
+        const textModels = await this.getActiveModels('text');
+        const volcModels = textModels.filter((m: any) => m.provider === 'volcengine')
+          .sort((a: any, b: any) => a.priority - b.priority);
+        const modelIds = volcModels.length
+          ? volcModels.map((m: any) => m.model_id)
+          : ['ep-20260715151139-8svqj', 'ep-20260410180453-t9zr7'];
+        let lastError: any;
+        for (const modelId of modelIds) {
+          try {
+            return await this.chatWithOpenAI(key, 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', modelId, messages, options);
+          } catch (err: any) {
+            lastError = err;
+            this.logger.warn(`Doubao ${modelId} failed: ${err.message}`);
+          }
+        }
+        if (lastError) throw lastError;
       }
     } else if (provider === 'openai') {
       const key = await this.getApiKey('openai_api_key');
@@ -820,32 +1059,68 @@ export class AIServiceUtil {
           );
         } catch (err: any) { this.logger.warn(`DeepSeek failed: ${err.message}`); }
       }
+    } else if (provider === 'zhipu') {
+      const key = await this.getApiKey('zai_api_key');
+      if (key) {
+        this.logger.log('Using 智谱 GLM-4.5-Air (forced) for chat');
+        try {
+          return await this.chatWithOpenAI(
+            key, 'https://api.z.ai/api/paas/v4/chat/completions', 'GLM-4.5-Air',
+            messages, options,
+          );
+        } catch (err: any) { this.logger.warn(`GLM-4.5-Air failed: ${err.message}`); }
+      }
     }
 
-    // Auto mode (default priority chain)
+    // Auto mode - try each configured provider in priority order
+    const aliyunKey = await this.getApiKey('tongyi_api_key');
+    const zhipuKey = await this.getApiKey('zai_api_key');
+    const volcKey = await this.getApiKey('volcengine_api_key');
     const openaiKey = await this.getApiKey('openai_api_key');
     const deepseekKey = await this.getApiKey('deepseek_api_key');
 
-    if (openaiKey) {
-      return this.chatWithOpenAI(
-        openaiKey,
-        'https://api.openai.com/v1/chat/completions',
-        'gpt-4o',
-        messages,
-        options,
-      );
-    }
-    if (deepseekKey) {
-      return this.chatWithOpenAI(
-        deepseekKey,
-        'https://api.deepseek.com/v1/chat/completions',
-        'deepseek-chat',
-        messages,
-        options,
-      );
+    if (aliyunKey) {
+      try {
+        return await this.chatWithOpenAI(aliyunKey, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen-plus', messages, options);
+      } catch (err: any) { this.logger.warn(`阿里云 Qwen chat failed: ${err.message}`); }
     }
 
-    this.logger.warn('No LLM API key configured');
+    if (zhipuKey) {
+      try {
+        return await this.chatWithOpenAI(zhipuKey, 'https://api.z.ai/api/paas/v4/chat/completions', 'GLM-4.5-Air', messages, options);
+      } catch (err: any) { this.logger.warn(`智谱 GLM-4.5-Air chat failed: ${err.message}`); }
+      try {
+        return await this.chatWithOpenAI(zhipuKey, 'https://api.z.ai/api/paas/v4/chat/completions', 'GLM-4.7-Flash', messages, options);
+      } catch (err: any) { this.logger.warn(`智谱 GLM-4.7-Flash failed: ${err.message}`); }
+    }
+
+    if (volcKey) {
+      const volcTextModels = await this.getActiveModels('text');
+      const volcModels = volcTextModels.filter((m: any) => m.provider === 'volcengine')
+        .sort((a: any, b: any) => a.priority - b.priority);
+      const volcModelIds = volcModels.length
+        ? volcModels.map((m: any) => m.model_id)
+        : ['ep-20260715151139-8svqj', 'ep-20260410180453-t9zr7'];
+      for (const mid of volcModelIds) {
+        try {
+          return await this.chatWithOpenAI(volcKey, 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', mid, messages, options);
+        } catch (err: any) { this.logger.warn(`火山引擎 Doubao ${mid} chat failed: ${err.message}`); }
+      }
+    }
+
+    if (openaiKey) {
+      try {
+        return await this.chatWithOpenAI(openaiKey, 'https://api.openai.com/v1/chat/completions', 'gpt-4o', messages, options);
+      } catch (err: any) { this.logger.warn(`OpenAI chat failed: ${err.message}`); }
+    }
+
+    if (deepseekKey) {
+      try {
+        return await this.chatWithOpenAI(deepseekKey, 'https://api.deepseek.com/v1/chat/completions', 'deepseek-chat', messages, options);
+      } catch (err: any) { this.logger.warn(`DeepSeek chat failed: ${err.message}`); }
+    }
+
+    this.logger.warn('No LLM API key configured or all providers failed');
     return '';
   }
 
@@ -870,7 +1145,7 @@ export class AIServiceUtil {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 120000,
+          timeout: 300000,
         },
       );
       return response.data.choices?.[0]?.message?.content || '';
@@ -913,7 +1188,67 @@ export class AIServiceUtil {
     }
   }
 
+  /** Convert resolution label + ratio to pixel dimensions */
+  resolveVideoDimensions(resolution: string, ratio: string): [number, number] {
+    const [rw, rh] = ratio.split(':').map(Number);
+    const base = parseInt(resolution);
+    if (rw <= rh) {
+      return [base, Math.round(base * rh / rw)];
+    }
+    return [Math.round(base * rw / rh), base];
+  }
+
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Return display-friendly info about the models currently in use */
+  async getModelDisplayInfo() {
+    try {
+      const imageModels = await this.getActiveModels('image');
+      const videoModels = await this.getActiveModels('video');
+      this.logger.log(`imageModels count: ${imageModels?.length ?? 0}, videoModels count: ${videoModels?.length ?? 0}`);
+  
+      const image = imageModels?.[0] || null;
+  
+      const r2v = videoModels?.find((m: any) => m.model_id?.toLowerCase().includes('r2v')) || null;
+      const i2v = videoModels?.find((m: any) => m.model_id?.toLowerCase().includes('i2v')) || null;
+  
+      const llmProvider = (await this.getConfigValue('llm_provider')) || 'auto';
+      const hasAliKey = await this.getApiKey('tongyi_api_key');
+      const hasZhipuKey = await this.getApiKey('zai_api_key');
+      const hasVolcKey = await this.getApiKey('volcengine_api_key');
+      const hasOpenaiKey = await this.getApiKey('openai_api_key');
+      const hasDeepseekKey = await this.getApiKey('deepseek_api_key');
+      const useAli = llmProvider === 'aliyun' || (llmProvider === 'auto' && hasAliKey);
+      const useZhipu = !useAli && (llmProvider === 'zhipu' || (llmProvider === 'auto' && hasZhipuKey));
+      const useVolc = !useAli && !useZhipu && (llmProvider === 'volcengine' || (llmProvider === 'auto' && hasVolcKey));
+      const useOpenai = !useAli && !useZhipu && !useVolc && (llmProvider === 'openai' || (llmProvider === 'auto' && hasOpenaiKey));
+      const useDeepseek = !useAli && !useZhipu && !useVolc && !useOpenai && (llmProvider === 'deepseek' || (llmProvider === 'auto' && hasDeepseekKey));
+  
+      let llmName = '未配置';
+      if (useAli) llmName = '通义千问 Plus (阿里云)';
+      else if (useZhipu) llmName = '智谱 GLM-4.5-Air';
+      else if (useVolc) llmName = '豆包 Doubao (火山引擎)';
+      else if (useOpenai) llmName = 'GPT-4o (OpenAI)';
+      else if (useDeepseek) llmName = 'DeepSeek Chat';
+  
+      if (llmName === '未配置') {
+        const textModels = await this.getActiveModels('text');
+        if (textModels?.[0]) {
+          llmName = `${textModels[0].model_name} (${textModels[0].provider})`;
+        }
+      }
+  
+      return {
+        llm: llmName,
+        image: image ? `${image.model_name}` : '未配置',
+        videoR2V: r2v ? `${r2v.model_name}` : '未配置',
+        videoI2V: i2v ? `${i2v.model_name}` : '未配置',
+      };
+    } catch (err: any) {
+      this.logger.error(`getModelDisplayInfo failed: ${err.message}`, err.stack);
+      throw err;
+    }
   }
 }

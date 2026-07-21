@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Button, Card, Typography, Tag, Space, Popconfirm, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined, HomeOutlined } from '@ant-design/icons';
+import { Button, Card, Typography, Tag, Space, Popconfirm, message, Upload } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ArrowLeftOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import AppHeader from '../../components/AppHeader';
 
 const { Title } = Typography;
 
@@ -35,28 +36,60 @@ export default function ScriptListPage() {
     }
   };
 
+  const handleExport = async (id: number) => {
+    try {
+      const { data } = await api.get(`/api/script/${id}/export`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `script_${id}.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      message.error('导出失败');
+    }
+  };
+
+  const handleImport = async (file: File) => {
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      if (!json.content) { message.error('无效的剧本文件'); return false; }
+      await api.post('/api/script/import', {
+        title: json.title || file.name.replace('.json', ''),
+        content: json.content,
+        scenes: json.scenes || undefined,
+      });
+      message.success('导入成功');
+      fetchScripts();
+    } catch {
+      message.error('导入失败');
+    }
+    return false;
+  };
+
   const statusTag: Record<string, string> = { draft: '草稿', processing: '处理中', completed: '已完成' };
 
   return (
     <div>
-      <div style={{
-        background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
-        padding: '32px 24px', textAlign: 'center', borderRadius: '0 0 24px 24px', marginBottom: 24,
-        position: 'relative',
-      }}>
-        <Button icon={<HomeOutlined />} onClick={() => navigate('/')}
-          style={{ position: 'absolute', left: 24, top: 32, borderRadius: 20 }}>
-          返回主页
-        </Button>
-        <FileTextOutlined style={{ fontSize: 36, color: '#fff', marginBottom: 8 }} />
-        <Title level={2} style={{ color: '#fff', margin: 0 }}>我的剧本</Title>
-      </div>
-
-      <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px 24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-          <Button icon={<HomeOutlined />} onClick={() => navigate('/')}>返回主页</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/script/create')} size="large">新建剧本</Button>
+      <AppHeader />
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 24px 15px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <Title level={2} style={{ margin: 0 }}>我的剧本</Title>
         </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Button className="back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')}>返回</Button>
+          <Space>
+            <Upload accept=".json" showUploadList={false} beforeUpload={handleImport}>
+              <Button icon={<UploadOutlined />}>导入剧本</Button>
+            </Upload>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/script/create')}>新建剧本</Button>
+          </Space>
+        </div>
+      </div>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 24px 24px' }}>
         {loading ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>加载中...</div> : (
           scripts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>暂无剧本，点击上方按钮创建</div>
@@ -70,6 +103,7 @@ export default function ScriptListPage() {
                   </div>
                   <Space>
                     <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/script/${item.id}`)}>编辑</Button>
+                    <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(item.id)}>导出</Button>
                     <Popconfirm title="确定删除？" onConfirm={() => handleDelete(item.id)}>
                       <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
                     </Popconfirm>

@@ -18,7 +18,7 @@ export default function RegisterPage() {
       const { data } = await api.post('/api/auth/register', values);
       setAuth(data.user, data.access_token);
       message.success('注册成功');
-      navigate('/');
+      navigate('/dashboard');
     } catch (err: any) {
       message.error(err.response?.data?.message || '注册失败');
     } finally {

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Card, Typography, Tag, Descriptions, Spin, message, Result, Progress } from 'antd';
+import { Button, Card, Typography, Tag, Descriptions, Spin, message, Result, Progress, Space } from 'antd';
 import {
   ArrowLeftOutlined,
   ClockCircleOutlined,
@@ -8,6 +8,7 @@ import {
   CloseCircleOutlined,
   SyncOutlined,
   ReloadOutlined,
+  DownloadOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 import VideoPlayer from '../../components/VideoPlayer';
@@ -107,6 +108,11 @@ export default function VideoDetailPage() {
               poster={getFullUrl(task.cover_url)}
               title="AI 生成的动漫短剧"
             />
+            <Button type="primary" icon={<DownloadOutlined />}
+              href={`${videoSrc}${videoSrc.includes('?') ? '&' : '?'}download=1`}
+              target="_blank" style={{ marginTop: 12, borderRadius: 10 }}>
+              下载视频
+            </Button>
           </div>
         )}
 
@@ -124,9 +130,20 @@ export default function VideoDetailPage() {
             title="生成失败"
             subTitle={task.error_msg || '未知错误'}
             extra={
-              <Button icon={<ReloadOutlined />} onClick={() => navigate('/video/create')}>
-                重新创建任务
-              </Button>
+              <Space>
+                <Button icon={<ReloadOutlined />} type="primary" onClick={async () => {
+                  try {
+                    await api.post(`/api/video/${id}/retry`);
+                    message.success('已重新提交任务');
+                    fetchTask();
+                  } catch {
+                    message.error('重试失败');
+                  }
+                }}>
+                  重试
+                </Button>
+                <Button onClick={() => navigate('/video/create')}>重新创建任务</Button>
+              </Space>
             }
           />
         )}
