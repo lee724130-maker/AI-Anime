@@ -314,7 +314,20 @@ export class FFmpegUtil {
       .join('\n');
     fs.writeFileSync(concatFile, concatContent);
 
-    await this.ff(`-f concat -safe 0 -i "${concatFile}" -c copy "${outPath}"`);
+    // Normalize each file to TS (handles mismatched streams like missing audio), then concat
+    const tsFiles = validPaths.map((p, i) => {
+      const ts = path.join(this.outputDir, `concat_ts_${i}_${Date.now()}.ts`);
+      return { mp4: p, ts };
+    });
+    for (const f of tsFiles) {
+      await this.ff(`-y -i "${f.mp4}" -c copy -bsf:v h264_mp4toannexb -f mpegts "${f.ts}"`);
+    }
+    const tsConcatInput = tsFiles.map(f => f.ts).join('|');
+    await this.ff(`-y -i "concat:${tsConcatInput}" -c copy -bsf:a aac_adtstoasc -movflags +faststart "${outPath}"`);
+    // Cleanup temp TS files
+    for (const f of tsFiles) {
+      try { fs.unlinkSync(f.ts); } catch { /* ignore */ }
+    }
     return outPath;
   }
 
@@ -429,6 +442,87 @@ export class FFmpegUtil {
       return outPath;
     } catch (err: any) {
       this.logger.error(`Video adjustment failed: ${err.message}`);
+      return inputPath; // Return original on failure
+    }
+  }
+
+  /**
+   * Fit video to target aspect ratio by adding black bars (letterbox/pillarbox).
+   * Preserves the entire frame — no cropping, no stretching.
+   * 
+   * @param inputPath - Source video path
+   * @param targetRatio - Target aspect ratio, e.g. '9:16', '16:9', '1:1'
+   * @param outputPath - Optional output path, auto-generated if omitted
+   * @returns Output video path (or original if ratio already matches)
+   */
+  async fitVideoToRatio(
+    inputPath: string,
+    targetRatio: string,
+    outputPath?: string,
+  ): Promise<string> {
+    const info = await this.getVideoInfo(inputPath);
+    if (!info.width || !info.height) {
+      this.logger.warn('fitVideoToRatio: cannot read video dimensions, skipping');
+      return inputPath;
+    }
+
+    // Parse target ratio
+    const [rw, rh] = targetRatio.split(':').map(Number);
+    if (!rw || !rh) {
+      this.logger.warn(`fitVideoToRatio: invalid target ratio "${targetRatio}", skipping`);
+      return inputPath;
+    }
+
+    const targetAspect = rw / rh;
+    const currentAspect = info.width / info.height;
+
+    // Check if already close enough (within 1%)
+    if (Math.abs(currentAspect - targetAspect) / targetAspect < 0.01) {
+      this.logger.log(`fitVideoToRatio: video already at ${targetRatio} — no adjustment needed`);
+      return inputPath;
+    }
+
+    const outPath = outputPath ||
+      path.join(this.outputDir, `ratio_${path.basename(inputPath, path.extname(inputPath))}_${Date.now()}.mp4`);
+
+    this.logger.log(
+      `Fitting video to ratio ${targetRatio}: ${info.width}x${info.height} (${currentAspect.toFixed(3)}) → target ${targetAspect.toFixed(3)}`,
+    );
+
+    try {
+      // Use crop filter to actually change the aspect ratio instead of adding black bars
+      let filter: string;
+      if (currentAspect > targetAspect) {
+        // Video is wider than target → crop sides to match target aspect
+        const newWidth = Math.round(info.height * targetAspect);
+        const cropX = Math.round((info.width - newWidth) / 2);
+        filter = `crop=${newWidth}:${info.height}:${cropX}:0,scale=${newWidth % 2 === 0 ? newWidth : newWidth + 1}:${info.height % 2 === 0 ? info.height : info.height + 1}`;
+      } else {
+        // Video is taller than target → crop top/bottom to match target aspect
+        const newHeight = Math.round(info.width / targetAspect);
+        const cropY = Math.round((info.height - newHeight) / 2);
+        filter = `crop=${info.width}:${newHeight}:0:${cropY},scale=${info.width % 2 === 0 ? info.width : info.width + 1}:${newHeight % 2 === 0 ? newHeight : newHeight + 1}`;
+      }
+
+      const args = [
+        '-y',
+        '-i', inputPath,
+        '-vf', filter,
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '23',
+        '-c:a', 'copy',
+        outPath,
+      ];
+
+      const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
+      this.logger.log(`fitVideoToRatio command: ffmpeg ${displayCmd}`);
+
+      await this.ff(displayCmd, { timeout: 120000 });
+      this.logger.log(`fitVideoToRatio completed: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`fitVideoToRatio failed: ${err.message}`);
       return inputPath; // Return original on failure
     }
   }

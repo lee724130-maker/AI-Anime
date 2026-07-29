@@ -43,6 +43,7 @@ interface WorkbenchSummary {
   failedTasks: FailedTask[];
   processingCount: number;
   pendingCount: number;
+  totalGenerations: number;
 }
 
 export default function HomePage() {
@@ -80,9 +81,9 @@ export default function HomePage() {
 
   const statCards = summary ? [
     { title: '短剧项目', value: summary.projectStats.total, icon: <VideoCameraOutlined />, color: '#7c3aed', bg: '#f5f0ff', href: '/drama' },
-    { title: '角色/场景资产', value: summary.assetStats.drama.total, icon: <TeamOutlined />, color: '#ec4899', bg: '#fdf2f8', href: '/drama' },
+    { title: 'AI 生成', value: summary.totalGenerations, icon: <ThunderboltOutlined />, color: '#ec4899', bg: '#fdf2f8', href: '/generate' },
     { title: '全局资产', value: summary.assetStats.global.total, icon: <DatabaseOutlined />, color: '#0891b2', bg: '#ecfeff', href: '/global-assets' },
-    { title: '片段总数', value: summary.segmentStats.total, icon: <ScissorOutlined />, color: '#f59e0b', bg: '#fffbeb', href: '' },
+    { title: '热门创作', value: 0, icon: <ExperimentOutlined />, color: '#f59e0b', bg: '#fffbeb', href: '/viral' },
   ] : [];
 
   const quickLinks = [

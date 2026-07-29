@@ -31,6 +31,7 @@ export class GlobalAssetController {
   create(@Body() body: Partial<{
     type: string; name: string; description: string;
     prompt: string; prompt_cn: string; tags: string;
+    image_url: string; video_url: string;
   }>) {
     return this.service.create(body);
   }
@@ -38,7 +39,7 @@ export class GlobalAssetController {
   @Put(':id')
   update(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<{
     name: string; description: string; prompt: string; prompt_cn: string;
-    image_url: string; tags: string; status: string;
+    image_url: string; video_url: string; tags: string; status: string;
   }>) {
     return this.service.update(id, body);
   }

@@ -140,6 +140,7 @@ export class WorkbenchService {
         updated_at: p.updated_at,
       })),
       failedTasks: allFailedTasks.slice(0, 10),
+      totalGenerations: genTasks.length,
       processingCount:
         genTasks.filter(t => t.status === 'processing').length +
         videoTasks.filter(t => t.status === 'processing').length +

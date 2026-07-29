@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Tabs, Form, Select, Input, Button, Card, Table, Tag,
-  message, Upload, Typography, Space, Image, Modal,
+  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip,
 } from 'antd';
-import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined } from '@ant-design/icons';
+import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, PlayCircleFilled, UserOutlined, EnvironmentOutlined, AppstoreOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
+const API_BASE = 'http://localhost:3000';
+const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
 interface ModelItem {
   id: number; provider: string; capability: string;
@@ -44,15 +46,46 @@ const VIDEO_PRESETS = [
   { label: '转场过渡', value: '平滑的转场镜头，镜头飞过环境，无缝移动，电影感流畅，建立上下文' },
 ];
 
-function PromptPresets({ presets, onSelect }: { presets: typeof IMAGE_PRESETS; onSelect: (v: string) => void }) {
+function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan, prompt }: { 
+  presets: typeof IMAGE_PRESETS; 
+  onSelect: (v: string) => void;
+  smartGenerate?: () => void;
+  hasImages?: boolean;
+  smartPlan?: () => void;
+  prompt?: string;
+}) {
   const [show, setShow] = useState(false);
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
       <Button type="link" size="small" icon={<BulbOutlined />} onClick={() => setShow(!show)} style={{ padding: 0 }}>
         {show ? '收起提示词模板' : '💡 快速模板'}
       </Button>
+      {smartGenerate && (
+        <Button 
+          type="link" 
+          size="small" 
+          icon={<RobotOutlined />}
+          onClick={smartGenerate}
+          disabled={!hasImages}
+          title={!hasImages ? '请先上传或选择图片' : '根据图片智能生成描述'}
+        >
+          🖼️ 根据图片描述
+        </Button>
+      )}
+      {smartPlan && (
+        <Button 
+          type="link" 
+          size="small" 
+          icon={<RobotOutlined />}
+          onClick={smartPlan}
+          disabled={!prompt || prompt.trim().length < 2}
+          title={!prompt || prompt.trim().length < 2 ? '请先输入创意描述' : 'AI 帮你扩展成详细视频描述'}
+        >
+          ✨ AI 智能规划
+        </Button>
+      )}
       {show && (
-        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%' }}>
           {presets.map((p) => (
             <Tag key={p.label} color="blue" style={{ cursor: 'pointer', padding: '2px 10px' }}
               onClick={() => onSelect(p.value)}>
@@ -67,30 +100,29 @@ function PromptPresets({ presets, onSelect }: { presets: typeof IMAGE_PRESETS; o
 
 export default function GeneratePage() {
   const [tabKey, setTabKey] = useState('text-to-image');
-  const [videoModels, setVideoModels] = useState<ModelItem[]>([]);
-  const [imageModels, setImageModels] = useState<ModelItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [selectedVideoModel, setSelectedVideoModel] = useState<ModelItem | null>(null);
-  const [, setSelectedImageModel] = useState<ModelItem | null>(null);
   const [uploadFileList, setUploadFileList] = useState<any[]>([]);
   const [saveModal, setSaveModal] = useState<{ visible: boolean; record: any; name: string; type: string; description: string; promptCn: string }>({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' });
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
+  const [previewVideoVisible, setPreviewVideoVisible] = useState(false);
+
+  const [assetTab, setAssetTab] = useState<'character' | 'scene' | 'prop'>('character');
+  const [assetSource, setAssetSource] = useState<'upload' | 'library'>('library');
+  const [globalAssets, setGlobalAssets] = useState<any[]>([]);
+  const [assetsLoading, setAssetsLoading] = useState(false);
+  const [selectedLibraryAssets, setSelectedLibraryAssets] = useState<any[]>([]);
+  const MAX_LIBRARY_ASSETS = 9;
 
   const [formTextToImage] = Form.useForm();
   const [formTextToVideo] = Form.useForm();
   const [formImageToVideo] = Form.useForm();
 
-  useEffect(() => {
-    Promise.all([
-      api.get('/api/admin/models', { params: { capability: 'video' } }),
-      api.get('/api/admin/models', { params: { capability: 'image' } }),
-    ]).then(([vRes, iRes]) => {
-      setVideoModels(vRes.data || []);
-      setImageModels(iRes.data || []);
-    }).catch(() => message.error('加载模型列表失败'));
-    fetchHistory();
-  }, []);
+  // 使用 Form.useWatch 让 prompt 值变成响应式，按钮状态才能实时更新
+  const promptTextToImage = Form.useWatch('prompt', formTextToImage) || '';
+  const promptTextToVideo = Form.useWatch('prompt', formTextToVideo) || '';
+  const promptImageToVideo = Form.useWatch('prompt', formImageToVideo) || '';
 
   const fetchHistory = useCallback(async (page = 1) => {
     setHistoryLoading(true);
@@ -101,34 +133,98 @@ export default function GeneratePage() {
     setHistoryLoading(false);
   }, []);
 
-  const buildModelOptions = (models: ModelItem[]) =>
-    Object.entries(
-      models.reduce((acc: Record<string, ModelItem[]>, m) => {
-        const label = PROVIDER_LABELS[m.provider] || m.provider;
-        (acc[label] = acc[label] || []).push(m);
-        return acc;
-      }, {}),
-    ).map(([provider, items]) => ({
-      label: provider,
-      options: items.map((m) => ({ value: m.model_id, label: m.model_name })),
-    }));
+  useEffect(() => {
+    fetchHistory();
+  }, []);
 
-  const handleModelChange = (value: string, setter: (m: ModelItem | null) => void, models: ModelItem[], form: any, fields: string[]) => {
-    const match = models.find((m) => m.model_id === value);
-    setter(match || null);
-    if (match) {
-      const vals = form.getFieldsValue();
-      const updates: any = {};
-      const res = match.supported_resolutions ? JSON.parse(match.supported_resolutions) : null;
-      const rat = match.supported_ratios ? JSON.parse(match.supported_ratios) : null;
-      if (res && fields.includes('resolution') && !res.includes(vals.resolution)) updates.resolution = res[0];
-      if (rat && fields.includes('ratio') && !rat.includes(vals.ratio)) updates.ratio = rat[0];
-      if (fields.includes('duration')) {
-        const minD = match.min_duration || 5;
-        const maxD = match.max_duration || 15;
-        if (vals.duration < minD || vals.duration > maxD) updates.duration = minD;
+  // 自动轮询：当有 pending/processing 任务时，每 5 秒刷新一次历史
+  const hasActiveTask = history.some(r => r.status === 'pending' || r.status === 'processing');
+  useEffect(() => {
+    if (!hasActiveTask) return;
+    const timer = setInterval(() => fetchHistory(), 5000);
+    return () => clearInterval(timer);
+  }, [hasActiveTask, fetchHistory]);
+
+  const fetchGlobalAssets = useCallback(async (type: string) => {
+    setAssetsLoading(true);
+    try {
+      const { data } = await api.get('/api/global-assets', { params: { type, limit: 50 } });
+      const items = data.items || data || [];
+      setGlobalAssets(items.filter((a: any) => a.image_url));
+    } catch {
+      setGlobalAssets([]);
+    }
+    setAssetsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (assetSource === 'library') {
+      fetchGlobalAssets(assetTab);
+    }
+  }, [assetSource, assetTab, fetchGlobalAssets]);
+
+  const toggleLibraryAsset = (asset: any) => {
+    const exists = selectedLibraryAssets.find((a: any) => a.id === asset.id);
+    if (exists) {
+      setSelectedLibraryAssets(selectedLibraryAssets.filter((a: any) => a.id !== asset.id));
+    } else {
+      if (selectedLibraryAssets.length >= MAX_LIBRARY_ASSETS) {
+        message.warning(`最多只能选择${MAX_LIBRARY_ASSETS}张图片`);
+        return;
       }
-      if (Object.keys(updates).length) form.setFieldsValue(updates);
+      setSelectedLibraryAssets([...selectedLibraryAssets, asset]);
+    }
+  };
+
+  const removeLibraryAsset = (assetId: number) => {
+    setSelectedLibraryAssets(selectedLibraryAssets.filter((a: any) => a.id !== assetId));
+  };
+
+  const clearLibraryAssets = () => {
+    setSelectedLibraryAssets([]);
+  };
+
+  const generateSmartDescription = async (form: any, images: string[]) => {
+    if (!images || images.length === 0) {
+      message.warning('请先上传图片');
+      return;
+    }
+    const hideLoading = message.loading('正在智能分析图片...', 0);
+    try {
+      const { data } = await api.post('/api/generate/smart-describe', { images });
+      form.setFieldsValue({ prompt: data.description });
+      hideLoading();
+      message.success('描述生成成功！');
+    } catch (err: any) {
+      hideLoading();
+      message.error(err.response?.data?.message || '智能描述生成失败');
+    }
+  };
+
+  const generateSmartPlan = async (form: any, images: string[], mode: string = 'video') => {
+    const prompt = form.getFieldValue('prompt') || '';
+    if (!prompt || prompt.trim().length < 2) {
+      message.warning('请先输入创意描述');
+      return;
+    }
+    const loadingText = mode === 't2i' ? 'AI 正在规划图片描述...' : 'AI 正在规划视频描述...';
+    const hideLoading = message.loading(loadingText, 0);
+    try {
+      const { data } = await api.post('/api/generate/smart-plan', { 
+        prompt,
+        images: images.length > 0 ? images : undefined,
+        mode,
+      });
+      form.setFieldsValue({ prompt: data.prompt });
+      hideLoading();
+      if (data.has_image_analysis) {
+        message.success('智能规划完成（已结合图片分析）！');
+      } else {
+        message.success('智能规划完成！');
+      }
+    } catch (err: any) {
+      hideLoading();
+      message.error(err.response?.data?.message || '智能规划失败');
     }
   };
 
@@ -139,6 +235,7 @@ export default function GeneratePage() {
       message.success('生成任务已提交');
       form.resetFields();
       setUploadFileList([]);
+      setSelectedLibraryAssets([]);
       fetchHistory();
     } catch (err: any) {
       message.error(err.response?.data?.message || '生成失败');
@@ -152,23 +249,28 @@ export default function GeneratePage() {
       const url = data.url || data[0]?.url;
       const input = JSON.parse(record.input_data || '{}');
       const prompt = record.prompt || input.prompt || '';
-      setSaveModal({ visible: true, record: { ...record, _url: url }, name: prompt.slice(0, 50) || '', type: 'character', description: '', promptCn: '' });
+      const defaultType = record.type === 'video' ? 'video' : 'character';
+      setSaveModal({ visible: true, record: { ...record, _url: url }, name: prompt.slice(0, 50) || '', type: defaultType, description: '', promptCn: '' });
     } catch { message.error('无法获取生成结果'); }
   };
 
   const handleSaveToGlobal = async () => {
     try {
       const { record, name, type, description, promptCn } = saveModal;
-      if (record?.type === 'video') {
-        message.warning('视频资产暂不支持保存到大资产库');
-        return;
-      }
       const input = JSON.parse(record.input_data || '{}');
       const prompt = record.prompt || input.prompt || '';
-      await api.post('/api/global-assets', {
+      const isVideo = type === 'video';
+      const payload: any = {
         type, name, description: description || '', prompt, prompt_cn: promptCn || '',
-        image_url: record._url, source_type: 'generate', tags: type,
-      });
+        source_type: 'generate', tags: type,
+      };
+      if (isVideo) {
+        payload.video_url = record._url;
+        payload.image_url = null;
+      } else {
+        payload.image_url = record._url;
+      }
+      await api.post('/api/global-assets', payload);
       message.success('已保存到大资产库');
       setSaveModal({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' });
     } catch (err: any) {
@@ -186,32 +288,43 @@ export default function GeneratePage() {
     }
   };
 
-  const videoResolutions = selectedVideoModel?.supported_resolutions
-    ? JSON.parse(selectedVideoModel.supported_resolutions) : ['480p', '720p', '1080p'];
+  const handleDelete = (id: number) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '删除后数据无法恢复！',
+      okText: '确认',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.delete(`/api/generate/tasks/${id}`);
+          message.success('删除成功');
+          fetchHistory();
+        } catch (err: any) {
+          message.error(err.response?.data?.message || '删除失败');
+        }
+      },
+    });
+  };
 
-  const videoRatios = selectedVideoModel?.supported_ratios
-    ? JSON.parse(selectedVideoModel.supported_ratios) : ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'];
-
-  const videoDurations: number[] = [];
-  const minV = selectedVideoModel?.min_duration || 5;
-  const maxV = selectedVideoModel?.max_duration || 15;
-  for (let d = minV; d <= maxV; d += 5) videoDurations.push(d);
-  if (!videoDurations.includes(maxV)) videoDurations.push(maxV);
-
-  const imageModelOptions = buildModelOptions(imageModels);
-  const videoModelOptions = buildModelOptions(videoModels);
+  const videoResolutions = ['480p', '720p', '1080p'];
+  const videoRatios = ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'];
+  const videoDurations: number[] = [5, 10, 15];
 
   const uploadProps = {
     name: 'file',
-    multiple: false,
-    maxCount: 1,
+    multiple: true,
+    maxCount: MAX_LIBRARY_ASSETS,
     fileList: uploadFileList,
     onChange(info: any) {
-      setUploadFileList(info.fileList.slice(-1));
-      if (info.file.status === 'done') {
-        const url = info.file.response?.url || '';
-        formImageToVideo.setFieldsValue({ image_url: url });
-      }
+      setUploadFileList(info.fileList.slice(-MAX_LIBRARY_ASSETS));
+      const urls = info.fileList
+        .filter((f: any) => f.status === 'done')
+        .map((f: any) => f.response?.url || f.url);
+      formImageToVideo.setFieldsValue({
+        image_url: urls[0] || '',
+        media: urls.map((url: string) => ({ type: 'image', url })),
+      });
     },
     customRequest: async (options: any) => {
       const formData = new FormData();
@@ -225,7 +338,17 @@ export default function GeneratePage() {
         options.onError(err);
       }
     },
-    onRemove: () => { formImageToVideo.setFieldsValue({ image_url: '' }); setUploadFileList([]); },
+    onRemove: (file: any) => {
+      const newList = uploadFileList.filter((f: any) => f.uid !== file.uid);
+      setUploadFileList(newList);
+      const urls = newList
+        .filter((f: any) => f.status === 'done')
+        .map((f: any) => f.response?.url || f.url);
+      formImageToVideo.setFieldsValue({
+        image_url: urls[0] || '',
+        media: urls.map((url: string) => ({ type: 'image', url })),
+      });
+    },
   };
 
   const statusColor: Record<string, string> = {
@@ -238,7 +361,6 @@ export default function GeneratePage() {
         {v === 'image' ? '图片' : '视频'}
       </Tag>
     )},
-    { title: '模型', dataIndex: 'model_name', width: 120, ellipsis: true },
     { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => (
       <Tag color={statusColor[v] || 'default'}>{v === 'pending' ? '排队中' : v === 'processing' ? '生成中' : v === 'completed' ? '已完成' : '失败'}</Tag>
     )},
@@ -247,17 +369,51 @@ export default function GeneratePage() {
       if (!v) return '-';
       try {
         const data = JSON.parse(v);
-        const url = data.url || data[0]?.url;
-        if (!url) return '-';
-        if (r.type === 'image') return <Image src={url} width={60} preview />;
-        return <video src={url} width={120} controls style={{ borderRadius: 4 }} />;
+        const items = Array.isArray(data) ? data : (data.url ? [data] : []);
+        if (items.length === 0) return '-';
+        if (r.type === 'image') return (
+          <Space size={4} wrap>
+            {items.map((item: any, i: number) => {
+              const imgUrl = getUrl(item.url);
+              const label = item.view || '';
+              return (
+                <div key={i} style={{ textAlign: 'center' }}>
+                  <Image src={imgUrl} width={label ? 48 : 60} preview={{ src: imgUrl }} />
+                  {label && <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{label}</div>}
+                </div>
+              );
+            })}
+          </Space>
+        );
+        const videoUrl = getUrl(items[0]?.url);
+        return (
+          <div style={{ position: 'relative', display: 'inline-block' }}>
+            <video
+              src={videoUrl}
+              width={160}
+              height={90}
+              controls
+              playsInline
+              preload="metadata"
+              style={{ borderRadius: 4, background: '#1a1a1a', cursor: 'pointer', objectFit: 'contain' }}
+              onClick={() => { setPreviewVideoUrl(videoUrl); setPreviewVideoVisible(true); }}
+            />
+            <Tooltip title="全屏预览">
+              <PlayCircleFilled
+                onClick={() => { setPreviewVideoUrl(videoUrl); setPreviewVideoVisible(true); }}
+                style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 32, color: 'rgba(255,255,255,0.8)', cursor: 'pointer', opacity: 0.7 }}
+              />
+            </Tooltip>
+          </div>
+        );
       } catch { return '-'; }
     }},
     { title: '错误', dataIndex: 'error_msg', width: 150, ellipsis: true, render: (v: string) => v ? <Text type="danger">{v}</Text> : '-' },
-    { title: '操作', width: 120, render: (_: any, r: any) => (
+    { title: '操作', width: 140, render: (_: any, r: any) => (
       <Space size={0}>
         {r.status === 'failed' ? <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(r.id)}>重试</Button> : null}
         {r.status === 'completed' && r.output_data ? <Button type="link" size="small" icon={<SaveOutlined />} onClick={() => openSaveModal(r)}>保存</Button> : null}
+        <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.id)}>删除</Button>
       </Space>
     )},
   ];
@@ -267,13 +423,14 @@ export default function GeneratePage() {
       case 'text-to-image':
         return (
           <Form form={formTextToImage} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-image', v, formTextToImage)}>
-            <Form.Item name="model" label="模型">
-              <Select allowClear placeholder="自动选择" size="large" options={imageModelOptions}
-                onChange={(v) => handleModelChange(v, setSelectedImageModel, imageModels, formTextToImage, [])} />
-            </Form.Item>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>描述</Text>
-              <PromptPresets presets={IMAGE_PRESETS} onSelect={(v) => formTextToImage.setFieldsValue({ prompt: v })} />
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Text type="secondary">描述</Text>
+              <PromptPresets 
+                presets={IMAGE_PRESETS} 
+                onSelect={(v) => formTextToImage.setFieldsValue({ prompt: v })}
+                smartPlan={() => generateSmartPlan(formTextToImage, [], 't2i')}
+                prompt={promptTextToImage}
+              />
             </div>
             <Form.Item name="prompt" rules={[{ required: true, message: '请输入图片描述' }]}>
               <TextArea rows={3} placeholder="描述你想要生成的图片内容..." />
@@ -285,9 +442,11 @@ export default function GeneratePage() {
               <Form.Item name="num_images" label="数量" initialValue={1}>
                 <Select style={{ width: 100 }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
               </Form.Item>
+              <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
+              <Tag color="blue" style={{ marginLeft: 8 }}>自动分配模型</Tag>
             </Form.Item>
           </Form>
         );
@@ -295,13 +454,14 @@ export default function GeneratePage() {
       case 'text-to-video':
         return (
           <Form form={formTextToVideo} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-video', v, formTextToVideo)}>
-            <Form.Item name="model" label="模型">
-              <Select allowClear placeholder="自动选择" size="large" options={videoModelOptions}
-                onChange={(v) => handleModelChange(v, setSelectedVideoModel, videoModels, formTextToVideo, ['resolution', 'ratio', 'duration'])} />
-            </Form.Item>
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>描述</Text>
-              <PromptPresets presets={VIDEO_PRESETS} onSelect={(v) => formTextToVideo.setFieldsValue({ prompt: v })} />
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Text type="secondary">描述</Text>
+              <PromptPresets 
+                presets={VIDEO_PRESETS} 
+                onSelect={(v) => formTextToVideo.setFieldsValue({ prompt: v })}
+                smartPlan={() => generateSmartPlan(formTextToVideo, [], 't2v')}
+                prompt={promptTextToVideo}
+              />
             </div>
             <Form.Item name="prompt" rules={[{ required: true, message: '请输入视频描述' }]}>
               <TextArea rows={3} placeholder="描述视频画面内容、动作、风格..." />
@@ -322,30 +482,174 @@ export default function GeneratePage() {
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
+              <Tag color="blue" style={{ marginLeft: 8 }}>自动分配T2V模型</Tag>
             </Form.Item>
           </Form>
         );
 
       case 'image-to-video':
         return (
-          <Form form={formImageToVideo} layout="vertical" onFinish={(v) => doGenerate('/api/generate/image-to-video', v, formImageToVideo)}>
-            <Form.Item name="image_url" label="参考图片" rules={[{ required: true, message: '请上传参考图片' }]}>
-              <Input type="hidden" />
+          <Form form={formImageToVideo} layout="vertical" onFinish={(v) => {
+            const payload = { ...v };
+            if (assetSource === 'library') {
+              const media = selectedLibraryAssets.map((a: any) => ({ type: 'image', url: a.image_url }));
+              payload.media = media;
+              payload.image_url = media[0]?.url || '';
+            }
+            doGenerate('/api/generate/image-to-video', payload, formImageToVideo);
+          }}>
+            <Form.Item name="image_url" hidden>
+              <Input />
             </Form.Item>
-            <Form.Item>
-              <Dragger {...uploadProps} listType="picture">
-                <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-                <p className="ant-upload-text">点击或拖拽上传参考图片</p>
-                <p className="ant-upload-hint">支持 JPG / PNG，建议使用角色图或场景图</p>
-              </Dragger>
+
+            <Form.Item label="图片来源" style={{ marginBottom: 8 }}>
+              <Radio.Group value={assetSource} onChange={(e) => { 
+                setAssetSource(e.target.value); 
+                formImageToVideo.setFieldsValue({ image_url: '', media: [] }); 
+                setUploadFileList([]);
+                setSelectedLibraryAssets([]);
+              }}>
+                <Radio.Button value="library">📚 大资产库</Radio.Button>
+                <Radio.Button value="upload">📁 本地上传</Radio.Button>
+              </Radio.Group>
             </Form.Item>
-            <Form.Item name="model" label="模型">
-              <Select allowClear placeholder="自动选择" size="large" options={videoModelOptions}
-                onChange={(v) => handleModelChange(v, setSelectedVideoModel, videoModels, formImageToVideo, ['resolution', 'ratio', 'duration'])} />
-            </Form.Item>
+
+            {assetSource === 'library' ? (
+              <Form.Item style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <Tag color="blue">{selectedLibraryAssets.length}/{MAX_LIBRARY_ASSETS}张图片</Tag>
+                    {selectedLibraryAssets.length > 0 && (
+                      <Button type="link" size="small" onClick={clearLibraryAssets}>
+                        <DeleteOutlined /> 清空
+                      </Button>
+                    )}
+                  </Space>
+                </div>
+                
+                {selectedLibraryAssets.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: 8, background: '#f0f5ff', borderRadius: 8, border: '1px solid #d6e4ff' }}>
+                    <Text type="secondary" style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>已选择的资产：</Text>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {selectedLibraryAssets.map((asset: any) => (
+                        <div key={asset.id} style={{ position: 'relative' }}>
+                          <Image
+                            src={getUrl(asset.image_url)}
+                            width={50}
+                            height={50}
+                            style={{ objectFit: 'cover', borderRadius: 4 }}
+                            preview={false}
+                          />
+                          <Tooltip title="取消选择">
+                            <CloseCircleOutlined 
+                              onClick={() => removeLibraryAsset(asset.id)}
+                              style={{ 
+                                position: 'absolute', 
+                                top: -4, 
+                                right: -4, 
+                                fontSize: 16, 
+                                color: '#ff4d4f',
+                                cursor: 'pointer',
+                                background: '#fff',
+                                borderRadius: '50%'
+                              }} 
+                            />
+                          </Tooltip>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <Card size="small" style={{ background: '#fafafa', border: '1px dashed #d9d9d9' }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Tabs
+                      activeKey={assetTab}
+                      onChange={(k) => setAssetTab(k as any)}
+                      size="small"
+                      items={[
+                        { key: 'character', label: <span><UserOutlined /> 人物</span> },
+                        { key: 'scene', label: <span><EnvironmentOutlined /> 场景</span> },
+                        { key: 'prop', label: <span><AppstoreOutlined /> 道具</span> },
+                      ]}
+                    />
+                  </div>
+                  {assetsLoading ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>加载中...</div>
+                  ) : globalAssets.length === 0 ? (
+                    <Empty description={`暂无${assetTab === 'character' ? '人物' : assetTab === 'scene' ? '场景' : '道具'}资产`} style={{ padding: 20 }} />
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                      {globalAssets.map((asset) => {
+                        const imgUrl = getUrl(asset.image_url);
+                        const isSelected = selectedLibraryAssets.some((a: any) => a.id === asset.id);
+                        return (
+                          <div
+                            key={asset.id}
+                            onClick={() => toggleLibraryAsset(asset)}
+                            style={{
+                              cursor: 'pointer',
+                              border: isSelected ? '2px solid #1677ff' : '2px solid transparent',
+                              borderRadius: 8,
+                              overflow: 'hidden',
+                              transition: 'all 0.2s',
+                              background: isSelected ? '#e6f4ff' : '#fff',
+                              padding: 4,
+                              opacity: isSelected ? 1 : (selectedLibraryAssets.length >= MAX_LIBRARY_ASSETS ? 0.5 : 1),
+                            }}
+                          >
+                            <Image
+                              src={imgUrl}
+                              alt={asset.name}
+                              width={92}
+                              height={92}
+                              style={{ objectFit: 'cover', borderRadius: 4 }}
+                              preview={false}
+                            />
+                            <div style={{ fontSize: 11, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                              {asset.name}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+              </Form.Item>
+            ) : (
+              <Form.Item style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <Tag color="blue">{uploadFileList.length}/{MAX_LIBRARY_ASSETS}张图片</Tag>
+                </div>
+                <Dragger {...uploadProps} listType="picture">
+                  <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                  <p className="ant-upload-text">点击或拖拽上传参考图片（最多{MAX_LIBRARY_ASSETS}张）</p>
+                  <p className="ant-upload-hint">支持 JPG / PNG，建议使用角色图或场景图</p>
+                </Dragger>
+              </Form.Item>
+            )}
+
             <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>动作/镜头描述</Text>
-              <PromptPresets presets={VIDEO_PRESETS} onSelect={(v) => formImageToVideo.setFieldsValue({ prompt: v })} />
+              <PromptPresets 
+                presets={VIDEO_PRESETS} 
+                onSelect={(v) => formImageToVideo.setFieldsValue({ prompt: v })}
+                smartGenerate={() => {
+                  const urls = assetSource === 'library'
+                    ? selectedLibraryAssets.map((a: any) => getUrl(a.image_url))
+                    : uploadFileList.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
+                  generateSmartDescription(formImageToVideo, urls);
+                }}
+                hasImages={assetSource === 'library' 
+                  ? selectedLibraryAssets.length > 0 
+                  : uploadFileList.some((f: any) => f.status === 'done')}
+                smartPlan={() => {
+                  const urls = assetSource === 'library'
+                    ? selectedLibraryAssets.map((a: any) => getUrl(a.image_url))
+                    : uploadFileList.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
+                  generateSmartPlan(formImageToVideo, urls, 'i2v');
+                }}
+                prompt={promptImageToVideo}
+              />
             </div>
             <Form.Item name="prompt">
               <TextArea rows={2} placeholder="描述角色的动作或镜头运动..." />
@@ -366,6 +670,7 @@ export default function GeneratePage() {
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
+              <Tag color="blue" style={{ marginLeft: 8 }}>自动分配{selectedLibraryAssets.length > 1 ? 'R2V' : 'I2V'}模型</Tag>
             </Form.Item>
           </Form>
         );
@@ -411,6 +716,7 @@ export default function GeneratePage() {
                 { label: '🎭 人物', value: 'character' },
                 { label: '📦 物品', value: 'prop' },
                 { label: '🌄 场景', value: 'scene' },
+                { label: '🎬 视频', value: 'video' },
               ]} />
           </div>
           <div>
@@ -435,11 +741,39 @@ export default function GeneratePage() {
               <Text style={{ display: 'block', marginBottom: 4 }}>预览</Text>
               {saveModal.record.type === 'image'
                 ? <Image src={saveModal.record._url} style={{ maxWidth: 200, borderRadius: 4 }} />
-                : <video src={saveModal.record._url} controls style={{ maxWidth: 200, borderRadius: 4 }} />
+                : <video src={saveModal.record._url} controls playsInline preload="metadata" style={{ maxWidth: 200, borderRadius: 4 }} />
               }
             </div>
           )}
         </Space>
+      </Modal>
+
+      <Modal 
+        title="视频预览" 
+        open={previewVideoVisible}
+        onCancel={() => { setPreviewVideoVisible(false); setPreviewVideoUrl(''); }}
+        footer={[
+          <Button key="close" onClick={() => { setPreviewVideoVisible(false); setPreviewVideoUrl(''); }}>
+            关闭
+          </Button>,
+          <Button key="open" type="link" href={previewVideoUrl} target="_blank">
+            在新窗口打开
+          </Button>,
+        ]}
+        width={720}
+        centered
+        destroyOnClose
+      >
+        {previewVideoUrl && (
+          <video 
+            src={previewVideoUrl} 
+            controls 
+            playsInline 
+            preload="auto"
+            autoPlay
+            style={{ width: '100%', borderRadius: 8, background: '#000' }}
+          />
+        )}
       </Modal>
     </div>
   );

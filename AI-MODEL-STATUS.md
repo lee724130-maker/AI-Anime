@@ -1,6 +1,8 @@
 # AI 模型状态 & API Key 清单
 
-> 最后更新: 2026-07-16
+> 最后更新: 2026-07-29
+> ⚠️ **火山引擎已停止使用**：因欠费 21.83 元，已于 2026-07-27 删除所有火山引擎 API Key 和模型配置。
+> 📌 **阿里云百炼可用模型补充**：2026-07-29 记录 8 个阿里云免费额度模型（emo/emoji/试衣/海报/风格重绘等）
 
 ---
 
@@ -10,7 +12,7 @@
 
 | 配置键 | Provider | 状态 | 用途 |
 |--------|----------|:----:|------|
-| `volcengine_api_key` | 火山引擎 (ByteDance ARK) | ✅ **已配置** | 统一：视频+图片+文字（3 个 Key 已合并为 1 个） |
+| `volcengine_api_key` | 火山引擎 (ByteDance ARK) | ❌ **已停用（因欠费）** | 统一：视频+图片+文字 — 因欠费已于 2026-07-27 删除 |
 | `tongyi_api_key` | 阿里云 (DashScope) | ✅ **已配置** | 通义万相图片+视频 + Qwen 文字 |
 | `zai_api_key` | 智谱 AI (Zhipu) | ✅ **已配置** | GLM-4.5-Air 文字 + CogView-4 图片 + CogVideoX-3 视频 |
 | `deepseek_api_key` | DeepSeek | ✅ **已配置** | 文本 LLM |
@@ -23,7 +25,7 @@
 
 | Provider | Key 数量 | 状态 | 说明 |
 |----------|:--------:|:----:|------|
-| **火山引擎** | 1 个（已合并） | ✅ 可用 | 原 3 个 Key（`volcengine_api_key`/`seedance_api_key`/`seedream_api_key`）已合并为 `volcengine_api_key` 统一管理，旧 key 保留在 `system_configs` 中不再使用 |
+| **火山引擎** | 0 个（已删除） | ❌ 已停用 | 因欠费 21.83 元，已于 2026-07-27 删除所有火山引擎 API Key 和模型配置 |
 | **阿里云** | 1 个 (通义万相) | ✅ 可用 | 图片+视频+文字 |
 | **智谱 AI** | 1 个 (zai_api_key) | ✅ 可用 | 文字+图片+视频，2026-07-14 新增集成 |
 | **DeepSeek** | 1 个 | ✅ 可用 | 仅文字 |
@@ -33,28 +35,44 @@
 
 ---
 
-## 二、图片生成模型
+## 二、图片生成模型（T2I / Text-to-Image）
+
+### 火山引擎 & 智谱 & OpenAI
 
 | 顺序 | 模型 ID (Endpoint ID) | Provider | 依赖 Key | 状态 |
 |:--:|---------|----------|----------|:----:|
-| 1 | `ep-20260715151858-tt8z7` (Seedream 4.5) | 火山引擎 | `volcengine_api_key` | ✅ 可用（主力，已验证） |
-| 2 | `ep-20260410175357-mm5sq` (Seedream 5.0 Lite) | 火山引擎 | `volcengine_api_key` | ✅ 可用 |
-| 3 | `CogView-4-250304` | 智谱 AI | `zai_api_key` | ✅ 可用 |
-| 4 | `wanx-v1` | 阿里云 | `tongyi_api_key` | ✅ 可用（2026-07-15 验证通过） |
-| 5 | `dall-e-3` | OpenAI | `openai_api_key` | ❌ 缺 key |
+| 1 | `ep-20260715151858-tt8z7` (Seedream 4.5) | 火山引擎 | `volcengine_api_key` | ❌ 已停用（因欠费） |
+| 2 | `ep-20260410175357-mm5sq` (Seedream 5.0 Lite) | 火山引擎 | `volcengine_api_key` | ❌ 已停用（因欠费） |
+| 3 | `CogView-4-250304` | 智谱 AI | `zai_api_key` | ✅ 可用（近期测试返回 400） |
+| 4 | `dall-e-3` | OpenAI | `openai_api_key` | ❌ 缺 key |
+
+### 阿里云百炼通义万相（全量 T2I 模型）
+
+> DB 优先级已更新（2026-07-29）：wanx2.1-t2i-plus 首选 → wan2.6-t2i 二号位 → 依次降级
+
+| 优先级 | 模型 ID | 版本说明 | 免费额度 | 到期 | 依赖 Key | 状态 |
+|:--:|---------|---------|:--------:|:----:|----------|:----:|
+| ⭐1 | `wanx2.1-t2i-plus` | 万相 2.1 Plus（高质量版） | 500/500 | 2026/09/07 | `tongyi_api_key` | ✅ 当前首选（2026-07-29 激活） |
+| 2 | `wan2.6-t2i` | Wan 2.6（最新代标准版） | 50/50 | 2026/09/07 | `tongyi_api_key` | ✅ 已入库 |
+| 3 | `wanx2.1-t2i-turbo` | 万相 2.1 Turbo（快速版） | 500/500 | 2026/09/07 | `tongyi_api_key` | ✅ 已入库 |
+| 4 | `wan2.5-t2i-preview` | Wan 2.5 Preview（预览版） | 50/50 | 2026/09/07 | `tongyi_api_key` | ✅ 已入库 |
+| 5 | `wan2.2-t2i-plus` | Wan 2.2 Plus（高质量版） | 100/100 | 2026/09/07 | `tongyi_api_key` | ✅ 已入库 |
+| 6 | `wan2.2-t2i-flash` | Wan 2.2 Flash（极速版） | 100/100 | 2026/09/07 | `tongyi_api_key` | ✅ 已入库 |
+| 7 | `wanx2.0-t2i-turbo` | 万相 2.0 Turbo（快速版） | 500/500 | 2026/09/07 | `tongyi_api_key` | ✅ 已入库 |
+| 8 | `wanx-v1` | 万相 v1（旧版文生图） | 499/500 | 2026/09/07 | `tongyi_api_key` | ✅ 末席兜底 |
 
 ---
 
 ## 三、视频生成模型
 
-### Seedance（火山引擎）
+### Seedance（火山引擎）⚠️ 因欠费已停止使用
 
 | 顺序 | 模型 ID (Endpoint ID) | 依赖 Key | 状态 |
 |:--:|---------|----------|:----:|
-| 1 | `ep-20260715152154-4kc87` (Seedance 1.0 Pro) | `volcengine_api_key` | ✅ 可用（已验证） |
-| 2 | `ep-20260715152610-7hnr7` (Seedance 1.0 Pro Fast) | `volcengine_api_key` | ✅ 可用 |
-| 3 | `doubao-seedance-2-0-260128` | 旧 ID | ❌ 已废弃（旧模型 ID，不再使用） |
-| 4 | `doubao-seedance-2-0-fast-260128` | 旧 ID | ❌ 已废弃（旧模型 ID，不再使用） |
+| 1 | `ep-20260715152154-4kc87` (Seedance 1.0 Pro) | `volcengine_api_key` | ❌ 已停用（因欠费） |
+| 2 | `ep-20260715152610-7hnr7` (Seedance 1.0 Pro Fast) | `volcengine_api_key` | ❌ 已停用（因欠费） |
+| 3 | `doubao-seedance-2-0-260128` | 旧 ID | ❌ 已废弃 |
+| 4 | `doubao-seedance-2-0-fast-260128` | 旧 ID | ❌ 已废弃 |
 
 ### 智谱 CogVideoX
 
@@ -64,34 +82,97 @@
 
 ### 阿里云百炼（通义万相 + HappyHorse）
 
-| 顺序 | 模型 ID | 类型 | 免费额度 | 依赖 Key | 状态 |
-|:--:|---------|------|:--------:|----------|:----:|
-| 1 | `happyhorse-1.1-t2v` | 文生视频 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用（⭐ 优先使用） |
-| 2 | `happyhorse-1.1-i2v` | 图生视频 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用（⭐ 优先使用） |
-| 3 | `happyhorse-1.1-r2v` | 参考生视频 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用 |
-| 4 | `happyhorse-1.0-t2v` | 文生视频 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用，到期 2026/09/07 |
-| 5 | `happyhorse-1.0-i2v` | 图生视频 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用，到期 2026/09/07 |
-| 6 | `happyhorse-1.0-r2v` | 参考生视频 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用，到期 2026/09/07 |
-| 7 | `happyhorse-1.0-video-edit` | 视频编辑 | 剩 10/10 次 | `tongyi_api_key` | ✅ 免费额度可用，到期 2026/09/07 |
-| 8 | `wan2.7-videoedit` | 视频编辑 | 剩 50/50 次 | `tongyi_api_key` | ⭐ 免费额度可用 |
-| 9 | `wan2.7-t2v` | 文生视频 | — | `tongyi_api_key` | ✅ 可用（兜底） |
-| 10 | `wanx2.1-t2v-plus` | 文生视频 | — | `tongyi_api_key` | ✅ 可用（兜底） |
-| 11 | `wan2.7-i2v` | 图生视频 | — | `tongyi_api_key` | ❓ 待测 |
-| 12 | `wanx2.1-i2v-plus` | 图生视频 | — | `tongyi_api_key` | ✅ 可用（兜底） |
-| 13 | `wan2.6-i2v` | 图生视频 | — | `tongyi_api_key` | ✅ 可用（兜底） |
-| 14 | `wan2.6-t2v` | 文生视频 | — | `tongyi_api_key` | ❌ 额度耗尽（403） |
-| 15 | `wan2.7-r2v` | 参考生视频 | — | `tongyi_api_key` | ❓ 待测 |
-| 16 | `wanx2.1-t2v-turbo` | 文生视频 | — | `tongyi_api_key` | ❓ 待测 |
+#### I2V（图生视频）模型
 
-> **优先级链**：HappyHorse（免费额度，priority 1-7）→ WAN 2.7 视频编辑（免费 50 次，priority 8）→ 万相（兜底，priority 9-16）
-> **移除**：旧 `wan2.7-t2v-2026-04-25` 配额已耗尽，已从模型列表删除
-> **注意**：HappyHorse 模型可能有水印和风格限制，测试时需确认
+| 优先级 | 模型 ID | 免费额度 | 依赖 Key | 状态 |
+|:--:|---------|:--------:|----------|:----:|
+| 1 | `wan2.7-i2v-2026-04-25` | 剩 50/50 次 | `tongyi_api_key` | ⭐ 活跃 |
+| 2 | `wan2.5-i2v-preview` | 剩 50/50 次 | `tongyi_api_key` | ⭐ 活跃 |
+| 3 | `wan2.2-i2v-plus` | 剩 50/50 次 | `tongyi_api_key` | ⭐ 活跃 |
+| 4 | `wanx2.1-i2v-plus` | — | `tongyi_api_key` | ⭐ 活跃 |
+
+#### T2V（文生视频）模型
+
+| 优先级 | 模型 ID | 免费额度 | 到期 | 依赖 Key | 状态 |
+|:--:|---------|:--------:|:----:|----------|:----:|
+| 1 | `wanx2.1-t2v-plus` | 180/200 | 2026/09/07 | `tongyi_api_key` | ⭐ 活跃（当前主力） |
+| 2 | `wan2.7-t2v` | — | — | `tongyi_api_key` | ❌ 403（免费额度耗尽） |
+| 3 | `wanx2.1-t2v-turbo` | 175/200 | 2026/09/07 | `tongyi_api_key` | ⭐ 活跃（Turbo快速版，固定时长） |
+| 4 | `wan2.5-t2v-preview` | 37/50 | 2026/09/07 | `tongyi_api_key` | ⭐ 活跃（预览版） |
+| 5 | `wan2.6-t2v` | — | — | `tongyi_api_key` | ❌ 403（免费额度耗尽） |
+| 1 | `wan2.7-t2v-2026-06-12` | 50/50 | 2026/09/30 | `tongyi_api_key` | ⭐ 活跃（T2V 首选，2026-07-29 激活） |
+| 2 | `wanx2.1-t2v-plus` | 180/200 | 2026/09/07 | `tongyi_api_key` | ⭐ 活跃（降级候选） |
+| 3 | `wan2.7-t2v` | — | — | `tongyi_api_key` | ❌ 403（免费额度耗尽） |
+| 4 | `wanx2.1-t2v-turbo` | 175/200 | 2026/09/07 | `tongyi_api_key` | ⭐ 活跃（Turbo快速版，固定时长） |
+| 5 | `wan2.5-t2v-preview` | 37/50 | 2026/09/07 | `tongyi_api_key` | ⭐ 活跃（预览版） |
+| 6 | `wan2.6-t2v` | — | — | `tongyi_api_key` | ❌ 403（免费额度耗尽） |
+
+#### R2V（参考图生视频）模型
+
+| 优先级 | 模型 ID | 免费额度 | 依赖 Key | 状态 |
+|:--:|---------|:--------:|----------|:----:|
+| 1 | `happyhorse-1.1-r2v` | 剩 10/10 次 | `tongyi_api_key` | ⭐ 活跃（2026-07-28 激活） |
+
+#### 视频编辑模型
+
+| 模型 ID | 免费额度 | 依赖 Key | 状态 |
+|---------|:--------:|----------|:----:|
+| `wan2.7-videoedit` | 剩 50/50 次 | `tongyi_api_key` | ⭐ 活跃 |
+
+#### 其他视频模型（已停用）
+
+| 模型 ID | 原因 |
+|---------|------|
+| `happyhorse-1.1-t2v` | priority=1，但子类型为 r2v 时不走 T2V 链 |
+| `happyhorse-1.1-i2v` | inactive |
+| `happyhorse-1.0-t2v/i2v/r2v` | inactive |
+| `wan2.7-i2v` | inactive |
+| `wan2.7-r2v` | inactive |
+| `wan2.7-r2v-2026-06-12` | inactive |
+| `wan2.6-i2v` | 额度耗尽，inactive |
+| `happyhorse-1.0-video-edit` | inactive |
+
+> **2026-07-28 更新**：
+> - 为所有 video 模型添加 `sub_capability` 字段（i2v/t2v/r2v/videoedit）
+> - 代码已支持按功能类型（videoType）选择对应模型列表
+> - 三种功能使用独立模型列表，节省 tokens
+> - happyhorse-1.1-r2v 已激活作为 R2V 首选
+
+#### 视觉模型（用于智能描述/图像理解）
+
+| 优先级 | 模型 ID | 依赖 Key | 状态 | 备注 |
+|:--:|---------|----------|:----:|------|
+| 1 | `qwen3.5-omni-plus-2026-03-15` | `tongyi_api_key` | ❓ 待测 | 多模态理解 |
+| 2 | `qwen3-omni-flash-realtime-2025-09-15` | `tongyi_api_key` | ❓ 待测 | 多模态理解 |
+| 3 | `qwen3-omni-flash-realtime` | `tongyi_api_key` | ❓ 待测 | 多模态理解 |
+| 4 | `qwen3-vl-plus` | `tongyi_api_key` | ❓ 待测 | 视觉理解 |
+| 5 | `qwen-vl-max` | `tongyi_api_key` | ❓ 待测 | 视觉理解 |
+| 6 | `qwen-vl-plus` | `tongyi_api_key` | ❓ 待测 | 视觉理解 |
+| 7 | `qwen3-vl-flash` | `tongyi_api_key` | ❓ 待测 | 视觉理解 |
+
+> **问题**：2026-07-28 测试所有视觉模型均返回 400 错误，需排查 API 调用格式
+> **降级方案**：多模态失败时自动降级到纯文本模型生成通用描述
 
 ### Runway
 
 | 模型 ID | 依赖 Key | 状态 |
 |---------|----------|:----:|
 | `gen3` | `runway_api_key` | ❌ 缺 key |
+
+### 阿里云百炼其他可用模型（免费额度）
+
+> 以下模型均有免费额度剩余，尚未集成到项目代码中，作为后续功能扩展的候选。
+
+| 模型 ID | 功能说明 | 剩余额度 | 到期日 | 依赖 Key | 状态 |
+|---------|---------|:--------:|:------:|----------|:----:|
+| `wanx-v1` | 通义万相-文生图 | 499/500 次 | 2026/09/07 | `tongyi_api_key` | ✅ 已集成 |
+| `wanx-style-repaint-v1` | 人像风格重绘（照片转动漫/手绘等艺术风格） | 500/500 次 | 2026/09/07 | `tongyi_api_key` | 💡 候选 |
+| `wanx-poster-generation-v1` | 创意海报生成（自动排版文字+背景） | 500/500 次 | 2026/09/06 | `tongyi_api_key` | 💡 候选 |
+| `emo-v1` | 悦动人像EMO（图生唱演视频：图片+音频 → 表情动态视频） | 1,800/1,800 秒 | 2026/09/07 | `tongyi_api_key` | 💡 候选 |
+| `emo-detect-v1` | EMO 图像检测（检测图片人物是否符合 EMO 规范） | 200/200 次 | 2026/09/07 | `tongyi_api_key` | 💡 候选 |
+| `emoji-v1` | 表情包Emoji视频生成（图片 → 人脸表情包视频） | 500/500 次 | 2026/09/07 | `tongyi_api_key` | 💡 候选 |
+| `emoji-detect-v1` | Emoji 图像合规检测（检测图片是否符合 Emoji 规范） | 200/200 次 | 2026/09/07 | `tongyi_api_key` | 💡 候选 |
+| `aitryon-parsing-v1` | AI试衣-图片分割（服装/人体解析，配合 OutfitAnyone 使用） | 800/800 次 | 2026/09/07 | `tongyi_api_key` | 💡 候选 |
 
 ---
 
@@ -101,7 +182,7 @@
 |:--:|---------|----------|----------|:----:|
 | 1 | `qwen-plus` | 阿里云 | `tongyi_api_key` | ✅ 可用（首选，已验证） |
 | 2 | `GLM-4.5-Air` → `GLM-4.7-Flash` | 智谱 AI | `zai_api_key` | ✅ 可用（双模型降级链） |
-| 3 | `ep-20260715151139-8svqj` (Seed 2.1 Pro) | 火山引擎 | `volcengine_api_key` | ✅ 可用（已验证） |
+| 3 | `ep-20260715151139-8svqj` (Seed 2.1 Pro) | 火山引擎 | `volcengine_api_key` | ❌ 已停用（因欠费） |
 | 4 | `gpt-4o` | OpenAI | `openai_api_key` | ❌ 缺 key |
 | 5 | `deepseek-chat` | DeepSeek | `deepseek_api_key` | ✅ 可用（末席兜底） |
 
@@ -162,6 +243,6 @@
 
 | 服务 | 可选 Provider |
 |------|--------------|
-| 图片 (`image_provider`) | `auto` / `volcengine` / `aliyun` / `zhipu` / `openai` |
-| 视频 (`video_provider`) | `auto` / `volcengine` / `aliyun` / `zhipu` / `runway` |
-| 对话 (`llm_provider`) | `auto` / `aliyun` / `zhipu` / `volcengine` / `openai` / `deepseek` |
+| 图片 (`image_provider`) | `auto` / `volcengine`（已停用）/ `aliyun` / `zhipu` / `openai` |
+| 视频 (`video_provider`) | `auto` / `volcengine`（已停用）/ `aliyun` / `zhipu` / `runway` |
+| 对话 (`llm_provider`) | `auto` / `aliyun` / `zhipu` / `volcengine`（已停用）/ `openai` / `deepseek` |

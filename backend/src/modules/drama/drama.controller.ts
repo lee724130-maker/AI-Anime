@@ -143,9 +143,14 @@ export class DramaController {
     return this.dramaService.stitchEpisode(req.user.id, episodeId);
   }
 
+  @Get('episodes/:episodeId/stitch-status')
+  getStitchStatus(@Param('episodeId') episodeId: number) {
+    return this.dramaService.getEpisodeStitchStatus(episodeId);
+  }
+
   @Put('episodes/:episodeId/settings')
   updateEpisodeSettings(@Req() req, @Param('episodeId') episodeId: number,
-    @Body() body: { style?: string; ratio?: string; resolution?: string }) {
+    @Body() body: { style?: string; ratio?: string; resolution?: string; audio_lang?: string }) {
     return this.dramaService.updateEpisodeSettings(req.user.id, episodeId, body);
   }
 

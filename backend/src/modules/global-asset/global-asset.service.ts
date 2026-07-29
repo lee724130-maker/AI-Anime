@@ -45,8 +45,8 @@ export class GlobalAssetService {
 
   async create(data: Partial<GlobalAsset>) {
     if (!data.type || !data.name) throw new BadRequestException('类型和名称不能为空');
-    if (!['character', 'prop', 'scene'].includes(data.type!))
-      throw new BadRequestException('类型必须为 character/prop/scene');
+    if (!['character', 'prop', 'scene', 'video'].includes(data.type!))
+      throw new BadRequestException('类型必须为 character/prop/scene/video');
     const asset = this.assetRepo.create(data);
     return this.assetRepo.save(asset);
   }
@@ -81,6 +81,7 @@ export class GlobalAssetService {
 
   async generateImage(id: number, width?: number, height?: number, style?: string) {
     const asset = await this.getById(id);
+    if (asset.type === 'video') throw new BadRequestException('视频类型不支持图片生成');
     if (!asset.prompt) throw new BadRequestException('资产没有生成提示词');
 
     asset.status = 'generating';
@@ -124,10 +125,30 @@ export class GlobalAssetService {
 
   async planPrompt(id: number) {
     const asset = await this.getById(id);
-    const typeLabel: Record<string, string> = { character: '角色', prop: '道具', scene: '场景' };
+    const typeLabel: Record<string, string> = { character: '角色', prop: '道具', scene: '场景', video: '视频' };
     const typeCn = typeLabel[asset.type] || asset.type;
 
-    const prompt = `你是一个AI绘画提示词优化专家。请优化下面这个${typeCn}资产的提示词，使其更适合用于AI图片生成。
+    const prompt = asset.type === 'video' 
+      ? `你是一个AI视频提示词优化专家。请优化下面这个${typeCn}资产的提示词，使其更适合用于AI视频生成。
+
+资产名称：${asset.name}
+资产类型：${typeCn}
+资产描述：${asset.description || '无'}
+当前提示词：${asset.prompt || '无'}
+当前中文提示词：${asset.prompt_cn || '无'}
+
+要求：
+1. 优化英文 prompt，添加细节如画面描述、动作、镜头运动、光线、氛围等
+2. 优化中文 prompt_cn，与英文 prompt 对应
+3. 不要包含任何风格词（如 anime、realistic、动漫风格、写实风格等），风格由调用方另行控制
+4. 视频需要描述画面内容、角色动作、镜头语言、环境氛围
+
+请严格按照以下 JSON 格式返回：
+{
+  "prompt": "优化后的英文提示词",
+  "prompt_cn": "优化后的中文提示词"
+}`
+      : `你是一个AI绘画提示词优化专家。请优化下面这个${typeCn}资产的提示词，使其更适合用于AI图片生成。
 
 资产名称：${asset.name}
 资产类型：${typeCn}
@@ -176,18 +197,19 @@ export class GlobalAssetService {
   }
 
   async stats() {
-    const [characters, props, scenes] = await Promise.all([
+    const [characters, props, scenes, videos] = await Promise.all([
       this.assetRepo.count({ where: { type: 'character' } }),
       this.assetRepo.count({ where: { type: 'prop' } }),
       this.assetRepo.count({ where: { type: 'scene' } }),
+      this.assetRepo.count({ where: { type: 'video' } }),
     ]);
     const totalUsage = await this.assetRepo
       .createQueryBuilder('a')
       .select('SUM(a.usage_count)', 'total')
       .getRawOne();
     return {
-      characters, props, scenes,
-      total: characters + props + scenes,
+      characters, props, scenes, videos,
+      total: characters + props + scenes + videos,
       totalUsage: Number(totalUsage?.total || 0),
     };
   }

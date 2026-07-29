@@ -11,6 +11,9 @@ export class ModelConfig {
   @Column({ length: 20 })
   capability: string;
 
+  @Column({ name: 'sub_capability', length: 20, nullable: true })
+  sub_capability: string;
+
   @Column({ length: 50 })
   model_id: string;
 

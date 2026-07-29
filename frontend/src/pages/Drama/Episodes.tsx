@@ -21,11 +21,16 @@ const RATIOS = [
   { label: '3:4 竖版', value: '3:4' },
 ];
 const RESOLUTIONS = ['480p', '720p', '1080p'];
+const AUDIO_LANGS = [
+  { label: '中文', value: 'zh' },
+  { label: '英文', value: 'en' },
+  { label: '日文', value: 'ja' },
+];
 
 interface Episode {
   id: number; episode_no: number; title: string; summary: string | null;
   duration: number | null; project_id: number;
-  style: string | null; ratio: string | null; resolution: string | null;
+  style: string | null; ratio: string | null; resolution: string | null; audio_lang: string | null;
   created_at: string; updated_at: string;
 }
 
@@ -40,7 +45,7 @@ export default function DramaEpisodesPage() {
   const [projectTitle, setProjectTitle] = useState('');
   const [segCounts, setSegCounts] = useState<Record<number, SegmentCounts>>({});
   const [loading, setLoading] = useState(true);
-  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; ep: Episode | null; style: string; ratio: string; resolution: string }>({ visible: false, ep: null, style: 'anime', ratio: '9:16', resolution: '720p' });
+  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; ep: Episode | null; style: string; ratio: string; resolution: string; audio_lang: string }>({ visible: false, ep: null, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh' });
 
   const fetchData = async () => {
     if (!id) return;
@@ -80,14 +85,15 @@ export default function DramaEpisodesPage() {
       style: ep.style || 'anime',
       ratio: ep.ratio || '9:16',
       resolution: ep.resolution || '720p',
+      audio_lang: ep.audio_lang && ep.audio_lang !== 'none' ? ep.audio_lang : 'zh',
     });
   };
 
   const saveSettings = async () => {
-    const { ep, style, ratio, resolution } = settingsModal;
+    const { ep, style, ratio, resolution, audio_lang } = settingsModal;
     if (!ep) return;
     try {
-      await api.put(`/api/drama/episodes/${ep.id}/settings`, { style, ratio, resolution });
+      await api.put(`/api/drama/episodes/${ep.id}/settings`, { style, ratio, resolution, audio_lang });
       message.success('设置已保存');
       setSettingsModal(prev => ({ ...prev, visible: false }));
       fetchData();
@@ -116,9 +122,9 @@ export default function DramaEpisodesPage() {
               <Card
                 style={{ borderRadius: 12 }}
                 actions={[
-                  <Tooltip title="画面设置（风格/比例/清晰度）">
+                  <Tooltip title="本集设置（风格/比例/清晰度/配音）">
                     <Button type="text" size="small" icon={<SettingOutlined />}
-                      onClick={() => openSettings(ep)}>画面设置</Button>
+                      onClick={() => openSettings(ep)}>设置</Button>
                   </Tooltip>,
                   <Button type="text" size="small" icon={<VideoCameraOutlined />}
                     onClick={() => navigate(`/drama/${id}/episodes/${ep.id}`)}>
@@ -134,6 +140,7 @@ export default function DramaEpisodesPage() {
                   <Tag style={{ fontSize: 11 }}>{STYLE_LABEL[ep.style || ''] || '动漫'}</Tag>
                   <Tag style={{ fontSize: 11 }}>{ep.ratio || '9:16'}</Tag>
                   <Tag style={{ fontSize: 11 }}>{ep.resolution || '720p'}</Tag>
+                  <Tag style={{ fontSize: 11 }}>{{ zh: '中文配音', en: '英文配音', ja: '日文配音' }[ep.audio_lang === 'none' || !ep.audio_lang ? 'zh' : ep.audio_lang] || '中文配音'}</Tag>
                 </div>
                 {ep.summary && (
                   <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13, lineHeight: 1.5 }}>
@@ -158,7 +165,7 @@ export default function DramaEpisodesPage() {
         })}
       </Row>
 
-      <Modal title="画面设置" open={settingsModal.visible} onOk={saveSettings}
+      <Modal title={<div style={{ textAlign: 'center' }}>本集设置</div>} open={settingsModal.visible} onOk={saveSettings}
         onCancel={() => setSettingsModal(prev => ({ ...prev, visible: false }))}
         okText="保存" cancelText="取消">
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -176,6 +183,11 @@ export default function DramaEpisodesPage() {
             <Text strong>清晰度</Text>
             <Select value={settingsModal.resolution} onChange={v => setSettingsModal(prev => ({ ...prev, resolution: v }))}
               style={{ width: '100%', marginTop: 4 }} options={RESOLUTIONS.map(r => ({ label: r, value: r }))} />
+          </div>
+          <div>
+            <Text strong>配音语言</Text>
+            <Select value={settingsModal.audio_lang} onChange={v => setSettingsModal(prev => ({ ...prev, audio_lang: v }))}
+              style={{ width: '100%', marginTop: 4 }} options={AUDIO_LANGS} />
           </div>
         </Space>
       </Modal>

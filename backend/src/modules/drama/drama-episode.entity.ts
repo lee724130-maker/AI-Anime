@@ -35,6 +35,15 @@ export class DramaEpisode {
   @Column({ name: 'resolution', length: 10, nullable: true })
   resolution: string;
 
+  @Column({ name: 'audio_lang', length: 10, default: 'zh' })
+  audio_lang: string;
+
+  @Column({ name: 'stitch_progress_message', length: 200, nullable: true })
+  stitch_progress_message: string;
+
+  @Column({ name: 'stitch_progress_percent', nullable: true })
+  stitch_progress_percent: number;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;
 

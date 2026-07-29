@@ -256,7 +256,7 @@ export class DramaService {
     return { episode, segments };
   }
 
-  async updateEpisodeSettings(userId: number, episodeId: number, data: { style?: string; ratio?: string; resolution?: string }) {
+  async updateEpisodeSettings(userId: number, episodeId: number, data: { style?: string; ratio?: string; resolution?: string; audio_lang?: string }) {
     const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
     if (!episode) throw new NotFoundException('分集不存在');
     const project = await this.projectRepo.findOne({ where: { id: episode.project_id, user_id: userId } });
@@ -299,8 +299,23 @@ export class DramaService {
   }
 
   private async downloadToLocal(url: string, prefix: string): Promise<string> {
-    if (!url.startsWith('http')) return url;
     const outputDir = path.resolve(process.cwd(), 'output');
+    if (!url.startsWith('http')) {
+      // Already a local path: if it's in outputDir, convert to /static/ relative path
+      const basename = path.basename(url);
+      const localPath = path.join(outputDir, basename);
+      if (fs.existsSync(localPath)) return `/static/${basename}`;
+      // File doesn't exist in output dir — try copying it there
+      try {
+        if (fs.existsSync(url)) {
+          const ext = path.extname(url) || '.mp4';
+          const filename = `${prefix}_${Date.now()}${ext}`;
+          fs.copyFileSync(url, path.join(outputDir, filename));
+          return `/static/${filename}`;
+        }
+      } catch { /* ignore */ }
+      return url;
+    }
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
     const ext = path.extname(url.split('?')[0]) || '.png';
     const filename = `${prefix}_${Date.now()}${ext}`;
@@ -323,12 +338,33 @@ export class DramaService {
     asset.status = 'generating';
     await this.assetRepo.save(asset);
 
+    // Auto-compute dimensions from project target ratio if not explicitly provided
+    let imgW = width;
+    let imgH = height;
+    if (!imgW || !imgH) {
+      const ratio = project.target_ratio || '9:16';
+      const [rw, rh] = ratio.split(':').map(Number);
+      // Base size: 720px on the shorter side
+      if (rw <= rh) {
+        imgW = 720;
+        imgH = Math.round(720 * rh / rw);
+      } else {
+        imgH = 720;
+        imgW = Math.round(720 * rw / rh);
+      }
+      // Ensure even dimensions
+      if (imgW % 2 !== 0) imgW++;
+      if (imgH % 2 !== 0) imgH++;
+      this.logger.log(`Asset ${asset.name} auto-sized to ${imgW}x${imgH} (project ratio ${ratio})`);
+    }
+
     try {
       const urls = await this.aiService.generateImage({
         prompt: asset.prompt,
         style: style || 'anime',
         numImages: 1,
-        ...(width && height ? { width, height } : {}),
+        width: imgW,
+        height: imgH,
       });
       const url = await this.downloadToLocal(urls[0], `asset_${asset.id}`);
       if (asset.image_url && !asset.image_url.startsWith('http')) {
@@ -510,7 +546,17 @@ export class DramaService {
     const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
     if (!episode) throw new NotFoundException('分集不存在');
     await this.getById(userId, episode.project_id);
-    return { id: segment.id, status: segment.status, video_url: segment.video_url };
+    return {
+      id: segment.id,
+      status: segment.status,
+      video_url: segment.video_url,
+      progress_message: segment.progress_message,
+      progress_percent: segment.progress_percent,
+    };
+  }
+
+  private async updateSegmentProgress(segmentId: number, message: string, percent: number) {
+    await this.segmentRepo.update(segmentId, { progress_message: message, progress_percent: percent });
   }
 
   async executeSegmentGeneration(userId: number, segmentId: number) {
@@ -529,6 +575,8 @@ export class DramaService {
     await this.segmentRepo.save(segment);
 
     try {
+      await this.updateSegmentProgress(segment.id, '正在解析资产引用...', 5);
+
       // Parse asset references
       let charNames: string[] = JSON.parse(segment.character_refs || '[]');
       let propNames: string[] = JSON.parse(segment.prop_refs || '[]');
@@ -553,11 +601,18 @@ export class DramaService {
         ? await this.assetRepo.find({ where: { project_id: episode.project_id, name: In(allNames) } })
         : [];
 
+      await this.updateSegmentProgress(segment.id, '正在获取资产图片...', 15);
+
       // Auto-generate missing assets, collect media array
       const media: Array<{ type: string; url: string }> = [];
-      for (const name of [...charNames, ...sceneNames, ...propNames]) {
+      const missingAssets: string[] = [];
+      for (const name of [...sceneNames, ...charNames, ...propNames]) {
         let asset = assets.find(a => a.name === name);
-        if (!asset) continue;
+        if (!asset) {
+          missingAssets.push(name);
+          this.logger.warn(`Asset not found in project: ${name} — will use name in prompt only`);
+          continue;
+        }
 
         if (!asset.image_url) {
           // Generate missing asset image on the fly
@@ -590,24 +645,55 @@ export class DramaService {
         }
       }
 
+      if (missingAssets.length > 0) {
+        this.logger.warn(`Missing assets (${missingAssets.length}): ${missingAssets.join(', ')} — using prompt-only mode for these`);
+      }
+      this.logger.log(`Media array ready: ${media.length} images from ${sceneNames.length + charNames.length + propNames.length} refs`);
+
+      await this.updateSegmentProgress(segment.id, '资产图片获取完成，正在构建提示词...', 25);
+
       // Build enhanced prompt with asset context
       const assetContext: string[] = [];
       for (const name of charNames) {
         const a = assets.find(ass => ass.name === name);
-        if (a) assetContext.push(`角色「${a.name}」：${a.description || ''}`);
+        if (a) {
+          assetContext.push(`角色「${a.name}」：${a.description || ''}`);
+        } else {
+          assetContext.push(`角色「${name}」`);
+        }
       }
       for (const name of sceneNames) {
         const a = assets.find(ass => ass.name === name);
-        if (a) assetContext.push(`场景「${a.name}」：${a.description || ''}`);
+        if (a) {
+          assetContext.push(`场景「${a.name}」：${a.description || ''}`);
+        } else {
+          assetContext.push(`场景「${name}」`);
+        }
       }
       for (const name of propNames) {
         const a = assets.find(ass => ass.name === name);
-        if (a) assetContext.push(`物品「${a.name}」：${a.description || ''}`);
+        if (a) {
+          assetContext.push(`物品「${a.name}」：${a.description || ''}`);
+        } else {
+          assetContext.push(`物品「${name}」`);
+        }
       }
 
-      const enhancedPrompt = assetContext.length
+      let enhancedPrompt = assetContext.length
         ? `${assetContext.join('；')}。情节：${segment.prompt}`
         : segment.prompt;
+      if (segment.timeline) {
+        enhancedPrompt += `\n\n时间轴：${segment.timeline}`;
+      }
+
+      // 调试日志：显示增强提示词和媒体信息
+      this.logger.log(`[DEBUG] Segment ${segment.id} enhancedPrompt (first 300): ${enhancedPrompt.slice(0, 300)}`);
+      this.logger.log(`[DEBUG] Segment ${segment.id} media count: ${media.length}, refs: chars=${charNames.length}(${charNames.join(',')}), scenes=${sceneNames.length}(${sceneNames.join(',')}), props=${propNames.length}(${propNames.join(',')})`);
+      if (media.length > 0) {
+        this.logger.log(`[DEBUG] Segment ${segment.id} first media url: ${media[0].url?.slice(0, 80)}...`);
+      }
+
+      await this.updateSegmentProgress(segment.id, '正在获取可用模型...', 35);
 
       // Auto-select model: R2V for multi-image, I2V for single, T2V as fallback
       const vidOptions: any = {
@@ -618,19 +704,110 @@ export class DramaService {
         style: epStyle,
       };
       if (media.length > 0) {
-        // Prefer happyhorse-1.1-r2v (free quota) when multiple reference images
-        vidOptions.model = media.length > 1 ? 'happyhorse-1.1-r2v' : 'happyhorse-1.1-i2v';
         vidOptions.media = media;
+        // Don't force a specific model — let the priority chain in generateVideoWithTongyi
+        // handle model selection based on media count and token availability
       }
 
-      const remoteUrl = await this.aiService.generateVideo(vidOptions);
+      await this.updateSegmentProgress(segment.id, '正在生成视频（调用AI模型）...', 45);
+      const remoteUrl = await this.aiService.generateVideo(vidOptions, enhancedPrompt);
 
-      const videoUrl = await this.downloadToLocal(remoteUrl, `seg_${segment.id}`);
+      await this.updateSegmentProgress(segment.id, '视频生成成功，正在下载...', 70);
+      let videoUrl = await this.downloadToLocal(remoteUrl, `seg_${segment.id}`);
+
+      await this.updateSegmentProgress(segment.id, '正在校正画面比例...', 73);
+      // FFmpeg ratio correction as fallback — ensures output matches target ratio
+      // even if the I2V model locks to the reference image aspect ratio
+      try {
+        const localVideoPath = videoUrl.startsWith('/static/')
+          ? path.join(process.cwd(), 'output', path.basename(videoUrl))
+          : videoUrl;
+        const fittedPath = await this.ffmpeg.fitVideoToRatio(localVideoPath, epRatio);
+        if (fittedPath !== localVideoPath) {
+          const fittedBasename = path.basename(fittedPath);
+          videoUrl = `/static/${fittedBasename}`;
+          // Clean up original file
+          try { fs.unlinkSync(localVideoPath); } catch { /* ignore */ }
+          this.logger.log(`Segment ${segment.id} ratio corrected to ${epRatio}`);
+        }
+      } catch (ratioErr: any) {
+        this.logger.warn(`Ratio correction failed for segment ${segment.id}: ${ratioErr.message} — using original`);
+      }
+
+      await this.updateSegmentProgress(segment.id, '视频下载完成', 75);
+
+      // TTS audio: if audio_lang is set, generate narration and merge
+      if (episode.audio_lang) {
+        try {
+          // Pick text matching the target language
+          let audioLang = episode.audio_lang;
+          // Legacy 'none' → zh
+          if (audioLang === 'none') audioLang = 'zh';
+          let ttsText = '';
+          if (audioLang === 'zh' || audioLang === 'ja') {
+            ttsText = segment.prompt_cn || segment.summary || segment.prompt || '';
+          } else {
+            ttsText = segment.prompt || segment.summary || segment.prompt_cn || '';
+          }
+          if (ttsText) {
+            await this.updateSegmentProgress(segment.id, '正在生成配音...', 78);
+            const voiceMap: Record<string, string> = { zh: 'nova', en: 'alloy', ja: 'nova' };
+            const voice = voiceMap[audioLang] || 'alloy';
+            const audioBuf = await this.aiService.generateTTS({
+              text: ttsText.slice(0, 500),
+              voice,
+              speed: 1.0,
+            });
+            if (audioBuf && audioBuf.byteLength > 0) {
+              const audioPath = path.join(process.cwd(), 'output', `tts_${segment.id}_${Date.now()}.mp3`);
+              fs.writeFileSync(audioPath, Buffer.from(audioBuf));
+              await this.updateSegmentProgress(segment.id, '配音生成完成，正在合成音视频...', 85);
+              const mergedPath = await this.ffmpeg.compositeVideoWithAudio(
+                videoUrl.startsWith('/static/')
+                  ? path.join(process.cwd(), 'output', path.basename(videoUrl))
+                  : videoUrl,
+                audioPath,
+                segment.duration || 5,
+                path.join(process.cwd(), 'output', `seg_${segment.id}_audio_${Date.now()}.mp4`),
+              );
+              // Replace videoUrl with the audio-merged version
+              const mergedBasename = path.basename(mergedPath);
+              if (mergedBasename.startsWith('seg_')) {
+                await this.updateSegmentProgress(segment.id, '正在清理旧文件...', 90);
+                fs.unlinkSync(videoUrl.startsWith('/static/')
+                  ? path.join(process.cwd(), 'output', path.basename(videoUrl))
+                  : videoUrl);
+                try { fs.unlinkSync(audioPath); } catch { /* ignore */ }
+                const fullPath = path.isAbsolute(mergedPath) ? mergedPath : path.join(process.cwd(), 'output', mergedPath);
+                if (fs.existsSync(fullPath)) {
+                  segment.video_url = `/static/${mergedBasename}`;
+                  segment.progress_message = '视频已生成';
+                  segment.progress_percent = 100;
+                  segment.status = 'completed';
+                  await this.segmentRepo.save(segment);
+                  return { id: segment.id, video_url: segment.video_url, status: 'completed' };
+                }
+              }
+            }
+          }
+        } catch (ttsErr: any) {
+          this.logger.warn(`TTS audio generation failed: ${ttsErr.message} — continuing without audio`);
+        }
+      }
+
+      // Only delete old file after new one is successfully downloaded
+      if (segment.video_url && segment.video_url.startsWith('/static/')) {
+        await this.updateSegmentProgress(segment.id, '正在清理旧文件...', 90);
+        const oldPath = path.join(process.cwd(), 'output', path.basename(segment.video_url));
+        try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch { /* ignore */ }
+      }
 
       segment.video_url = videoUrl;
+      segment.progress_message = '视频已生成';
+      segment.progress_percent = 100;
       segment.status = 'completed';
       await this.segmentRepo.save(segment);
-      return { id: segment.id, video_url: videoUrl, status: 'completed' };
+      return { id: segment.id, video_url: videoUrl, status: 'completed', progress_message: '视频已生成', progress_percent: 100 };
     } catch (err: any) {
       segment.status = 'failed';
       await this.segmentRepo.save(segment);
@@ -709,7 +886,7 @@ export class DramaService {
 
     segment.duration = duration;
     if (timeline) {
-      segment.prompt_cn = timeline;
+      segment.timeline = timeline;
     }
     await this.segmentRepo.save(segment);
 
@@ -727,22 +904,44 @@ export class DramaService {
     });
     if (segments.length < 2) throw new BadRequestException('至少需要 2 个已完成片段才能合成');
 
+    // Submit to queue and return immediately
+    const job = await this.segmentQueue.add('stitch', { userId, episodeId });
+    return { jobId: job.id, episodeId, status: 'queued' };
+  }
+
+  async executeStitch(userId: number, episodeId: number) {
+    const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
+    if (!episode) throw new NotFoundException('分集不存在');
+
     episode.stitch_status = 'stitching';
     await this.episodeRepo.save(episode);
+
+    const segments = await this.segmentRepo.find({
+      where: { episode_id: episodeId, status: 'completed' },
+      order: { segment_no: 'ASC' },
+    });
 
     const outputDir = path.resolve(process.cwd(), 'output');
     const clips: Array<{ path: string }> = [];
 
     try {
+      const updateStitchProgress = async (message: string, percent: number) => {
+        await this.episodeRepo.update(episodeId, { stitch_progress_message: message, stitch_progress_percent: percent });
+      };
+
+      await updateStitchProgress('正在收集片段视频...', 10);
+
       // Collect all segment video files (local paths or remote URLs)
-      for (const seg of segments) {
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
         if (!seg.video_url) throw new BadRequestException(`片段 ${seg.segment_no} 没有视频文件`);
 
         let localPath = seg.video_url;
         // If it's a remote HTTP URL, download it first
         if (seg.video_url.startsWith('http://') || seg.video_url.startsWith('https://')) {
+          await updateStitchProgress(`正在下载片段 ${i + 1}/${segments.length}...`, 15 + Math.round((i / segments.length) * 30));
           const ext = path.extname(new URL(seg.video_url).pathname) || '.mp4';
-          const dlPath = path.join(outputDir, `seg_${episodeId}_${seg.segment_no}_${Date.now()}${ext}`);
+          const dlPath = path.join(outputDir, `tmp_${episodeId}_${seg.segment_no}_${Date.now()}${ext}`);
           const resp = await axios.get(seg.video_url, { responseType: 'stream', timeout: 60000 });
           const writer = fs.createWriteStream(dlPath);
           await new Promise<void>((resolve, reject) => {
@@ -753,35 +952,71 @@ export class DramaService {
           localPath = dlPath;
         }
 
-        if (!fs.existsSync(localPath)) throw new Error(`片段 ${seg.segment_no} 视频文件不存在: ${localPath}`);
+        // /static/ 是 URL 前缀，转回真实磁盘路径
+        if (localPath.startsWith('/static/')) {
+          localPath = path.join(outputDir, path.basename(localPath));
+        }
+        if (!fs.existsSync(localPath)) {
+          this.logger.warn(`片段 ${seg.segment_no} 视频文件缺失，尝试重新生成`);
+          await updateStitchProgress(`片段 ${seg.segment_no} 文件缺失，正在重新生成...`, 15 + Math.round((i / segments.length) * 30));
+          try {
+            const result = await this.executeSegmentGeneration(userId, seg.id);
+            localPath = result.video_url;
+            if (localPath.startsWith('/static/')) {
+              localPath = path.join(outputDir, path.basename(localPath));
+            }
+            if (!fs.existsSync(localPath)) throw new Error('重新生成后文件仍不存在');
+          } catch (regErr: any) {
+            throw new Error(`片段 ${seg.segment_no} 视频文件不存在且重新生成失败: ${regErr.message}`);
+          }
+        }
         clips.push({ path: localPath });
       }
 
+      await updateStitchProgress('片段下载完成，正在拼接视频...', 50);
+
       // Merge via FFmpeg
       const mergedPath = await this.ffmpeg.mergeVideos(clips);
+
+      await updateStitchProgress('视频拼接成功，正在保存成片...', 80);
 
       // Save result to episode
       const filename = path.basename(mergedPath);
       const webUrl = `/static/${filename}`;
       episode.video_url = webUrl;
       episode.stitch_status = 'completed';
+      episode.stitch_progress_message = '本集成片已完成';
+      episode.stitch_progress_percent = 100;
       await this.episodeRepo.save(episode);
 
       return { id: episode.id, video_url: webUrl, status: 'completed' };
     } catch (err: any) {
       episode.stitch_status = 'failed';
+      episode.stitch_progress_message = err.message;
       await this.episodeRepo.save(episode);
       throw new BadRequestException(`本集合成失败: ${err.message}`);
     } finally {
+      await this.episodeRepo.update(episodeId, { stitch_progress_message: '正在清理临时文件...', stitch_progress_percent: 95 });
       // Clean up any downloaded temp files (not original segment videos)
       for (const clip of clips) {
         const p = clip.path;
-        // Only delete if it's a temp download (starts with output dir and has seg_ prefix)
-        if (p.startsWith(outputDir) && path.basename(p).startsWith('seg_')) {
+        // Only delete temp downloads (tmp_ prefix), NOT original segment videos (seg_ prefix)
+        if (p.startsWith(outputDir) && path.basename(p).startsWith('tmp_')) {
           try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ }
         }
       }
     }
+  }
+
+  async getEpisodeStitchStatus(episodeId: number) {
+    const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
+    if (!episode) throw new NotFoundException('分集不存在');
+    return {
+      stitch_status: episode.stitch_status,
+      stitch_progress_message: episode.stitch_progress_message,
+      stitch_progress_percent: episode.stitch_progress_percent,
+      video_url: episode.video_url,
+    };
   }
 
   private cleanJson(text: string): string {

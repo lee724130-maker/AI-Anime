@@ -6,7 +6,7 @@
 
 ## 当前进度
 
-> **状态**：Phase 1-5 已完成（2026-07-15）· HappyHorse 免费额度模型配置完成（2026-07-16）· Drama UI 重构 + 资产库增强完成（2026-07-17）
+> **状态**：Phase 1-5 已完成（2026-07-15）· HappyHorse 免费额度模型配置完成（2026-07-16）· Drama UI 重构 + 资产库增强完成（2026-07-17）· ⚠️ **火山引擎已停止使用**（2026-07-27，因欠费 21.83 元）
 
 | 模块 | 状态 | 详情 |
 |------|:----:|------|
@@ -18,10 +18,10 @@
 | 角色权限系统 | ✅ | user/admin 隔离，`@Roles('admin')` + RolesGuard |
 | 剧本模块 | ✅ | 后端 CRUD + 前端列表/创建/编辑/详情 |
 | 角色模块 | ✅ | 后端 CRUD + 前端列表/创建/编辑/详情 |
-| 视频生成模块 | ✅ | 任务创建/状态轮询/Bull 队列/Seedance+FFmpeg 流水线 + **后处理** + HappyHorse 免费额度模型集成 |
-| AI 服务聚合层 | ✅ | 火山引擎(Seedance+Seedream+Doubao) / 阿里云(通义万相+**HappyHorse**+Qwen) / 智谱(GLM+CogView+CogVideoX) / OpenAI / DeepSeek / Runway — **5 家 Provider 21+ 模型** |
+| 视频生成模块 | ✅ | 任务创建/状态轮询/Bull 队列/Seedance+FFmpeg 流水线（⚠️ 火山引擎已停用）+ **后处理** + HappyHorse 免费额度模型集成 |
+| AI 服务聚合层 | ✅ | ~~火山引擎(Seedance+Seedream+Doubao)~~（已停用）/ 阿里云(通义万相+**HappyHorse**+Qwen) / 智谱(GLM+CogView+CogVideoX) / OpenAI / DeepSeek / Runway — **4 家 Provider** |
 | 网页视频播放 | ✅ | 静态文件服务/VideoPlayer/Range 请求支持 |
-| API Key 管理 | ✅ | 8 项配置，火山引擎 3 Key 合并为 1 个 `volcengine_api_key`，智谱 `zai_api_key` |
+| API Key 管理 | ✅ | 8 项配置，火山引擎 3 Key 已删除（因欠费），智谱 `zai_api_key` |
 | 一体化创作中心 | ✅ | Studio：角色+剧本+视频设置，含分辨率/时长/模型选择（含 HappyHorse） |
 | 管理后台功能 | ✅ | 仪表盘/API密钥/用户管理/日志(含操作日志tab)/系统配置 + **充值实时刷新** |
 | 订单模块 | ✅ | 套餐/创建/模拟支付/取消（mock-pay） |
@@ -1880,3 +1880,107 @@ backend  ✅ npm run build (零错误)
 |------|------|
 | `AI-Video.md` | 进度区更新 + 今日日志 |
 | `CHANGELOG.md` | 新增 2026-07-17 条目 |
+
+---
+
+## 今日开发记录（2026-07-22）
+
+> **范围**：视频生成 Pipeline 修复 — 断路器逻辑重写、Alibaba Cloud WAN/Tongyi API 集成、风格前缀注入修复、火山引擎 Seedance 视频模型激活
+
+### 一、背景
+
+HappyHorse 免费额度耗尽后，通义万相视频链路上 HappyHorse 模型全部返回 403（Free quota exhausted），但断路器（3次连续失败判死）在 HappyHorse 模型上触发，**截断了整个链**，导致有额度的 WAN 模型（Wanx 2.1 T2V+, Wan 2.5 T2V Preview 等）从未被尝试。
+
+同时，智谱 CogVideoX 返回 429 限流（3 秒重试仍 429），火山引擎 Seedance 视频模型在 DB 中被标记为 `inactive`。
+
+**最终结果**：所有视频供应商均不可用，片段 259-263 停留在旧占位视频。
+
+### 二、改动清单
+
+#### ① 断路器「A」移除 —— `ai-service.util.ts`
+
+| 改动 | 说明 |
+|------|------|
+| 删除 `tongyiVideoFailStreak` 成员变量和 `TONGYI_VIDEO_STREAK_LIMIT=3` | 移除连续计数断路器 |
+| 删除 `catch` 块中的 A 逻辑 | 不再因 3 次失败判死整条链 |
+| 删除 `return videoUrl` 处的 `this.tongyiVideoFailStreak = 0` | 同步清理 |
+
+**效果**：所有非 permission 403 错误（配额耗尽、模型不兼容等）全部 `continue` 到下一个模型，**不再断路**。
+
+#### ② 错误体提取修正 —— `ai-service.util.ts`
+
+| 改动 | 说明 |
+|------|------|
+| `err.response?.data?.error?.message` → `data?.error?.message || data?.message` | DashScope API 错误体格式为 `{code, message}` 而非 `{error: {message}}` |
+
+#### ③ 非 HTTP 错误也 `continue` —— `ai-service.util.ts`
+
+`happyhorse-1.0-r2v` 任务提交成功但轮询失败后抛出 `new Error(...)`，此时 `err.code` 为 `undefined`，未匹配 403/404 条件，直接 `throw err` 跳出循环。
+
+**修复**：`ERRCODE` 统一判断 → 所有非 permission 错误（包括任务轮询失败、格式错误、参数不匹配）全部 `continue`。
+
+#### ④ 模型参数预验证 —— `ai-service.util.ts` `generateVideoWithTongyi()`
+
+**改动**：在 auto 链循环中预加载 DB 模型配置，对每个模型执行 `validateModelParams()`，duration/ratio/resolution 不兼容的模型**直接跳过**，不浪费 API 请求。
+
+#### ⑤ DB 模型配置修正 —— `model_configs` 表
+
+| 模型 | 字段 | 旧值 | 新值 |
+|------|------|------|------|
+| Wanx 2.1 T2V+ (id=48) | `max_duration` | 15 | 5 |
+| All video models | 优先级重排 | HappyHorse 优先 | Wanx T2V → Wan T2V → WAN T2V Turbo/Preview → Wan/HappyHorse I2V/R2V → Runway/CogVideoX/Seedance 兜底 |
+
+**新的优先级顺序**（前 13 个均为 WAN 系列，有额度）：
+
+| 优先级 | 模型 | 状态 |
+|:------:|------|:----:|
+| 1 | Wanx 2.1 T2V+ (wanx2.1-t2v-plus) | ✅ 185/200 |
+| 2 | Wan 2.7 T2V (wan2.7-t2v) | ✅ |
+| 3 | WAN 2.7 T2V 别名 (wan2.7-videoedit) | ✅ 50/50 |
+| 4 | Wan 2.6 T2V (wan2.6-t2v) | ⚠️ 403 |
+| 5 | WAN 2.1 T2V Turbo (wanx2.1-t2v-turbo) | ✅ 不支持 duration |
+| 6 | WAN 2.5 T2V Preview (wan2.5-t2v-preview) | ✅ 当前兜底成功 |
+| 7-13 | 其余 WAN 系列 | — |
+| 14-18 | HappyHorse 系列 (无额度) | ⛔ 403 |
+| 30+ | Runway / CogVideoX / Seedance | — |
+
+#### ⑥ 风格前缀注入修复 —— `drama.service.ts`
+
+**问题**：`executeSegmentGeneration()` 调用 `generateVideo(vidOptions)` 时未传第二参数 `textPrompt`，导致 `ai-service.util.ts:358-368` 的风格前缀注入被跳过。WAN 模型收到的 prompt 不含 `photorealistic,真人实拍质感,超写实风格` 前缀，默认输出动漫。
+
+**修复**：
+```typescript
+// ❌ 之前：skipped style prefix injection
+const remoteUrl = await this.aiService.generateVideo(vidOptions);
+
+// ✅ 修复后：style prefix is injected
+const remoteUrl = await this.aiService.generateVideo(vidOptions, segment.prompt);
+```
+
+#### ⑦ 优先级改 DB 而非硬编码 —— `ai-service.util.ts`
+
+`getTongyiVideoModels()` 内部硬编码的降级数组改为优先从 DB 的 `model_configs` 表按 `priority` 排序获取，DB 无数据时再用硬编码数组兜底。
+
+### 三、已知问题
+
+| # | 问题 | 状态 |
+|---|------|:----:|
+| 1 | 通义 wanx2.1-t2v-plus 不支持 duration>5，segment 259 的 duration=8 时需跳过此模型 | 已修复（DB max_duration=5） |
+| 2 | 智谱 CogVideoX 429 限流，重试一次仍失败 | ⬜ 需等待限流解除或升级 key |
+| 3 | 火山引擎 Seedance 模型被标记 `inactive`，无法进入自动链路 | ⬜ 需用户在 ARK 控制台激活后改 DB |
+| 4 | 通义 WAN 视频生成耗时约 2-3 分钟（阿里云推理时间，代码无法优化） | 正常 |
+| 5 | `wanx2.1-t2v-turbo` 不支持自定义 duration 参数 | 需额外处理移除 duration 再调用 |
+| 6 | `wan2.7-videoedit` 需要 input video media，纯 T2V 无法使用 | 已自动跳过（API 返回错误后 continue） |
+
+### 四、修改的文件
+
+| 文件 | 变更 |
+|------|------|
+| `backend/src/utils/ai-service.util.ts` | 移除 A 断路器；修正错误体提取路径；非 HTTP 错误 continue；auto 链加模型预验证；getTongyiVideoModels 优先读 DB |
+| `backend/src/modules/drama/drama.service.ts` | `executeSegmentGeneration()` 调用 `generateVideo()` 时传入 `segment.prompt` 作为 textPrompt |
+| — | `model_configs` 表：优先级重排；`wanx2.1-t2v-plus` max_duration=5 |
+
+### 五、注意事项
+
+- **不要 push 到 git** — 当前仓库中有修改（断路器和排序改动），但 git 仓库里的原始版本是功能正常的无 bug 版本。如果以后要回退，`git pull` 或 `git checkout` 即可恢复 baseline。
+- 当前段需要重新触发生成才会用新逻辑。已有视频的段不受影响。

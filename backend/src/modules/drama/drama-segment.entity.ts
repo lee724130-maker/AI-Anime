@@ -21,6 +21,9 @@ export class DramaSegment {
   prompt_cn: string;
 
   @Column({ type: 'text', nullable: true })
+  timeline: string;
+
+  @Column({ type: 'text', nullable: true })
   character_refs: string;
 
   @Column({ type: 'text', nullable: true })
@@ -37,6 +40,12 @@ export class DramaSegment {
 
   @Column({ name: 'video_url', length: 500, nullable: true })
   video_url: string;
+
+  @Column({ name: 'progress_message', length: 200, nullable: true })
+  progress_message: string;
+
+  @Column({ name: 'progress_percent', nullable: true })
+  progress_percent: number;
 
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;

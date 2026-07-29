@@ -1,5 +1,53 @@
 # Changelog
 
+## 2026-07-29
+
+### AI 智能规划功能全面增强 + 百度百科 + Playwright 反爬 + 多视角生成
+
+#### 智能规划三策略拆分
+- **后端** (`generate.service.ts`): `smartPlan()` 拆分为三个独立策略器 `handleT2i`/`handleT2v`/`handleI2v`，分别处理文字→图片(角色知识库)、文字→视频(分镜创意)、图片→视频(动作指导)
+- **前端** (`Generate/index.tsx`): 三个 tab 分别传 `mode: 't2i'/'t2v'/'i2v'`
+
+#### T2I 两步法 + 百度百科
+- **两步法**: 第一步 LLM 分析角色并标注【确定】/【推测】，第二步基于分析构建 prompt
+- **百度百科**: `searchBaike()` 抓取百科页面 (`meta description` + 前5段 `.para`)，有资料时直接基于资料生成，避免 LLM 脑补
+- **自动扩写**: prompt < 15 字时用 LLM 升级为详细描述
+
+#### Playwright 反爬（百度 403 修复）
+- **问题**: 百度百科返回 403 Forbidden，axios 被反爬拦截
+- **修复**: 新增 `backend/scripts/baike-fetcher.js`（Playwright 无头浏览器），安装 Chromium 191.8MB
+- **双层策略**: axios（标准请求头）→ Playwright（真实浏览器渲染），自动降级
+- **依赖**: `playwright` 包 + Chromium 已下载
+
+#### 多视角图像生成
+- **逻辑**: `textToImage` 根据 `num_images`(1/2/4) 分别生成 view=front/back/left/right 各视角图片
+- **输出**: `[{ id, url, view }]` 格式，每张独立调用 `generateImage({ numImages: 1 })` 后归入同一 task
+- **前端**: 数量选择器旁标注 "1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧"
+
+#### 生成历史展示优化
+- 结果列：图片模式显示所有缩略图+视角标签；视频模式修复 `url` 变量未定义 bug
+- 文字生图片结果改为多图平铺
+
+#### 相关文件
+- `backend/src/modules/generate/generate.service.ts`: searchBaike、handleT2i/handleT2v/handleI2v、多视图循环
+- `backend/scripts/baike-fetcher.js`: Playwright 无头浏览器抓取
+- `backend/src/modules/generate/generate.controller.ts`: DTO 加入 `mode` 字段
+- `frontend/src/pages/Generate/index.tsx`: 传 mode、数量标注、多图展示+视角标签
+
+#### Dashboard 统计卡片整理
+- **#2 卡**: 角色/场景资产（与短剧项目重复跳转 `/drama`）→ **AI 生成**（跳转 `/generate`）
+- **#4 卡**: 片段总数（死链接）→ **可用算力**（跳转 `/order`）→ **热门创作**（跳转 `/viral`，占位）
+- **后端**: `workbench.service.ts` 新增 `totalGenerations` 字段
+- **文件**: `frontend/src/pages/Home/index.tsx`
+
+## 2026-07-27
+
+### 火山引擎模型停止使用
+- **因欠费 21.83 元，删除所有火山引擎 API Key 和模型配置**
+- 删除 `system_configs` 中 `volcengine_api_key`、`seedance_api_key`、`seedream_api_key`
+- 删除 `model_configs` 中 7 条火山引擎模型记录（文字/图片/视频/3D）
+- 所有 md 文档添加"因欠费火山模型已停止使用"备注
+
 ## 2026-07-21
 
 ### 工作台 Dashboard 重设计 + Header 优化 + 大资产库保存修复

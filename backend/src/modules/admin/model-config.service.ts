@@ -10,9 +10,20 @@ export class ModelConfigService {
     private readonly repo: Repository<ModelConfig>,
   ) {}
 
-  async findActive(capability: string) {
+  async findActive(capability: string, subCapability?: string) {
+    const where: any = { capability, status: 'active' };
+    if (subCapability) {
+      where.sub_capability = subCapability;
+    }
     return this.repo.find({
-      where: { capability, status: 'active' },
+      where,
+      order: { priority: 'ASC' },
+    });
+  }
+
+  async findActiveBySubCapability(subCapability: string) {
+    return this.repo.find({
+      where: { sub_capability: subCapability, status: 'active' },
       order: { priority: 'ASC' },
     });
   }

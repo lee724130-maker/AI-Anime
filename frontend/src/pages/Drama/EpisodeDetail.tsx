@@ -25,7 +25,7 @@ interface Segment {
 interface Episode {
   id: number; episode_no: number; title: string; summary: string | null;
   duration: number | null; video_url: string | null; stitch_status: string;
-  style: string | null; ratio: string | null; resolution: string | null;
+  style: string | null; ratio: string | null; resolution: string | null; audio_lang: string | null;
 }
 
 export default function EpisodeDetailPage() {
@@ -41,8 +41,12 @@ export default function EpisodeDetailPage() {
   const [batchProgress, setBatchProgress] = useState<{ total: number; completed: number } | null>(null);
   const [planning, setPlanning] = useState<Set<number>>(new Set());
   const [editModal, setEditModal] = useState<{ visible: boolean; seg: Segment | null; value: string }>({ visible: false, seg: null, value: '' });
+  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; style: string; ratio: string; resolution: string; audio_lang: string }>({ visible: false, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh' });
+  const [segmentProgress, setSegmentProgress] = useState<Record<number, { message: string; percent: number }>>({});
+  const [stitchProgress, setStitchProgress] = useState<{ message: string; percent: number } | null>(null);
   const pollTimers = useRef<Map<number, any>>(new Map());
   const submittingRef = useRef<Set<number>>(new Set());
+  const stitchPollTimer = useRef<any>(null);
 
   const fetchData = async () => {
     if (!episodeId) return;
@@ -59,9 +63,11 @@ export default function EpisodeDetailPage() {
   const clearAllTimers = () => {
     for (const timer of pollTimers.current.values()) { clearInterval(timer); }
     pollTimers.current.clear();
+    if (stitchPollTimer.current) { clearInterval(stitchPollTimer.current); stitchPollTimer.current = null; }
     setGenerating(new Set());
     setBatchProgress(null);
     setBatchGenerating(false);
+    setStitchProgress(null);
   };
 
   useEffect(() => { clearAllTimers(); }, [episodeId]);
@@ -70,6 +76,11 @@ export default function EpisodeDetailPage() {
     const timer = pollTimers.current.get(segId);
     if (timer) { clearInterval(timer); pollTimers.current.delete(segId); }
     setGenerating(prev => { const s = new Set(prev); s.delete(segId); return s; });
+    setSegmentProgress(prev => {
+      const next = { ...prev };
+      delete next[segId];
+      return next;
+    });
     setBatchProgress(prev => {
       if (!prev) return prev;
       const next = { ...prev, completed: prev.completed + 1 };
@@ -86,8 +97,12 @@ export default function EpisodeDetailPage() {
     const timer = setInterval(async () => {
       try {
         const { data } = await api.get(`/api/drama/episodes/${episodeId}/segments/${segId}/status`);
+        if (data.progress_message || data.progress_percent != null) {
+          setSegmentProgress(prev => ({ ...prev, [segId]: { message: data.progress_message || '', percent: data.progress_percent || 0 } }));
+        }
         if (data.status === 'completed') {
-          finishPolling(segId);
+          setSegmentProgress(prev => ({ ...prev, [segId]: { message: '视频已生成', percent: 100 } }));
+          setTimeout(() => finishPolling(segId), 1000);
           fetchData();
         } else if (data.status === 'failed') {
           finishPolling(segId);
@@ -147,20 +162,75 @@ export default function EpisodeDetailPage() {
 
   useEffect(() => { return () => { clearAllTimers(); }; }, []);
 
-  const handleStitch = async () => {
+  const startStitchPolling = () => {
+    if (stitchPollTimer.current) return;
     setStitching(true);
+    stitchPollTimer.current = setInterval(async () => {
+      try {
+        const { data } = await api.get(`/api/drama/episodes/${episodeId}/stitch-status`);
+        if (data.stitch_progress_message || data.stitch_progress_percent != null) {
+          setStitchProgress({ message: data.stitch_progress_message || '', percent: data.stitch_progress_percent || 0 });
+        }
+        if (data.stitch_status === 'completed') {
+          setStitchProgress({ message: '本集成片已完成', percent: 100 });
+          setTimeout(() => {
+            if (stitchPollTimer.current) { clearInterval(stitchPollTimer.current); stitchPollTimer.current = null; }
+            setStitching(false);
+            setStitchProgress(null);
+          }, 1500);
+          message.success('本集合成成功！');
+          fetchData();
+        } else if (data.stitch_status === 'failed') {
+          if (stitchPollTimer.current) { clearInterval(stitchPollTimer.current); stitchPollTimer.current = null; }
+          setStitching(false);
+          setStitchProgress(null);
+          message.error(data.stitch_progress_message || '合成失败');
+          fetchData();
+        }
+      } catch {
+        if (stitchPollTimer.current) { clearInterval(stitchPollTimer.current); stitchPollTimer.current = null; }
+        setStitching(false);
+        setStitchProgress(null);
+      }
+    }, 2000);
+  };
+
+  const handleStitch = async () => {
     try {
-      await api.post(`/api/drama/episodes/${episodeId}/stitch`);
-      message.success('本集合成成功！');
-      fetchData();
+      const { data } = await api.post(`/api/drama/episodes/${episodeId}/stitch`);
+      if (data.status === 'queued') {
+        message.info('已加入合成队列');
+        startStitchPolling();
+      }
     } catch (err: any) {
       message.error(err.response?.data?.message || '合成失败');
     }
-    setStitching(false);
   };
 
   const handleEditPrompt = (seg: Segment) => {
     setEditModal({ visible: true, seg, value: seg.prompt_cn || seg.prompt || '' });
+  };
+
+  const openSettings = () => {
+    if (!episode) return;
+    setSettingsModal({
+      visible: true,
+      style: episode.style || 'anime',
+      ratio: episode.ratio || '9:16',
+      resolution: episode.resolution || '720p',
+      audio_lang: episode.audio_lang && episode.audio_lang !== 'none' ? episode.audio_lang : 'zh',
+    });
+  };
+
+  const saveSettings = async () => {
+    const { style, ratio, resolution, audio_lang } = settingsModal;
+    if (!episode) return;
+    try {
+      await api.put(`/api/drama/episodes/${episode.id}/settings`, { style, ratio, resolution, audio_lang });
+      message.success('设置已保存');
+      setSettingsModal(prev => ({ ...prev, visible: false }));
+      fetchData();
+    } catch { message.error('保存失败'); }
   };
 
   const handleEditSave = async () => {
@@ -244,12 +314,13 @@ export default function EpisodeDetailPage() {
           <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>{episode.summary}</Text>
         )}
         <Space style={{ marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>画面设置：</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>本集设置：</Text>
           <Tag style={{ fontSize: 11 }}>{STYLE_LABEL[episode.style || ''] || '动漫'}</Tag>
           <Tag style={{ fontSize: 11 }}>{episode.ratio || '9:16'}</Tag>
           <Tag style={{ fontSize: 11 }}>{episode.resolution || '720p'}</Tag>
+          <Tag style={{ fontSize: 11 }}>{{ zh: '中文配音', en: '英文配音', ja: '日文配音' }[episode.audio_lang === 'none' || !episode.audio_lang ? 'zh' : episode.audio_lang] || '中文配音'}</Tag>
           <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
-            onClick={() => navigate(`/drama/${id}/episodes`)}>修改</Button>
+            onClick={openSettings}>设置</Button>
         </Space>
       </Card>
 
@@ -260,6 +331,16 @@ export default function EpisodeDetailPage() {
             <Progress percent={Math.round((batchProgress.completed / batchProgress.total) * 100)}
               format={() => `${batchProgress.completed}/${batchProgress.total}`}
               style={{ flex: 1 }} />
+          </Space>
+        </Card>
+      )}
+
+      {stitchProgress && (
+        <Card style={{ borderRadius: 12, marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }} size="small">
+            <Text strong>合成本集进度</Text>
+            <Progress percent={stitchProgress.percent} style={{ width: '100%' }} />
+            <Text type="secondary" style={{ fontSize: 13 }}>{stitchProgress.message}</Text>
           </Space>
         </Card>
       )}
@@ -284,6 +365,7 @@ export default function EpisodeDetailPage() {
       <Row gutter={[12, 12]}>
         {segments.map(seg => {
           const isGenerating = generating.has(seg.id);
+          const prog = segmentProgress[seg.id];
           const chars = parseRefs(seg.character_refs);
           const props = parseRefs(seg.prop_refs);
           const scenes = parseRefs(seg.scene_refs);
@@ -337,10 +419,18 @@ export default function EpisodeDetailPage() {
                   {props.map(p => <Tag key={p} color="orange">{p}</Tag>)}
                   {scenes.map(s => <Tag key={s} color="green">{s}</Tag>)}
                 </Space>
-                {seg.video_url && (
+
+                {isGenerating && (
                   <div style={{ marginTop: 8 }}>
-                    <video src={getUrl(seg.video_url)} controls
-                      style={{ width: '100%', borderRadius: 4, maxHeight: 160 }}
+                    <Progress percent={prog?.percent ?? 0} size="small" style={{ marginBottom: 4 }} />
+                    <Text type="secondary" style={{ fontSize: 12 }}>{prog?.message || '正在提交任务...'}</Text>
+                  </div>
+                )}
+
+                {seg.video_url && (
+                  <div style={{ marginTop: 8, position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: 4, overflow: 'hidden' }}>
+                    <video key={seg.video_url} src={getUrl(seg.video_url)} controls
+                      style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
                       onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
                   </div>
                 )}
@@ -355,6 +445,47 @@ export default function EpisodeDetailPage() {
         okText="保存" cancelText="取消">
         <Input.TextArea rows={4} value={editModal.value}
           onChange={e => setEditModal(prev => ({ ...prev, value: e.target.value }))} />
+      </Modal>
+
+      <Modal title={<div style={{ textAlign: 'center' }}>本集设置</div>} open={settingsModal.visible} onOk={saveSettings}
+        onCancel={() => setSettingsModal(prev => ({ ...prev, visible: false }))}
+        okText="保存" cancelText="取消">
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div>
+            <Text strong>画面风格</Text>
+            <Select value={settingsModal.style} onChange={v => setSettingsModal(prev => ({ ...prev, style: v }))}
+              style={{ width: '100%', marginTop: 4 }}
+              options={[{ label: '动漫', value: 'anime' }, { label: '写实', value: 'realistic' }]} />
+          </div>
+          <div>
+            <Text strong>画面比例</Text>
+            <Select value={settingsModal.ratio} onChange={v => setSettingsModal(prev => ({ ...prev, ratio: v }))}
+              style={{ width: '100%', marginTop: 4 }}
+              options={[
+                { label: '9:16 竖屏', value: '9:16' },
+                { label: '16:9 横屏', value: '16:9' },
+                { label: '1:1 方形', value: '1:1' },
+                { label: '4:3 横版', value: '4:3' },
+                { label: '3:4 竖版', value: '3:4' },
+              ]} />
+          </div>
+          <div>
+            <Text strong>清晰度</Text>
+            <Select value={settingsModal.resolution} onChange={v => setSettingsModal(prev => ({ ...prev, resolution: v }))}
+              style={{ width: '100%', marginTop: 4 }}
+              options={['480p', '720p', '1080p'].map(r => ({ label: r, value: r }))} />
+          </div>
+          <div>
+            <Text strong>配音语言</Text>
+            <Select value={settingsModal.audio_lang} onChange={v => setSettingsModal(prev => ({ ...prev, audio_lang: v }))}
+              style={{ width: '100%', marginTop: 4 }}
+              options={[
+                { label: '中文', value: 'zh' },
+                { label: '英文', value: 'en' },
+                { label: '日文', value: 'ja' },
+              ]} />
+          </div>
+        </Space>
       </Modal>
     </div>
   );

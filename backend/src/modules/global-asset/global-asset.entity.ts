@@ -23,6 +23,9 @@ export class GlobalAsset {
   @Column({ name: 'image_url', length: 500, nullable: true })
   image_url: string;
 
+  @Column({ name: 'video_url', length: 500, nullable: true })
+  video_url: string;
+
   @Column({ type: 'text', nullable: true })
   candidates: string;
 

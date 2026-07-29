@@ -23,4 +23,18 @@ export class DramaSegmentProcessor {
       throw err;
     }
   }
+
+  @Process('stitch')
+  async handleStitch(job: Job<{ userId: number; episodeId: number }>) {
+    const { userId, episodeId } = job.data;
+    this.logger.log(`Processing stitch job #${job.id} — episodeId=${episodeId}`);
+    try {
+      const result = await this.dramaService.executeStitch(userId, episodeId);
+      this.logger.log(`Episode ${episodeId} stitched successfully: ${result.video_url}`);
+      return result;
+    } catch (err: any) {
+      this.logger.error(`Episode ${episodeId} stitch failed: ${err.message}`);
+      throw err;
+    }
+  }
 }

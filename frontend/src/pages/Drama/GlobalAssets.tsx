@@ -8,6 +8,7 @@ import {
   ArrowLeftOutlined, PlusOutlined, DeleteOutlined,
   ThunderboltOutlined, UploadOutlined,
   SyncOutlined, EyeOutlined, AimOutlined, SearchOutlined,
+  PlayCircleFilled, VideoCameraOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -21,7 +22,7 @@ const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + 
 interface GlobalAsset {
   id: number; type: string; name: string;
   description: string | null; prompt: string | null; prompt_cn: string | null;
-  image_url: string | null; status: string;
+  image_url: string | null; video_url: string | null; status: string;
   candidates: string | null; tags: string | null;
   source_type: string; source_project_id: number | null;
   usage_count: number; created_at: string; updated_at: string;
@@ -38,7 +39,7 @@ export default function GlobalAssetsPage() {
   const [activeTab, setActiveTab] = useState('character');
   const [search, setSearch] = useState('');
   const [addModal, setAddModal] = useState(false);
-  const [addType, setAddType] = useState<'character' | 'prop' | 'scene'>('character');
+  const [addType, setAddType] = useState<'character' | 'prop' | 'scene' | 'video'>('character');
   const [addName, setAddName] = useState('');
   const [addDesc, setAddDesc] = useState('');
   const [addPrompt, setAddPrompt] = useState('');
@@ -46,6 +47,8 @@ export default function GlobalAssetsPage() {
   const [addTags, setAddTags] = useState('');
   const [editModal, setEditModal] = useState<{ visible: boolean; asset: GlobalAsset | null; promptCn: string; prompt: string; planning: boolean; translating: boolean }>({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false });
   const [generateModal, setGenerateModal] = useState<{ visible: boolean; assetId: number | null; ratio: string; size: string; style: string }>({ visible: false, assetId: null, ratio: '9:16', size: 'hd', style: 'anime' });
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
+  const [previewVideoVisible, setPreviewVideoVisible] = useState(false);
 
   const stylePresets = [
     { label: '动漫', value: 'anime' },
@@ -215,6 +218,8 @@ export default function GlobalAssetsPage() {
 
   const renderCard = (asset: GlobalAsset) => {
     const isGenerating = generating.has(asset.id);
+    const isVideo = asset.type === 'video';
+    const hasMedia = isVideo ? asset.video_url : asset.image_url;
     return (
       <Card
         key={asset.id}
@@ -224,8 +229,8 @@ export default function GlobalAssetsPage() {
         <div style={{ marginBottom: 8 }}>
           <Space size={4}>
             <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
-            <Tag color={asset.status === 'completed' ? 'success' : 'failed'} style={{ fontSize: 11 }}>
-              {asset.status === 'completed' ? '有图' : '无图'}
+            <Tag color={hasMedia ? 'success' : 'default'} style={{ fontSize: 11 }}>
+              {isVideo ? (hasMedia ? '有视频' : '无视频') : (hasMedia ? '有图' : '无图')}
             </Tag>
             {asset.usage_count > 0 && (
               <Tag style={{ fontSize: 10 }}>引用{asset.usage_count}</Tag>
@@ -233,16 +238,52 @@ export default function GlobalAssetsPage() {
           </Space>
         </div>
         <div style={{ display: 'flex', justifyContent: 'center' }}>
-          {asset.image_url ? (
-            <Image src={getUrl(asset.image_url)} alt={asset.name}
-              style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 4 }}
-              preview={{ mask: <EyeOutlined /> }}
-            />
+          {isVideo ? (
+            asset.video_url ? (
+              <div
+                onClick={() => { setPreviewVideoUrl(getUrl(asset.video_url!)); setPreviewVideoVisible(true); }}
+                style={{ cursor: 'pointer', position: 'relative', width: '100%', height: 160, overflow: 'hidden', borderRadius: 4, background: '#000' }}
+              >
+                <video
+                  src={getUrl(asset.video_url)}
+                  preload="auto"
+                  playsInline
+                  muted
+                  width="100%"
+                  height="160"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                  onLoadedData={(e) => {
+                    const video = e.target as HTMLVideoElement;
+                    video.currentTime = 0.1;
+                  }}
+                />
+                <div style={{
+                  position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                  background: 'rgba(0,0,0,0.6)', borderRadius: '50%', width: 44, height: 44,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none'
+                }}>
+                  <PlayCircleFilled style={{ fontSize: 28, color: '#fff' }} />
+                </div>
+              </div>
+            ) : (
+              <div style={{ width: '100%', height: 160, background: 'linear-gradient(135deg, #2c3e50 0%, #1a1a2e 100%)', borderRadius: 4,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', flexDirection: 'column', gap: 8 }}>
+                <VideoCameraOutlined style={{ fontSize: 36, color: '#888' }} />
+                <span style={{ fontSize: 12, color: '#888' }}>暂无视频</span>
+              </div>
+            )
           ) : (
-            <div style={{ width: '100%', height: 140, background: '#f5f5f5', borderRadius: 4,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc' }}>
-              {asset.prompt ? '点击⚡生成' : '无提示词'}
-            </div>
+            asset.image_url ? (
+              <Image src={getUrl(asset.image_url)} alt={asset.name}
+                style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 4 }}
+                preview={{ mask: <EyeOutlined /> }}
+              />
+            ) : (
+              <div style={{ width: '100%', height: 140, background: '#f5f5f5', borderRadius: 4,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc' }}>
+                {asset.prompt ? '点击⚡生成' : '无提示词'}
+              </div>
+            )
           )}
         </div>
         {asset.description && (
@@ -265,27 +306,31 @@ export default function GlobalAssetsPage() {
             {asset.tags.split(',').map(t => <Tag key={t} style={{ fontSize: 10 }}>{t.trim()}</Tag>)}
           </Space>
         )}
-        <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 8, paddingTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
-          <Button type="text" size="small" icon={isGenerating ? <SyncOutlined spin /> : <ThunderboltOutlined />}
-            onClick={() => openGenerateModal(asset.id)} style={{ fontSize: 12, height: 32, width: '100%' }}>
-            {isGenerating ? '生成中' : '生成图片'}
-          </Button>
+        <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 8, paddingTop: 8, display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {!isVideo && (
+            <Button type="text" size="small" icon={isGenerating ? <SyncOutlined spin /> : <ThunderboltOutlined />}
+              onClick={() => openGenerateModal(asset.id)} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
+              {isGenerating ? '生成中' : '生成图片'}
+            </Button>
+          )}
           <Button type="text" size="small" icon={<AimOutlined />}
             loading={planning.has(asset.id)} onClick={() => handlePlanPrompt(asset.id)}
-            style={{ fontSize: 12, height: 32, width: '100%' }}>
+            style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
             智能规划
           </Button>
           <Button type="text" size="small" icon={<AimOutlined />}
-            onClick={() => handleEdit(asset)} style={{ fontSize: 12, height: 32, width: '100%' }}>
+            onClick={() => handleEdit(asset)} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
             编辑提示词
           </Button>
-          <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file); return false; }}>
-            <Button type="text" size="small" icon={<UploadOutlined />} style={{ fontSize: 12, height: 32, width: '100%' }}>
-              上传替换
-            </Button>
-          </Upload>
+          {!isVideo && (
+            <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file); return false; }}>
+              <Button type="text" size="small" icon={<UploadOutlined />} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
+                上传替换
+              </Button>
+            </Upload>
+          )}
           <Popconfirm title="确定删除？被引用的资产删除后可能影响已有项目" onConfirm={() => handleDelete(asset.id)}>
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 12, height: 32, width: '100%' }}>
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
               删除
             </Button>
           </Popconfirm>
@@ -307,7 +352,7 @@ export default function GlobalAssetsPage() {
           <Col>
             <Title level={4} style={{ margin: 0 }}>大资产库</Title>
             <Text type="secondary">
-              {stats ? `共 ${stats.total} 个资产 · 人物 ${stats.characters} · 物品 ${stats.props} · 场景 ${stats.scenes}` : '加载中...'}
+              {stats ? `共 ${stats.total} 个资产 · 人物 ${stats.characters} · 物品 ${stats.props} · 场景 ${stats.scenes} · 视频 ${stats.videos || 0}` : '加载中...'}
             </Text>
           </Col>
           <Col>
@@ -340,6 +385,12 @@ export default function GlobalAssetsPage() {
               {assets.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderCard(a)}</Col>)}
             </Row>
           )},
+          { key: 'video', label: `视频 (${stats?.videos || 0})`, children: (
+            <Row gutter={[12, 12]}>
+              {assets.length === 0 && <Col span={24}><Text type="secondary">暂无视频资产</Text></Col>}
+              {assets.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderCard(a)}</Col>)}
+            </Row>
+          )},
         ]}
       />
 
@@ -352,12 +403,13 @@ export default function GlobalAssetsPage() {
               <Select.Option value="character">人物</Select.Option>
               <Select.Option value="prop">物品</Select.Option>
               <Select.Option value="scene">场景</Select.Option>
+              <Select.Option value="video">视频</Select.Option>
             </Select>
           </div>
           <Input placeholder="资产名称" value={addName} onChange={e => setAddName(e.target.value)} />
           <TextArea placeholder="资产描述（可选）" value={addDesc} onChange={e => setAddDesc(e.target.value)} rows={2} />
-          <TextArea placeholder="英文提示词（给AI用，可选）" value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
-          <TextArea placeholder="中文提示词描述（给你看，可选）" value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
+          <TextArea placeholder={addType === 'video' ? "英文视频提示词（给AI用，可选）" : "英文提示词（给AI用，可选）"} value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
+          <TextArea placeholder={addType === 'video' ? "中文视频提示词描述（给你看，可选）" : "中文提示词描述（给你看，可选）"} value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
           <Input placeholder="标签，用逗号分隔（如：古风,仙侠,主角）" value={addTags} onChange={e => setAddTags(e.target.value)} />
         </Space>
       </Modal>
@@ -439,6 +491,34 @@ export default function GlobalAssetsPage() {
             </div>
           )}
         </Space>
+      </Modal>
+
+      <Modal 
+        title="视频预览" 
+        open={previewVideoVisible}
+        onCancel={() => { setPreviewVideoVisible(false); setPreviewVideoUrl(''); }}
+        footer={[
+          <Button key="close" onClick={() => { setPreviewVideoVisible(false); setPreviewVideoUrl(''); }}>
+            关闭
+          </Button>,
+          <Button key="open" type="link" href={previewVideoUrl} target="_blank">
+            在新窗口打开
+          </Button>,
+        ]}
+        width={720}
+        centered
+        destroyOnClose
+      >
+        {previewVideoUrl && (
+          <video 
+            src={previewVideoUrl} 
+            controls 
+            playsInline 
+            preload="auto"
+            autoPlay
+            style={{ width: '100%', borderRadius: 8, background: '#000' }}
+          />
+        )}
       </Modal>
     </div>
   );
