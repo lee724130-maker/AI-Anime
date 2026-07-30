@@ -112,6 +112,11 @@ export class CreateProjectDto {
   variables: string;
 }
 
+export class RegenerateSceneDto {
+  @IsInt() @Min(0)
+  sceneIndex: number;
+}
+
 export class UpdateProjectDto {
   @IsOptional() @IsString() @MaxLength(100)
   name?: string;

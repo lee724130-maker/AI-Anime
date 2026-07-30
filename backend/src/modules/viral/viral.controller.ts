@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ViralService } from './viral.service';
-import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, ListTemplateQuery, AnalyzeVideoDto } from './viral.dto';
+import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, ListTemplateQuery, AnalyzeVideoDto, RegenerateSceneDto } from './viral.dto';
 
 @Controller('api/viral')
 @UseGuards(JwtAuthGuard)
@@ -75,6 +75,23 @@ export class ViralController {
   @Delete('projects/:id')
   deleteProject(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.service.deleteProject(id, req.user.id);
+  }
+
+  // ───── Generation ─────
+
+  @Post('projects/:id/generate')
+  startGeneration(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.startGeneration(id, req.user.id);
+  }
+
+  @Post('projects/:id/regenerate-scene')
+  regenerateScene(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() dto: RegenerateSceneDto) {
+    return this.service.regenerateScene(id, req.user.id, dto.sceneIndex);
+  }
+
+  @Get('projects/:id/result')
+  getResult(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.getProjectResult(id, req.user.id);
   }
 
   // ───── Stats ─────

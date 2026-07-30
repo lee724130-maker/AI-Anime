@@ -527,6 +527,94 @@ export class FFmpegUtil {
     }
   }
 
+  /**
+   * Generate a text animation video using FFmpeg drawtext filter.
+   * Creates a video with centered text that fades in/out.
+   */
+  async generateTextVideo(
+    text: string,
+    options?: {
+      bgColor?: string;
+      textColor?: string;
+      fontSize?: number;
+      resolution?: string;
+      duration?: number;
+      fps?: number;
+      outputPath?: string;
+    },
+  ): Promise<string> {
+    const {
+      bgColor = '#7C3AED',
+      textColor = '#FFFFFF',
+      fontSize = 48,
+      resolution = '1080x1920',
+      duration = 3,
+      fps = 24,
+    } = options || {};
+
+    const outPath = options?.outputPath || path.join(this.outputDir, `text_${Date.now()}.mp4`);
+    const [w, h] = resolution.split('x').map(Number);
+
+    // Escape text for FFmpeg filter: wrap long lines, escape special chars
+    const maxCharsPerLine = Math.floor(w / (fontSize * 0.55));
+    const lines = this.wrapText(text, maxCharsPerLine);
+    const escapeText = (t: string) =>
+      t.replace(/'/g, "'\\\\\\''").replace(/:/g, '\\\\:').replace(/,/g, '\\\\,');
+
+    // Build drawtext filter for each line
+    const lineHeight = fontSize * 1.4;
+    const totalTextHeight = lines.length * lineHeight;
+    const startY = (h - totalTextHeight) / 2;
+
+    const drawTextFilters = lines.map((line, i) => {
+      const y = startY + i * lineHeight;
+      return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x=(w-text_w)/2:y=${y}:enable='between(t,0,${duration})'`;
+    });
+
+    const filter = drawTextFilters.join(',');
+
+    try {
+      await this.ff(
+        `-y -f lavfi -i "color=c=0x${bgColor.replace('#', '')}:s=${resolution}:d=${duration}:r=${fps}" ` +
+        `-vf "${filter}" -c:v libx264 -preset fast -crf 23 "${outPath}"`,
+        { timeout: 30000 },
+      );
+      this.logger.log(`Text video generated: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`Text video generation failed: ${err.message}`);
+      // Fallback: create a simple video without text
+      await this.ff(
+        `-y -f lavfi -i "color=c=0x${bgColor.replace('#', '')}:s=${resolution}:d=${duration}:r=${fps}" ` +
+        `-c:v libx264 -preset fast -crf 23 "${outPath}"`,
+        { timeout: 30000 },
+      );
+      return outPath;
+    }
+  }
+
+  private wrapText(text: string, maxCharsPerLine: number): string[] {
+    const lines: string[] = [];
+    const words = text.split(/\s+/);
+    let currentLine = '';
+    for (const word of words) {
+      if ((currentLine + ' ' + word).trim().length <= maxCharsPerLine) {
+        currentLine = (currentLine + ' ' + word).trim();
+      } else {
+        if (currentLine) lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+    // If no spaces, just split by character count
+    if (lines.length === 0 && text.length > 0) {
+      for (let i = 0; i < text.length; i += maxCharsPerLine) {
+        lines.push(text.substring(i, i + maxCharsPerLine));
+      }
+    }
+    return lines.length > 0 ? lines : [text];
+  }
+
   private formatTime(seconds: number): string {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);

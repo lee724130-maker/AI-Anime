@@ -10,6 +10,7 @@ import { ViralTemplate } from './viral-template.entity';
 import { ViralProject } from './viral-project.entity';
 import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, AnalyzeVideoDto } from './viral.dto';
 import { AIServiceUtil } from '../../utils/ai-service.util';
+import { FFmpegUtil } from '../../utils/ffmpeg.util';
 
 const execAsync = promisify(exec);
 
@@ -24,6 +25,7 @@ export class ViralService {
     @InjectRepository(ViralProject)
     private readonly projectRepo: Repository<ViralProject>,
     private readonly aiService: AIServiceUtil,
+    private readonly ffmpeg: FFmpegUtil,
   ) {
     this.outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(this.outputDir)) fs.mkdirSync(this.outputDir, { recursive: true });
@@ -412,6 +414,307 @@ export class ViralService {
     if (!project) throw new NotFoundException('项目不存在');
     await this.projectRepo.remove(project);
     return { deleted: true };
+  }
+
+  // ───── Generation ─────
+
+  async startGeneration(projectId: number, userId: number) {
+    const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
+    if (!project) throw new NotFoundException('项目不存在');
+
+    const template = await this.templateRepo.findOne({ where: { id: project.template_id } });
+    if (!template) throw new NotFoundException('关联模板不存在');
+
+    // Parse project data
+    let scenes: any[];
+    let variables: any[];
+    try {
+      scenes = JSON.parse(project.scenes);
+      variables = JSON.parse(project.variables);
+    } catch {
+      throw new BadRequestException('项目数据格式错误');
+    }
+
+    const varMap: Record<string, string> = {};
+    for (const v of variables) {
+      varMap[v.key] = String(v.value || '');
+    }
+
+    // Update status
+    project.status = 'processing';
+    project.progress = 0;
+    await this.projectRepo.save(project);
+
+    const workDir = path.join(this.outputDir, `viral_gen_${projectId}_${Date.now()}`);
+    fs.mkdirSync(workDir, { recursive: true });
+
+    const sceneResults: Array<{ name: string; status: string; videoPath?: string; error?: string }> = [];
+
+    try {
+      for (let i = 0; i < scenes.length; i++) {
+        const scene = scenes[i];
+        const sceneResult: any = { name: scene.name, status: 'processing' };
+        sceneResults.push(sceneResult);
+
+        try {
+          // Substitute variables in description
+          let description = scene.description || '';
+          for (const [key, val] of Object.entries(varMap)) {
+            description = description.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val);
+          }
+
+          let videoPath: string | null = null;
+
+          if (scene.type === 'image') {
+            // Generate image, then convert to short video
+            const urls = await this.aiService.generateImage({
+              prompt: description,
+              numImages: 1,
+            });
+            if (urls && urls.length > 0 && urls[0]) {
+              videoPath = await this.downloadToLocal(urls[0], workDir, `scene_${i}`);
+              if (videoPath) {
+                // Convert image to video with duration
+                const imgVideoPath = path.join(workDir, `scene_${i}_vid.mp4`);
+                await this.ffmpeg['composite']({
+                  imagePaths: [videoPath],
+                  outputPath: imgVideoPath,
+                  duration: scene.duration || 3,
+                  fps: 24,
+                  resolution: '1080x1920',
+                });
+                videoPath = imgVideoPath;
+              }
+            }
+          } else if (scene.type === 'video') {
+            // Generate video directly
+            const url = await this.aiService.generateVideo({
+              prompt: description,
+              duration: scene.duration || 5,
+              resolution: '1080x1920',
+            });
+            if (url) {
+              videoPath = await this.downloadToLocal(url, workDir, `scene_${i}_video`);
+            }
+          } else if (scene.type === 'text') {
+            // Generate text animation video
+            videoPath = await this.ffmpeg.generateTextVideo(description, {
+              duration: scene.duration || 3,
+              resolution: '1080x1920',
+              bgColor: '#1a1a2e',
+              textColor: '#FFFFFF',
+              fontSize: 48,
+            });
+          }
+
+          if (videoPath && fs.existsSync(videoPath)) {
+            sceneResult.videoPath = videoPath;
+            sceneResult.status = 'completed';
+          } else {
+            sceneResult.status = 'failed';
+            sceneResult.error = '生成结果为空';
+          }
+        } catch (err: any) {
+          sceneResult.status = 'failed';
+          sceneResult.error = err.message.substring(0, 200);
+          this.logger.error(`Scene ${i} (${scene.name}) failed: ${err.message}`);
+        }
+
+        // Update progress
+        project.progress = Math.round(((i + 1) / scenes.length) * 100);
+        project.scenes = JSON.stringify(sceneResults);
+        await this.projectRepo.save(project);
+      }
+
+      // Step 2: Concatenate all successful scene videos
+      const successfulPaths = sceneResults
+        .filter(s => s.status === 'completed' && s.videoPath && fs.existsSync(s.videoPath))
+        .map(s => s.videoPath!);
+
+      if (successfulPaths.length === 0) {
+        project.status = 'failed';
+        project.error_msg = '所有场景生成失败';
+        await this.projectRepo.save(project);
+        return this.sanitizeProject(project);
+      }
+
+      // Merge videos
+      let mergedPath: string;
+      try {
+        mergedPath = await this.ffmpeg.mergeVideos(successfulPaths);
+      } catch (err: any) {
+        this.logger.error(`Merge failed: ${err.message}`);
+        // Fallback: use first video as result
+        mergedPath = successfulPaths[0];
+      }
+
+      // Step 3: Add background music if specified
+      const audioConfig = template.audio ? JSON.parse(template.audio) : null;
+      if (audioConfig?.bgm_url) {
+        try {
+          const audioPath = await this.downloadToLocal(audioConfig.bgm_url, workDir, 'bgm');
+          if (audioPath) {
+            mergedPath = await this.ffmpeg.compositeVideoWithAudio(mergedPath, audioPath);
+          }
+        } catch (err: any) {
+          this.logger.warn(`Background music failed: ${err.message}`);
+        }
+      }
+
+      // Copy result to static directory
+      const finalFilename = `viral_result_${projectId}_${Date.now()}.mp4`;
+      const finalPath = path.join(this.outputDir, finalFilename);
+      fs.copyFileSync(mergedPath, finalPath);
+
+      project.status = 'completed';
+      project.progress = 100;
+      project.result_url = `/static/${finalFilename}`;
+      project.scenes = JSON.stringify(sceneResults);
+      await this.projectRepo.save(project);
+    } catch (err: any) {
+      project.status = 'failed';
+      project.error_msg = err.message.substring(0, 500);
+      project.scenes = JSON.stringify(sceneResults);
+      await this.projectRepo.save(project);
+    } finally {
+      // Cleanup temp files
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
+    return this.sanitizeProject(project);
+  }
+
+  async regenerateScene(projectId: number, userId: number, sceneIndex: number) {
+    const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
+    if (!project) throw new NotFoundException('项目不存在');
+
+    let scenes: any[];
+    let variables: any[];
+    try {
+      scenes = JSON.parse(project.scenes);
+      variables = JSON.parse(project.variables);
+    } catch {
+      throw new BadRequestException('项目数据格式错误');
+    }
+
+    if (sceneIndex < 0 || sceneIndex >= scenes.length) {
+      throw new BadRequestException(`场景索引无效: ${sceneIndex}, 共 ${scenes.length} 个场景`);
+    }
+
+    const scene = scenes[sceneIndex];
+    const varMap: Record<string, string> = {};
+    for (const v of variables) varMap[v.key] = String(v.value || '');
+
+    let description = scene.description || '';
+    for (const [key, val] of Object.entries(varMap)) {
+      description = description.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val);
+    }
+
+    project.status = 'processing';
+    await this.projectRepo.save(project);
+
+    const workDir = path.join(this.outputDir, `viral_reg_${projectId}_${sceneIndex}_${Date.now()}`);
+    fs.mkdirSync(workDir, { recursive: true });
+
+    try {
+      let videoPath: string | null = null;
+
+      if (scene.type === 'image') {
+        const urls = await this.aiService.generateImage({ prompt: description, numImages: 1 });
+        if (urls?.[0]) {
+          const imgPath = await this.downloadToLocal(urls[0], workDir, `scene_${sceneIndex}`);
+          if (imgPath) {
+            const imgVidPath = path.join(workDir, `scene_${sceneIndex}_vid.mp4`);
+            await this.ffmpeg['composite']({
+              imagePaths: [imgPath],
+              outputPath: imgVidPath,
+              duration: scene.duration || 3,
+              fps: 24,
+              resolution: '1080x1920',
+            });
+            videoPath = imgVidPath;
+          }
+        }
+      } else if (scene.type === 'video') {
+        const url = await this.aiService.generateVideo({ prompt: description, duration: scene.duration || 5, resolution: '1080x1920' });
+        if (url) videoPath = await this.downloadToLocal(url, workDir, `scene_${sceneIndex}_video`);
+      } else if (scene.type === 'text') {
+        videoPath = await this.ffmpeg.generateTextVideo(description, {
+          duration: scene.duration || 3, resolution: '1080x1920',
+        });
+      }
+
+      if (videoPath && fs.existsSync(videoPath)) {
+        scenes[sceneIndex].videoPath = videoPath;
+        scenes[sceneIndex].status = 'completed';
+        scenes[sceneIndex].error = undefined;
+      } else {
+        throw new Error('生成结果为空');
+      }
+
+      project.scenes = JSON.stringify(scenes);
+      project.status = 'processing';
+      await this.projectRepo.save(project);
+
+      // Try to re-merge if all scenes are done
+      const completedPaths = scenes
+        .filter((s: any) => s.status === 'completed' && s.videoPath && fs.existsSync(s.videoPath))
+        .map((s: any) => s.videoPath!);
+
+      if (completedPaths.length > 0) {
+        try {
+          let mergedPath = await this.ffmpeg.mergeVideos(completedPaths);
+          const finalFilename = `viral_result_${projectId}_${Date.now()}.mp4`;
+          const finalPath = path.join(this.outputDir, finalFilename);
+          fs.copyFileSync(mergedPath, finalPath);
+          project.result_url = `/static/${finalFilename}`;
+          project.progress = 100;
+          project.status = 'completed';
+          await this.projectRepo.save(project);
+        } catch {
+          project.status = 'processing';
+          await this.projectRepo.save(project);
+        }
+      }
+    } catch (err: any) {
+      scenes[sceneIndex].status = 'failed';
+      scenes[sceneIndex].error = err.message.substring(0, 200);
+      project.scenes = JSON.stringify(scenes);
+      await this.projectRepo.save(project);
+    } finally {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
+    return this.sanitizeProject(project);
+  }
+
+  async getProjectResult(projectId: number, userId: number) {
+    const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
+    if (!project) throw new NotFoundException('项目不存在');
+    return { status: project.status, result_url: project.result_url, progress: project.progress };
+  }
+
+  private async downloadToLocal(url: string, workDir: string, prefix: string): Promise<string | null> {
+    try {
+      if (url.startsWith('data:')) return null; // base64, skip
+      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
+      const ext = '.mp4';
+      const filename = `${prefix}_${Date.now()}${ext}`;
+      const localPath = path.join(workDir, filename);
+      fs.writeFileSync(localPath, Buffer.from(response.data));
+      return localPath;
+    } catch (err: any) {
+      this.logger.warn(`Download failed: ${url.substring(0, 80)} - ${err.message}`);
+      return null;
+    }
+  }
+
+  private sanitizeProject(project: ViralProject) {
+    return {
+      ...project,
+      variables: project.variables ? JSON.parse(project.variables) : [],
+      scenes: project.scenes ? JSON.parse(project.scenes) : [],
+    };
   }
 
   // ───── Stats ─────
