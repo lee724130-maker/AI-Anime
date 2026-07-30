@@ -210,14 +210,17 @@ export class ViralService {
         ], { temperature: 0.3, maxTokens: 2048 });
       } catch (err: any) {
         this.logger.warn(`纯文本分析失败，尝试多模态: ${err.message}`);
-        // Fallback: try multimodal with frames
-        try {
-          llmResult = await this.aiService.generateSmartDescription(frames);
-          // Generate a basic template from the description
-          return this.buildBasicTemplate(name, description, category, llmResult, info, frames);
-        } catch (err2: any) {
-          throw new BadRequestException(`视频分析失败: ${err2.message}`);
+        // Fallback: try multimodal with frames (if available)
+        if (frames.length > 0) {
+          try {
+            llmResult = await this.aiService.generateSmartDescription(frames);
+            return this.buildBasicTemplate(name, description, category, llmResult, info, frames);
+          } catch (err2: any) {
+            this.logger.warn(`多模态分析也失败: ${err2.message}`);
+          }
         }
+        // Ultimate fallback: return a basic template
+        return this.buildBasicTemplate(name, description, category, '', info, []);
       }
 
       // Parse LLM result
@@ -263,76 +266,88 @@ export class ViralService {
     }
 
     // Fallback: Playwright headless browser (handles Douyin/TikTok requiring cookies)
+    let playwrightVideoUrl: string | null = null;
+    let browserRef: any = null;
     try {
       const browser = await chromium.launch({ headless: true });
+      browserRef = browser;
       const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
         locale: 'zh-CN',
-        viewport: { width: 390, height: 844 }, // Mobile viewport for Douyin
+        viewport: { width: 390, height: 844 },
       });
       const page = await context.newPage();
-      let videoUrl: string | null = null;
 
       // Intercept network responses to find video content
       page.on('response', (response) => {
         const contentType = response.headers()['content-type'] || '';
-        if (contentType.startsWith('video/') && !videoUrl) {
-          videoUrl = response.url();
-          this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${videoUrl.substring(0, 100)}`);
+        if (contentType.startsWith('video/') && !playwrightVideoUrl) {
+          playwrightVideoUrl = response.url();
+          this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${playwrightVideoUrl.substring(0, 100)}`);
         }
       });
 
       this.logger.log(`Playwright: 打开页面 ${url}`);
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-
-      // Wait a bit for dynamic content
-      await page.waitForTimeout(3000);
+      // Use domcontentloaded + short timeout + manual wait (networkidle never completes for Douyin)
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await page.waitForTimeout(5000);
 
       // Try to extract video URL from <video> elements
-      if (!videoUrl) {
-        videoUrl = await page.evaluate(() => {
+      if (!playwrightVideoUrl) {
+        playwrightVideoUrl = await page.evaluate(() => {
           const videos = document.querySelectorAll('video');
           for (const v of videos) {
             const src = (v as HTMLVideoElement).src;
             if (src && src.startsWith('http')) return src;
           }
           return null;
-        });
+        }).catch(() => null);
       }
 
       // Try to extract from page source (Douyin embeds video URL in script data)
-      if (!videoUrl) {
-        videoUrl = await page.evaluate(() => {
+      if (!playwrightVideoUrl) {
+        playwrightVideoUrl = await page.evaluate(() => {
           const html = document.documentElement.innerHTML;
-          // Look for common video URL patterns
           const patterns = [
-            /https?:\/\/[^"'\s]*\.(mp4|m3u8)[^"'\s]*/gi,
-            /"video_id":"([^"]+)"/,
-            /"play_addr":[^}]*"url_list":\["([^"]+)"/,
-            /"src":"(https?:\/\/[^"]+\.mp4[^"]*)"/,
+            // Douyin: play_addr → url_list
+            /"play_addr":(?:\{[^}]*\}|[^}]*\{[^}]*"url_list":\["([^"]+\.(?:mp4|m3u8)[^"]*)")/,
+            /"play_api":"([^"]+\.(?:mp4|m3u8)[^"]*)/,
+            // Generic: mp4/m3u8 URLs
+            /https?:\/\/[^"'\s>]*\.(mp4|m3u8)[^"'\s>]*/gi,
+            // video src attribute
+            /<video[^>]*src="([^"]+)"/,
+            // Douyin render_data
+            /"video":\s*\{[^}]*"src":\s*"([^"]+)"/,
           ];
           for (const pattern of patterns) {
             const match = html.match(pattern);
-            if (match) return match[1] || match[0];
+            if (match) {
+              const url = match[1] || match[0];
+              // Skip placeholder/empty URLs
+              if (url && url.includes('.mp4') && !url.includes('uuu_265') && !url.includes('placeholder')) return url;
+            }
           }
           return null;
-        });
+        }).catch(() => null);
       }
 
-      await browser.close();
+      await browser.close().catch(() => {});
+      browserRef = null;
 
-      if (videoUrl) {
-        this.logger.log(`Playwright: 下载视频 ${videoUrl.substring(0, 80)}`);
-        const response = await axios.get(videoUrl, {
+      if (playwrightVideoUrl) {
+        this.logger.log(`Playwright: 下载视频 ${playwrightVideoUrl.substring(0, 80)}`);
+        const resp = await axios.get(playwrightVideoUrl, {
           responseType: 'arraybuffer',
           timeout: 120000,
           headers: { 'Referer': url, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
         });
-        fs.writeFileSync(outputPath, Buffer.from(response.data));
+        fs.writeFileSync(outputPath, Buffer.from(resp.data));
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return;
       }
     } catch (err: any) {
       this.logger.warn(`Playwright 下载失败: ${err.message}`);
+    } finally {
+      if (browserRef) try { await browserRef.close(); } catch { /* ignore */ }
     }
 
     // Last resort: direct download (for direct MP4 URLs)
@@ -417,7 +432,7 @@ export class ViralService {
     return {
       name: name || '分析结果',
       description: description || analysis.substring(0, 100),
-      category: category || 'general',
+      category: category || '',
       scenes: [
         { name: '开场', duration: 3, description: analysis.substring(0, 80), type: 'image' },
         { name: '主体内容', duration: Math.max(Math.floor(info.duration / 2), 3), description: '核心展示内容', type: 'video' },

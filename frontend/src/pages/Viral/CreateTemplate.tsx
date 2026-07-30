@@ -21,7 +21,7 @@ export default function CreateTemplate() {
   const [videoUrl, setVideoUrl] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('general');
+  const [category, setCategory] = useState('');
   const [scenes, setScenes] = useState<SceneItem[]>([]);
   const [variables, setVariables] = useState<VariableItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -36,12 +36,12 @@ export default function CreateTemplate() {
       const { data } = await api.post('/api/viral/templates/analyze', {
         videoUrl: videoUrl.trim(),
         name: name || undefined,
-        category: category !== 'general' ? category : undefined,
+        category: category || undefined,
         description: description || undefined,
       });
       setName(data.name || '');
       setDescription(data.description || '');
-      setCategory(data.category || 'general');
+      setCategory(data.category || '');
       setScenes(data.scenes || []);
       setVariables(data.variables || []);
       setStep('edit');
