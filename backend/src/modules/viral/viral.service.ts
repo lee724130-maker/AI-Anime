@@ -299,18 +299,35 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         url.includes('uuu_265') || url.includes('placeholder') || url.includes('default') || url.endsWith('.ts');
 
       // Intercept network responses to find video content
-      page.on('response', (response) => {
+      page.on('response', async (response) => {
+        const url = response.url();
         const contentType = response.headers()['content-type'] || '';
-        if (contentType.startsWith('video/')) {
-          const url = response.url();
+
+        // Priority 1: Douyin aweme detail API (contains play_addr with real video URL)
+        if (url.includes('/aweme/v1/web/aweme/detail') && contentType.includes('json')) {
+          try {
+            const body = await response.json();
+            const detail = body?.aweme_detail;
+            if (detail?.desc) {
+              this.logger.log(`Playwright: API 视频标题: "${detail.desc.substring(0, 100)}"`);
+            }
+            const addr = detail?.video?.play_addr;
+            if (addr?.url_list?.length > 0) {
+              const realUrl = addr.url_list[0].replace(/\\u0026/g, '&');
+              this.logger.log(`Playwright: 从 API 获取到真实视频 URL: ${realUrl.substring(0, 100)}`);
+              playwrightVideoUrl = realUrl;
+            }
+          } catch { /* ignore parse errors */ }
+        }
+
+        // Priority 2: video content-type responses (skip placeholders)
+        if (contentType.startsWith('video/') && !playwrightVideoUrl) {
           if (isPlaceholderUrl(url)) {
             this.logger.log(`Playwright: 跳过占位视频: ${url.substring(0, 80)}`);
             return;
           }
-          if (!playwrightVideoUrl) {
-            playwrightVideoUrl = url;
-            this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${playwrightVideoUrl.substring(0, 100)}`);
-          }
+          playwrightVideoUrl = url;
+          this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${playwrightVideoUrl.substring(0, 100)}`);
         }
       });
 
