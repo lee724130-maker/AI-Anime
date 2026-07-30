@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge } from 'antd';
-import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ExperimentOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ExperimentOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { Title, Text } = Typography;
@@ -99,10 +99,16 @@ export default function ViralIndex() {
           />
         </Col>
         <Col xs={12} sm={6} style={{ textAlign: 'right' }}>
-          <Button icon={<PlusOutlined />} style={{ borderRadius: 10 }}
-            onClick={() => navigate('/viral/projects')}>
-            我的创作
-          </Button>
+          <Space>
+            <Button icon={<VideoCameraAddOutlined />} style={{ borderRadius: 10 }}
+              onClick={() => navigate('/viral/create')}>
+              创建模板
+            </Button>
+            <Button icon={<PlusOutlined />} style={{ borderRadius: 10 }}
+              onClick={() => navigate('/viral/projects')}>
+              我的创作
+            </Button>
+          </Space>
         </Col>
       </Row>
 

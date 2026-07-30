@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ViralService } from './viral.service';
-import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, ListTemplateQuery } from './viral.dto';
+import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, ListTemplateQuery, AnalyzeVideoDto } from './viral.dto';
 
 @Controller('api/viral')
 @UseGuards(JwtAuthGuard)
@@ -23,6 +23,16 @@ export class ViralController {
   @Post('templates')
   createTemplate(@Body() dto: CreateTemplateDto) {
     return this.service.createTemplate(dto);
+  }
+
+  @Post('templates/analyze')
+  analyzeVideo(@Body() dto: AnalyzeVideoDto) {
+    return this.service.analyzeVideo(dto);
+  }
+
+  @Post('templates/:id/duplicate')
+  duplicateTemplate(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.duplicateTemplate(id, req.user.id);
   }
 
   @Put('templates/:id')

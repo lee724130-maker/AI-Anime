@@ -19,6 +19,7 @@ import StudioPage from './pages/Studio';
 import OrderPage from './pages/Order';
 import ViralIndex from './pages/Viral';
 import ViralTemplateDetail from './pages/Viral/TemplateDetail';
+import ViralCreateTemplate from './pages/Viral/CreateTemplate';
 import ViralProjectList from './pages/Viral/ProjectList';
 import ViralProjectDetail from './pages/Viral/ProjectDetail';
 import GeneratePage from './pages/Generate';
@@ -69,6 +70,7 @@ export default function App() {
         <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
         <Route path="/order" element={<ProtectedRoute><OrderPage /></ProtectedRoute>} />
         <Route path="/viral" element={<ProtectedRoute><UserLayout><ViralIndex /></UserLayout></ProtectedRoute>} />
+        <Route path="/viral/create" element={<ProtectedRoute><UserLayout><ViralCreateTemplate /></UserLayout></ProtectedRoute>} />
         <Route path="/viral/templates/:id" element={<ProtectedRoute><UserLayout><ViralTemplateDetail /></UserLayout></ProtectedRoute>} />
         <Route path="/viral/projects" element={<ProtectedRoute><UserLayout><ViralProjectList /></UserLayout></ProtectedRoute>} />
         <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />

@@ -87,6 +87,20 @@ export class ListTemplateQuery {
   limit?: number;
 }
 
+export class AnalyzeVideoDto {
+  @IsString()
+  videoUrl: string;
+
+  @IsOptional() @IsString()
+  name?: string;
+
+  @IsOptional() @IsString()
+  category?: string;
+
+  @IsOptional() @IsString()
+  description?: string;
+}
+
 export class CreateProjectDto {
   @IsInt()
   template_id: number;
