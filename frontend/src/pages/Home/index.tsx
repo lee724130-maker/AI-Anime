@@ -50,13 +50,18 @@ export default function HomePage() {
   const { refreshUser, user } = useAuthStore();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<WorkbenchSummary | null>(null);
+  const [viralStats, setViralStats] = useState<{ templateCount: number; projectCount: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const pollingRef = useRef<number | null>(null);
 
   const fetchSummary = async () => {
     try {
-      const { data } = await api.get('/api/workbench/summary');
-      setSummary(data);
+      const [summaryRes, viralRes] = await Promise.all([
+        api.get('/api/workbench/summary'),
+        api.get('/api/viral/stats').catch(() => null),
+      ]);
+      setSummary(summaryRes.data);
+      if (viralRes) setViralStats(viralRes.data);
     } catch { /* ignore */ }
     setLoading(false);
   };
@@ -83,7 +88,7 @@ export default function HomePage() {
     { title: '短剧项目', value: summary.projectStats.total, icon: <VideoCameraOutlined />, color: '#7c3aed', bg: '#f5f0ff', href: '/drama' },
     { title: 'AI 生成', value: summary.totalGenerations, icon: <ThunderboltOutlined />, color: '#ec4899', bg: '#fdf2f8', href: '/generate' },
     { title: '全局资产', value: summary.assetStats.global.total, icon: <DatabaseOutlined />, color: '#0891b2', bg: '#ecfeff', href: '/global-assets' },
-    { title: '热门创作', value: 0, icon: <ExperimentOutlined />, color: '#f59e0b', bg: '#fffbeb', href: '/viral' },
+    { title: '热门创作', value: viralStats?.templateCount ?? 0, icon: <ExperimentOutlined />, color: '#f59e0b', bg: '#fffbeb', href: '/viral' },
   ] : [];
 
   const quickLinks = [

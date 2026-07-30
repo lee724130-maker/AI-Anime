@@ -17,6 +17,10 @@ import VideoDetailPage from './pages/Video/Detail';
 import VideoStitchPage from './pages/Video/Stitch';
 import StudioPage from './pages/Studio';
 import OrderPage from './pages/Order';
+import ViralIndex from './pages/Viral';
+import ViralTemplateDetail from './pages/Viral/TemplateDetail';
+import ViralProjectList from './pages/Viral/ProjectList';
+import ViralProjectDetail from './pages/Viral/ProjectDetail';
 import GeneratePage from './pages/Generate';
 import DramaListPage from './pages/Drama';
 import DramaCreatePage from './pages/Drama/Create';
@@ -64,6 +68,10 @@ export default function App() {
         <Route path="/video/:id" element={<ProtectedRoute><VideoDetailPage /></ProtectedRoute>} />
         <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
         <Route path="/order" element={<ProtectedRoute><OrderPage /></ProtectedRoute>} />
+        <Route path="/viral" element={<ProtectedRoute><UserLayout><ViralIndex /></UserLayout></ProtectedRoute>} />
+        <Route path="/viral/templates/:id" element={<ProtectedRoute><UserLayout><ViralTemplateDetail /></UserLayout></ProtectedRoute>} />
+        <Route path="/viral/projects" element={<ProtectedRoute><UserLayout><ViralProjectList /></UserLayout></ProtectedRoute>} />
+        <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   );
