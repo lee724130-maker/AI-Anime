@@ -1,5 +1,61 @@
 # 修复日志
 
+## 2026-07-30
+
+### 服务状态（关停前）
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| 后端（NestJS） | 3000 | ✅ 运行中（PID 18876） |
+| 前端（Vite） | 5173 | ✅ 运行中 |
+| 管理后台（Vite） | 5174 | ✅ 运行中 |
+| Redis | 6379 | ✅ 运行中 |
+| MySQL | 3306 | ✅ 运行中 |
+
+### 今日完成功能
+
+#### Bug D - 智能描述多模态 400 错误（data URI 修复）✅ 已修复
+- **现象**: `imageToBase64` 收到 `data:image/jpeg;base64,...` 格式的图片时，因为不以 `http` 开头走进了本地文件路径分支，`fs.existsSync('data:...')` 自然失败
+- **文件**: `backend/src/utils/ai-service.util.ts`
+- **修改**: 在 `imageToBase64` 开头添加 `data:` URI 检测，匹配 `data:image/\w+;base64,(.+)` 直接提取 base64 内容返回
+- **验证结果**: 
+  - 8 帧全部成功转换：`成功 8, 失败 0`
+  - 阿里云 `qwen3.5-omni-plus-2026-03-15` 多模态 API 成功返回
+  - 生成模板：「影视浪漫混剪」— 4 场景，7 变量
+
+#### 抖音视频下载流程打通 ✅
+- yt-dlp 下载失败（需要 Cookie）→ Playwright 降级成功
+- 简化版导航（单次 goto + `domcontentloaded` + 8s 等待）稳定工作
+- API 元数据捕获（标题、时长、去水印 URL）正常
+- `DownloadVideo` 流程: yt-dlp → Playwright API 捕获 → axios 下载 → 返回 `{duration, title}`
+
+#### FFmpeg 修复 ✅
+- `ffprobe` 输出解析修复：`-select_streams v:0` 只取视频流
+- 时长 >300s 时回退到 `format.duration`
+
+### 明天开发计划（2026-07-31）
+
+#### 最重要的一步：用视频模板生成视频内容
+1. 启动项目（后端 `npm run start:dev`，前端 `npx vite`）
+2. 测试 `POST /api/viral/templates/analyze` 传入抖音 URL → 成功返回模板
+3. 测试 `POST /api/viral/projects` 创建项目 + 填写变量 → 返回 projectId
+4. 测试 `POST /api/viral/projects/:id/generate` → 调用 AI 模型生成各场景视频
+5. 验证最终视频合成和下载
+6. 验证 `media_refs`（大资产库参考图）是否已传递给 AI 模型（当前代码有 gap）
+
+#### 关键待办
+- [ ] 检查 `startGeneration()` 中 `media_refs` 是否已拼接到 `media` 参数传给 AI
+- [ ] 测试纯文本降级 vs 多模态分析的效果差异
+- [ ] 验证多图场景下 R2V 降级链路
+
+### 关键文件清单
+| 文件 | 修改内容 |
+|------|---------|
+| `backend/src/utils/ai-service.util.ts` | `imageToBase64` 添加 data URI 检测 + `chatWithVision` 图片处理优化 |
+| `backend/src/modules/viral/viral.service.ts` | `downloadVideo` 简化、`analyzeVideo` 视觉→文本三级降级 |
+| `backend/src/utils/ffmpeg.util.ts` | `getVideoInfo` 修复 |
+
+---
+
 ## 2026-07-29
 
 ### 服务状态

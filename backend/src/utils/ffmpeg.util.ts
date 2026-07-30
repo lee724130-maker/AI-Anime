@@ -360,16 +360,28 @@ export class FFmpegUtil {
    */
   async getVideoInfo(videoPath: string): Promise<{ width: number; height: number; duration: number }> {
     try {
-      const { stdout } = await execAsync(
-        `"${this.ffprobePath}" -v error -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+      const { stdout: probeOut } = await execAsync(
+        `ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
         { timeout: 10000 },
       );
-      const lines = stdout.trim().split('\n').map(Number);
-      return {
-        width: lines[0] || 0,
-        height: lines[1] || 0,
-        duration: lines[2] || 5,
-      };
+      const parts = probeOut.trim().split('\n').map(s => s.trim()).filter(Boolean);
+      let width = 0, height = 0, duration = 5;
+      if (parts.length >= 3) {
+        width = Number(parts[0]) || 0;
+        height = Number(parts[1]) || 0;
+        const dur = parseFloat(parts[2]);
+        if (!isNaN(dur) && dur > 0) duration = dur;
+      }
+      // Sanity check: if duration > 5min, stream metadata is likely wrong
+      if (duration >= 300 || duration <= 0) {
+        const { stdout: fmtOut } = await execAsync(
+          `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+          { timeout: 10000 },
+        ).catch(() => ({ stdout: '' }));
+        const fmtDur = parseFloat(fmtOut.trim());
+        if (!isNaN(fmtDur) && fmtDur > 0 && fmtDur < 86400) duration = fmtDur;
+      }
+      return { width, height, duration };
     } catch {
       return { width: 0, height: 0, duration: 5 };
     }

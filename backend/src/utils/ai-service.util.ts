@@ -1759,6 +1759,85 @@ export class AIServiceUtil {
     throw new Error('所有模型均不可用，请检查API密钥配置或手动输入描述');
   }
 
+  /**
+   * 通用多模态分析：发送自定义提示词 + 图片帧到视觉模型
+   */
+  async analyzeFrames(systemPrompt: string, userPrompt: string, imageUrls: string[]): Promise<string> {
+    if (!imageUrls || imageUrls.length === 0) throw new Error('请提供至少一张图片');
+
+    const provider = await this.getConfigValue('llm_provider') || 'auto';
+
+    // Aliyun vision models
+    if (provider === 'aliyun' || provider === 'auto') {
+      const key = await this.getApiKey('tongyi_api_key');
+      if (key) {
+        const visionModels = [
+          'qwen3.5-omni-plus-2026-03-15',
+          'qwen3-omni-flash-realtime-2025-09-15',
+          'qwen3-omni-flash-realtime',
+          'qwen3-vl-plus',
+          'qwen-vl-max',
+          'qwen-vl-plus',
+          'qwen3-vl-flash',
+        ];
+        for (const model of visionModels) {
+          try {
+            this.logger.log(`尝试阿里云视觉模型: ${model}`);
+            const result = await this.chatWithVision(key, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model, systemPrompt, userPrompt, imageUrls);
+            if (result) return result;
+          } catch (err: any) {
+            this.logger.warn(`${model} failed: ${err.message}`);
+          }
+        }
+      }
+    }
+
+    // Volcengine vision
+    if (provider === 'volcengine' || provider === 'auto') {
+      const key = await this.getApiKey('volcengine_api_key');
+      if (key) {
+        try {
+          const textModels = await this.getActiveModels('text');
+          const volcModels = textModels.filter((m: any) => m.provider === 'volcengine' && (m.sub_capability === 'vision' || m.model_id.includes('vision')))
+            .sort((a: any, b: any) => a.priority - b.priority);
+          const modelId = volcModels.length ? volcModels[0].model_id : 'doubao-vision-pro-32k-250115';
+          const result = await this.chatWithVision(key, 'https://ark.cn-beijing.volces.com/api/v3/chat/completions', modelId, systemPrompt, userPrompt, imageUrls);
+          if (result) return result;
+        } catch (err: any) {
+          this.logger.warn(`Doubao-VL failed: ${err.message}`);
+        }
+      }
+    }
+
+    // Zhipu vision
+    if (provider === 'zhipu' || provider === 'auto') {
+      const key = await this.getApiKey('zai_api_key');
+      if (key) {
+        try {
+          const result = await this.chatWithVision(key, 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-4v', systemPrompt, userPrompt, imageUrls);
+          if (result) return result;
+        } catch (err: any) {
+          this.logger.warn(`glm-4v failed: ${err.message}`);
+        }
+      }
+    }
+
+    // OpenAI vision
+    if (provider === 'openai' || provider === 'auto') {
+      const key = await this.getApiKey('openai_api_key');
+      if (key) {
+        try {
+          const result = await this.chatWithVision(key, 'https://api.openai.com/v1/chat/completions', 'gpt-4o', systemPrompt, userPrompt, imageUrls);
+          if (result) return result;
+        } catch (err: any) {
+          this.logger.warn(`GPT-4o failed: ${err.message}`);
+        }
+      }
+    }
+
+    throw new Error('所有多模态模型均不可用');
+  }
+
   private async generateDescriptionFromText(imageUrls: string[]): Promise<string> {
     try {
       const provider = await this.getConfigValue('llm_provider') || 'auto';
@@ -1890,6 +1969,16 @@ export class AIServiceUtil {
 
   private async imageToBase64(imagePath: string): Promise<string> {
     try {
+      // 处理 data: URI（前端上传的 base64 图片）
+      if (imagePath.startsWith('data:')) {
+        const match = imagePath.match(/^data:image\/\w+;base64,(.+)$/);
+        if (match) {
+          this.logger.log(`从 data URI 提取 base64 (${match[1].length} chars)`);
+          return match[1];
+        }
+        throw new Error(`无效的 data URI 格式`);
+      }
+
       // 处理本地文件路径
       if (!imagePath.startsWith('http')) {
         // 尝试多种可能的路径格式

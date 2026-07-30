@@ -155,18 +155,21 @@ export class ViralService {
       // Step 1: Download video
       this.logger.log(`下载视频: ${finalUrl}`);
       const videoPath = path.join(workDir, 'source.mp4');
-      await this.downloadVideo(finalUrl, videoPath);
+      // Step 2: Download video (returns API metadata if available)
+      const apiMeta = await this.downloadVideo(finalUrl, videoPath);
 
-      // Step 2: Get video info
-      const info = await this.getVideoInfo(videoPath);
-      this.logger.log(`视频信息: ${info.width}x${info.height}, ${info.duration.toFixed(1)}s`);
+      // Step 3: Get video info (use API metadata as primary source)
+      const info = await this.ffmpeg.getVideoInfo(videoPath);
+      const videoDuration = (apiMeta?.duration && apiMeta.duration > 0 && apiMeta.duration < 300) ? apiMeta.duration : info.duration;
+      const videoTitle = apiMeta?.title || '';
+      this.logger.log(`视频信息: ${info.width}x${info.height}, ${info.duration.toFixed(1)}s (API时长: ${apiMeta?.duration || 'N/A'}s)`);
 
-      // Step 3: Extract keyframes
-      const frameCount = Math.min(Math.max(Math.floor(info.duration / 2), 3), 10);
+      // Step 4: Extract keyframes (use API duration for frame count)
+      const frameCount = Math.min(Math.max(Math.floor(videoDuration / 2), 3), 10);
       const frames = await this.extractFrames(videoPath, workDir, frameCount);
       this.logger.log(`提取 ${frames.length} 帧关键帧`);
 
-      // Step 4: Analyze with multimodal LLM
+      // Step 5: Analyze with multimodal LLM
       const systemPrompt = `你是一个专业的视频结构分析师。分析提供的视频帧序列，识别出视频的分镜结构。
 
 请严格按照以下 JSON 格式返回（不要包含任何其他文字）：
@@ -200,29 +203,46 @@ export class ViralService {
 - 总时长控制在 8-15 秒之间
 - category 不限于固定列表，根据视频实际内容动态判断，例如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、影视剪辑等`;
 
-      const pageTitle = await this.getPageTitle(finalUrl);
+      const pageTitle = videoTitle || await this.getPageTitle(finalUrl);
       const userPrompt = `请分析这个视频的结构，识别出场景分镜和需要用户填写的变量。
-视频时长约 ${info.duration.toFixed(0)} 秒，分辨率 ${info.width}x${info.height}。
+视频时长约 ${videoDuration.toFixed(0)} 秒。
 ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内容类型。` : ''}`;
 
       let llmResult = '';
-      try {
-        llmResult = await this.aiService.chatCompletion([
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ], { temperature: 0.3, maxTokens: 2048 });
-      } catch (err: any) {
-        this.logger.warn(`纯文本分析失败，尝试多模态: ${err.message}`);
-        // Fallback: try multimodal with frames (if available)
-        if (frames.length > 0) {
-          try {
-            llmResult = await this.aiService.generateSmartDescription(frames);
-            return this.buildBasicTemplate(name, description, category, llmResult, info, frames);
-          } catch (err2: any) {
-            this.logger.warn(`多模态分析也失败: ${err2.message}`);
-          }
+      // Primary path: use vision model with frames (can see actual content)
+      if (frames.length > 0) {
+        try {
+          this.logger.log(`尝试多模态分析 (${frames.length} 帧)`);
+          llmResult = await this.aiService.analyzeFrames(systemPrompt, userPrompt, frames);
+          this.logger.log('多模态分析成功');
+        } catch (err: any) {
+          this.logger.warn(`多模态分析失败: ${err.message}，降级到纯文本`);
         }
-        // Ultimate fallback: return a basic template
+      }
+      // Fallback: text-only analysis using video metadata
+      if (!llmResult) {
+        try {
+          this.logger.log('尝试纯文本分析');
+          llmResult = await this.aiService.chatCompletion([
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ], { temperature: 0.3, maxTokens: 2048 });
+        } catch (err: any) {
+          this.logger.warn(`纯文本分析失败: ${err.message}`);
+        }
+      }
+      // Last resort: generateSmartDescription for free-form description
+      if (!llmResult && frames.length > 0) {
+        try {
+          this.logger.log('尝试 generateSmartDescription 兜底');
+          const desc = await this.aiService.generateSmartDescription(frames);
+          return this.buildBasicTemplate(name, description, category, desc, info, frames);
+        } catch (err2: any) {
+          this.logger.warn(`兜底分析也失败: ${err2.message}`);
+        }
+      }
+      // Ultimate fallback
+      if (!llmResult) {
         return this.buildBasicTemplate(name, description, category, '', info, []);
       }
 
@@ -270,169 +290,121 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     }
   }
 
-  private async downloadVideo(url: string, outputPath: string): Promise<void> {
+  private async downloadVideo(url: string, outputPath: string): Promise<{ duration: number; title: string } | null> {
     // Try yt-dlp first (handles Douyin, YouTube, Bilibili, etc.)
     try {
-      execSync(`yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputPath}" "${url}"`, {
+      const ytOutput = execSync(`yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputPath}" --print-json "${url}"`, {
         timeout: 120000,
         stdio: 'pipe',
       });
-      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return;
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
+        try {
+          const ytMeta = JSON.parse(ytOutput.toString());
+          this.logger.log(`yt-dlp 下载成功: ${ytMeta.title || ''} (${ytMeta.duration || 0}s)`);
+          return { duration: ytMeta.duration || 0, title: ytMeta.title || '' };
+        } catch { return null; }
+      }
     } catch (err: any) {
       this.logger.warn(`yt-dlp 下载失败: ${err.message}，尝试 Playwright 降级`);
     }
 
-    // Fallback: Playwright headless browser (handles Douyin/TikTok requiring cookies)
-    let playwrightVideoUrl: string | null = null;
+    // Fallback: Playwright headless browser
     let browserRef: any = null;
     try {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      });
       browserRef = browser;
       const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
         locale: 'zh-CN',
-        viewport: { width: 390, height: 844 },
+        viewport: { width: 1920, height: 1080 },
       });
       const page = await context.newPage();
 
-      const isPlaceholderUrl = (url: string) =>
-        url.includes('uuu_265') || url.includes('placeholder') || url.includes('default') || url.endsWith('.ts');
+      // Capture both API metadata and video URL from network responses
+      let apiMeta: any = null;
 
-      // Intercept network responses to find video content
-      page.on('response', async (response) => {
-        const url = response.url();
-        const contentType = response.headers()['content-type'] || '';
+      page.on('response', (response) => {
+        const rUrl = response.url();
+        const ct = response.headers()['content-type'] || '';
 
-        // Priority 1: Douyin aweme detail API (contains play_addr with real video URL)
-        if (url.includes('/aweme/v1/web/aweme/detail') && contentType.includes('json')) {
-          try {
-            const body = await response.json();
-            const detail = body?.aweme_detail;
-            if (detail?.desc) {
-              this.logger.log(`Playwright: API 视频标题: "${detail.desc.substring(0, 100)}"`);
-            }
-            const addr = detail?.video?.play_addr;
-            if (addr?.url_list?.length > 0) {
-              const realUrl = addr.url_list[0].replace(/\\u0026/g, '&');
-              this.logger.log(`Playwright: 从 API 获取到真实视频 URL: ${realUrl.substring(0, 100)}`);
-              playwrightVideoUrl = realUrl;
-            }
-          } catch { /* ignore parse errors */ }
-        }
-
-        // Priority 2: video content-type responses (skip placeholders)
-        if (contentType.startsWith('video/') && !playwrightVideoUrl) {
-          if (isPlaceholderUrl(url)) {
-            this.logger.log(`Playwright: 跳过占位视频: ${url.substring(0, 80)}`);
-            return;
-          }
-          playwrightVideoUrl = url;
-          this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${playwrightVideoUrl.substring(0, 100)}`);
+        // Priority: Douyin aweme detail API → extract metadata + video URL
+        if (!apiMeta && rUrl.includes('/aweme/v1/web/aweme/detail') && ct.includes('json')) {
+          response.text().then((text) => {
+            try {
+              if (!text || text.length < 10) return;
+              const body = JSON.parse(text);
+              const detail = body?.aweme_detail || (body?.item_list ? body.item_list[0] : null);
+              if (!detail) return;
+              const title = detail.desc || '';
+              const duration = detail.video?.duration ? Math.floor(detail.video.duration / 1000) : 0;
+              const playUrl = (detail.video?.play_addr?.url_list?.[0] || '').replace(/\\u0026/g, '&').replace('/playwm/', '/play/');
+              this.logger.log(`Playwright: API 视频标题: "${title.substring(0, 100)}" (${duration}s)`);
+              if (playUrl) this.logger.log(`Playwright: API 视频 URL: ${playUrl.substring(0, 100)}`);
+              apiMeta = { duration, title, videoUrl: playUrl };
+            } catch { /* ignore */ }
+          }).catch(() => {});
         }
       });
 
+      // Navigate directly (short URL auto-redirects to full page)
       this.logger.log(`Playwright: 打开页面 ${url}`);
-      // Use domcontentloaded + short timeout + manual wait (networkidle never completes for Douyin)
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
       await page.waitForTimeout(8000);
 
-      // Try to extract video URL from <video> elements
-      let domUrl: string | null = null;
-      domUrl = await page.evaluate(() => {
-        const videos = document.querySelectorAll('video');
-        for (const v of videos) {
-          const src = (v as HTMLVideoElement).src;
-          if (src && src.startsWith('http') && !src.includes('uuu_265')) return src;
-        }
-        return null;
-      }).catch(() => null);
-      if (domUrl) playwrightVideoUrl = domUrl;
-
-      // Try to extract from page source (Douyin embeds video URL in script data)
-      let sourceUrl: string | null = null;
-      sourceUrl = await page.evaluate(() => {
-        const html = document.documentElement.innerHTML;
-        const patterns = [
-          // Douyin: play_addr → url_list
-          /"play_addr":(?:\{[^}]*\}|[^}]*\{[^}]*"url_list":\["([^"]+\.(?:mp4|m3u8)[^"]*)")/,
-          /"play_api":"([^"]+\.(?:mp4|m3u8)[^"]*)/,
-          // video_id in JSON
-          /"video_id":"([^"]+)"/,
-          // Generic: mp4/m3u8 URLs (exclude placeholder patterns)
-          /https?:\/\/[^"'\s>]*\.(mp4|m3u8)[^"'\s>]*/gi,
-          // video src attribute
-          /<video[^>]*src="([^"]+)"/,
-          // Douyin render_data
-          /"video":\s*\{[^}]*"src":\s*"([^"]+)"/,
-        ];
-        for (const pattern of patterns) {
-          const match = html.match(pattern);
-          if (match) {
-            const url = match[1] || match[0];
-            if (url && url.includes('.mp4') && !url.includes('uuu_265') && !url.includes('placeholder')) return url;
-          }
-        }
-        return null;
-      }).catch(() => null);
-      if (sourceUrl && !sourceUrl.includes('uuu_265')) playwrightVideoUrl = sourceUrl;
-
-      // Last resort: try to get video info from page title/meta
-      if (!playwrightVideoUrl) {
-        const pageMeta = await page.evaluate(() => {
-          const title = document.querySelector('title')?.textContent || '';
-          const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
-          const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
-          return { title, ogTitle, ogDesc };
-        }).catch(() => ({ title: '', ogTitle: '', ogDesc: '' }));
-        this.logger.log(`Playwright: 页面元数据 - 标题: "${pageMeta.title}", OG: "${pageMeta.ogTitle}"`);
-      }
+      // Log the current URL after navigation
+      const currentUrl = page.url();
+      this.logger.log(`Playwright: 当前页面 URL: ${currentUrl}`);
 
       await browser.close().catch(() => {});
       browserRef = null;
 
-      if (playwrightVideoUrl) {
-        this.logger.log(`Playwright: 下载视频 ${playwrightVideoUrl.substring(0, 80)}`);
-        const resp = await axios.get(playwrightVideoUrl, {
-          responseType: 'arraybuffer',
-          timeout: 120000,
-          headers: { 'Referer': url, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-        });
-        fs.writeFileSync(outputPath, Buffer.from(resp.data));
-        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return;
+      // Try to download using API URL
+      if (apiMeta && apiMeta.videoUrl) {
+        try {
+          this.logger.log(`Playwright: 下载视频 ${apiMeta.videoUrl.substring(0, 80)}`);
+          const resp = await axios.get(apiMeta.videoUrl, {
+            responseType: 'arraybuffer',
+            timeout: 120000,
+            headers: {
+              'Referer': currentUrl,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+            },
+          });
+          fs.writeFileSync(outputPath, Buffer.from(resp.data));
+          if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
+            this.logger.log(`Playwright: 下载成功 (${fs.statSync(outputPath).size} bytes)`);
+            return { duration: apiMeta.duration, title: apiMeta.title };
+          }
+        } catch (e: any) {
+          this.logger.warn(`Playwright: 下载失败 (${e.message})`);
+        }
       }
+
+      this.logger.warn('Playwright: 未能获取视频');
     } catch (err: any) {
-      this.logger.warn(`Playwright 下载失败: ${err.message}`);
+      this.logger.warn(`Playwright 失败: ${err.message}`);
     } finally {
       if (browserRef) try { await browserRef.close(); } catch { /* ignore */ }
     }
 
     // Last resort: direct download (for direct MP4 URLs)
-    const response = await axios.get(url, {
-      responseType: 'arraybuffer',
-      timeout: 120000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-    fs.writeFileSync(outputPath, Buffer.from(response.data));
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 120000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+      fs.writeFileSync(outputPath, Buffer.from(response.data));
+    } catch { /* ignore */ }
+    return null;
   }
 
-  private async getVideoInfo(videoPath: string): Promise<{ width: number; height: number; duration: number }> {
-    try {
-      const { stdout } = await execAsync(
-        `ffprobe -v error -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
-        { timeout: 10000 },
-      );
-      const lines = stdout.trim().split('\n').map(Number);
-      return {
-        width: lines[0] || 0,
-        height: lines[1] || 0,
-        duration: lines[2] || 5,
-      };
-    } catch {
-      return { width: 0, height: 0, duration: 5 };
-    }
-  }
+
 
   private async extractFrames(videoPath: string, outputDir: string, count: number): Promise<string[]> {
     const framePaths: string[] = [];
