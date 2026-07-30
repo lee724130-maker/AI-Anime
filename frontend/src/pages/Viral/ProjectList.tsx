@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, List, Card, Tag, Button, Space, Spin, Empty, Progress } from 'antd';
+import { Typography, List, Card, Tag, Button, Space, Spin, Empty, Progress, message } from 'antd';
 import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, RightOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -28,7 +28,7 @@ export default function ViralProjectList() {
       try {
         const { data } = await api.get('/api/viral/projects');
         setProjects(data || []);
-      } catch { /* ignore */ }
+      } catch { message.error('项目列表加载失败'); }
       setLoading(false);
     })();
   }, []);

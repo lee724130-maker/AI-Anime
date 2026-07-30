@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge } from 'antd';
+import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge, message } from 'antd';
 import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ExperimentOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -51,7 +51,7 @@ export default function ViralIndex() {
       setTemplates(tplRes.data.items || []);
       setProjects(projRes.data || []);
       setCategories(catRes.data || []);
-    } catch { /* ignore */ }
+    } catch { message.error('数据加载失败'); }
     setLoading(false);
   };
 

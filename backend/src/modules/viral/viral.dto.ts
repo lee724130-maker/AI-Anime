@@ -110,6 +110,9 @@ export class CreateProjectDto {
 
   @IsString()
   variables: string;
+
+  @IsOptional() @IsString()
+  media_refs?: string;
 }
 
 export class RegenerateSceneDto {

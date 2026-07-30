@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Typography, Card, Input, Button, Space, Tag, message, Spin, Divider, Row, Col, Select, Form, Alert, Steps } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import SceneEditor from './components/SceneEditor';
+import type { SceneItem } from './components/SceneEditor';
 
 const { Title, Text } = Typography;
 
@@ -13,10 +15,6 @@ const CATEGORY_OPTIONS = [
   { value: 'character', label: '角色宣传' },
   { value: 'general', label: '通用' },
 ];
-
-interface SceneItem {
-  name: string; duration: number; description: string; type: string;
-}
 
 interface VariableItem {
   key: string; label: string; type: string; placeholder: string; required: boolean;
@@ -78,20 +76,6 @@ export default function CreateTemplate() {
       message.error('保存失败: ' + (err?.response?.data?.message || err.message));
     }
     setSaving(false);
-  };
-
-  const addScene = () => {
-    setScenes([...scenes, { name: '', duration: 3, description: '', type: 'image' }]);
-  };
-
-  const updateScene = (i: number, field: string, value: any) => {
-    const copy = [...scenes];
-    (copy[i] as any)[field] = value;
-    setScenes(copy);
-  };
-
-  const removeScene = (i: number) => {
-    setScenes(scenes.filter((_, idx) => idx !== i));
   };
 
   const addVariable = () => {
@@ -233,50 +217,7 @@ export default function CreateTemplate() {
             </div>
           </Card>
 
-          {/* Scenes */}
-          <Card style={{ ...cardStyle, marginBottom: 16 }}
-            title={<Space><div style={{ width: 3, height: 16, background: '#7c3aed', borderRadius: 2 }} />场景分镜</Space>}
-            extra={<Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addScene}>添加场景</Button>}>
-            {scenes.map((s, i) => (
-              <div key={i} style={{
-                padding: 12, marginBottom: 8, borderRadius: 10,
-                background: '#fafafa', border: '1px solid #f0f0f0',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text strong style={{ fontSize: 13 }}>场景 {i + 1}</Text>
-                  <Button type="text" size="small" danger onClick={() => removeScene(i)}>删除</Button>
-                </div>
-                <Row gutter={8}>
-                  <Col span={6}>
-                    <Input size="small" placeholder="场景名" value={s.name}
-                      onChange={e => updateScene(i, 'name', e.target.value)} style={{ borderRadius: 6 }} />
-                  </Col>
-                  <Col span={3}>
-                    <Input size="small" type="number" placeholder="秒" value={s.duration}
-                      onChange={e => updateScene(i, 'duration', Number(e.target.value))} style={{ borderRadius: 6 }} suffix="s" />
-                  </Col>
-                  <Col span={6}>
-                    <Select size="small" value={s.type} onChange={v => updateScene(i, 'type', v)}
-                      style={{ width: '100%' }}
-                      options={[
-                        { value: 'image', label: '图片' },
-                        { value: 'video', label: '视频' },
-                        { value: 'text', label: '文字动画' },
-                      ]} />
-                  </Col>
-                  <Col span={9}>
-                    <Input size="small" placeholder="场景描述" value={s.description}
-                      onChange={e => updateScene(i, 'description', e.target.value)} style={{ borderRadius: 6 }} />
-                  </Col>
-                </Row>
-              </div>
-            ))}
-            {scenes.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 20 }}>
-                <Text type="secondary">暂无场景，点击"添加场景"开始创建</Text>
-              </div>
-            )}
-          </Card>
+          <SceneEditor scenes={scenes} onChange={setScenes} />
 
           {/* Variables */}
           <Card style={{ ...cardStyle, marginBottom: 24 }}

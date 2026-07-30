@@ -374,6 +374,7 @@ export class ViralService {
       ...project,
       variables: project.variables ? JSON.parse(project.variables) : [],
       scenes: project.scenes ? JSON.parse(project.scenes) : [],
+      media_refs: project.media_refs ? JSON.parse(project.media_refs) : [],
     };
   }
 
@@ -394,6 +395,7 @@ export class ViralService {
       name: dto.name,
       variables: dto.variables,
       scenes: tpl.scenes,
+      media_refs: dto.media_refs || undefined,
       status: 'pending',
       progress: 0,
     });
@@ -714,6 +716,7 @@ export class ViralService {
       ...project,
       variables: project.variables ? JSON.parse(project.variables) : [],
       scenes: project.scenes ? JSON.parse(project.scenes) : [],
+      media_refs: project.media_refs ? JSON.parse(project.media_refs) : [],
     };
   }
 

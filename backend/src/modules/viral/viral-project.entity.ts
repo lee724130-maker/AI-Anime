@@ -42,6 +42,9 @@ export class ViralProject {
   @Column({ name: 'error_msg', type: 'text', nullable: true })
   error_msg: string;
 
+  @Column({ name: 'media_refs', type: 'text', nullable: true })
+  media_refs: string;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;
 

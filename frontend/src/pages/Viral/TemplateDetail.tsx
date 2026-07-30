@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Descriptions } from 'antd';
-import { ArrowLeftOutlined, ThunderboltOutlined, ExperimentOutlined, FireOutlined } from '@ant-design/icons';
+import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Descriptions, Image } from 'antd';
+import { ArrowLeftOutlined, ThunderboltOutlined, ExperimentOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import GlobalAssetPicker from './components/GlobalAssetPicker';
 
 const { Title, Text } = Typography;
 
@@ -31,6 +32,9 @@ export default function ViralTemplateDetail() {
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  const [assetPickerOpen, setAssetPickerOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -59,6 +63,7 @@ export default function ViralTemplateDetail() {
         template_id: Number(id),
         name: values.project_name || template?.name || '未命名项目',
         variables: JSON.stringify(variables),
+        media_refs: selectedImages.length > 0 ? JSON.stringify(selectedImages) : undefined,
       });
 
       message.success('创作项目已创建！');
@@ -68,6 +73,18 @@ export default function ViralTemplateDetail() {
       message.error('创建失败: ' + (err?.response?.data?.message || err.message));
     }
     setSubmitting(false);
+  };
+
+  const handleDuplicate = async () => {
+    setDuplicating(true);
+    try {
+      await api.post(`/api/viral/templates/${id}/duplicate`);
+      message.success('模板已复制到你的模板库！');
+      navigate('/viral');
+    } catch (err: any) {
+      message.error('复制失败: ' + (err?.response?.data?.message || err.message));
+    }
+    setDuplicating(false);
   };
 
   if (loading) {
@@ -103,6 +120,8 @@ export default function ViralTemplateDetail() {
             <Space style={{ marginBottom: 12 }}>
               <Tag style={{ borderRadius: 6 }}>{CATEGORY_LABELS[template.category] || template.category}</Tag>
               <Text type="secondary" style={{ fontSize: 12 }}><FireOutlined /> 使用 {template.usage_count} 次</Text>
+              <Button type="text" size="small" icon={<CopyOutlined />} loading={duplicating}
+                onClick={handleDuplicate} style={{ fontSize: 12 }}>复制模板</Button>
             </Space>
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{template.description}</Text>
 
@@ -155,6 +174,31 @@ export default function ViralTemplateDetail() {
                   )}
                 </Form.Item>
               ))}
+
+              <Divider style={{ margin: '12px 0' }} />
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>参考素材（可选）</Text>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                {selectedImages.map((url, i) => (
+                  <div key={i} style={{ position: 'relative', width: 60, height: 60, borderRadius: 8, overflow: 'hidden' }}>
+                    <Image src={url} preview={false} style={{ width: 60, height: 60, objectFit: 'cover' }} />
+                    <Button type="text" size="small" icon={<DeleteOutlined />}
+                      onClick={() => setSelectedImages(selectedImages.filter((_, j) => j !== i))}
+                      style={{ position: 'absolute', top: 0, right: 0, color: '#ff4d4f', fontSize: 11, background: 'rgba(255,255,255,0.8)' }} />
+                  </div>
+                ))}
+                <Button icon={<PictureOutlined />} onClick={() => setAssetPickerOpen(true)}
+                  style={{ width: 60, height: 60, borderRadius: 8, border: '1px dashed #d9d9d9' }} />
+              </div>
+              {selectedImages.length > 0 && (
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>已选 {selectedImages.length} 张参考图</Text>
+              )}
+
+              <GlobalAssetPicker
+                open={assetPickerOpen}
+                onClose={() => setAssetPickerOpen(false)}
+                selected={selectedImages}
+                onSelect={setSelectedImages}
+              />
 
               <Button type="primary" block size="large" htmlType="submit" loading={submitting}
                 icon={<ThunderboltOutlined />}

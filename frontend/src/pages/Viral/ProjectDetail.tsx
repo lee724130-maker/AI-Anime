@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Button, Spin, Tag, Space, Progress, Descriptions, Empty, message, Modal, Tooltip } from 'antd';
-import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, PlayCircleOutlined, ReloadOutlined, ThunderboltOutlined, FileTextOutlined, PictureOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { Typography, Card, Button, Spin, Tag, Space, Descriptions, Empty, message, Modal } from 'antd';
+import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ReloadOutlined, ThunderboltOutlined, FileTextOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import ProgressPanel from './components/ProgressPanel';
+import VideoPreview from './components/VideoPreview';
 
 const { Title, Text } = Typography;
 
@@ -11,12 +13,6 @@ const STATUS_MAP: Record<string, { color: string; label: string; icon: any }> = 
   processing: { color: 'processing', label: '生成中', icon: <SyncOutlined spin /> },
   completed: { color: 'success', label: '已完成', icon: <CheckCircleOutlined /> },
   failed: { color: 'error', label: '失败', icon: <CloseCircleOutlined /> },
-};
-
-const TYPE_ICONS: Record<string, any> = {
-  text: <FileTextOutlined />,
-  image: <PictureOutlined />,
-  video: <VideoCameraOutlined />,
 };
 
 const BASE_URL = 'http://localhost:3000';
@@ -123,19 +119,16 @@ export default function ViralProjectDetail() {
           </Space>
         </div>
 
-        {project.status === 'processing' && (
-          <div style={{ marginBottom: 20 }}>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>生成进度</Text>
-            <Progress percent={project.progress} strokeColor="#7c3aed" style={{ maxWidth: 400 }} />
-          </div>
+        {(project.status === 'processing') && (
+          <ProgressPanel
+            progress={project.progress}
+            status={project.status}
+            scenes={typeof project.scenes === 'string' ? JSON.parse(project.scenes).filter((s: any) => s.status) : []}
+          />
         )}
 
         {project.status === 'completed' && project.result_url && (
-          <div style={{ marginBottom: 20 }}>
-            <video
-              src={project.result_url.startsWith('http') ? project.result_url : `${BASE_URL}${project.result_url}`}
-              controls style={{ width: '100%', maxWidth: 600, borderRadius: 10 }} />
-          </div>
+          <VideoPreview url={project.result_url} />
         )}
 
         {project.error_msg && (
@@ -154,7 +147,7 @@ export default function ViralProjectDetail() {
         </Descriptions>
       </Card>
 
-      {/* Scene List */}
+      {/* Scene list with regenerate buttons */}
       {scenes.length > 0 && (
         <Card title={<><FileTextOutlined /> 场景列表</>}
           style={{ marginTop: 16, borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -170,15 +163,12 @@ export default function ViralProjectDetail() {
                     fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
                     {i + 1}
                   </span>
-                  <Tag style={{ borderRadius: 6, margin: 0 }}>{TYPE_ICONS[scene.type] || null} {scene.type}</Tag>
-                  <Text ellipsis style={{ maxWidth: 300, fontSize: 13 }}>{scene.name}</Text>
+                  <Text style={{ fontSize: 13, flex: 1 }}>{scene.name || `场景 ${i + 1}`}</Text>
                 </div>
                 <Space>
-                  {scene.status === 'completed' && <Tag color="success" style={{ borderRadius: 6 }}>完成</Tag>}
+                  {scene.status === 'completed' && <Tag color="success" style={{ borderRadius: 6 }}>已完成</Tag>}
                   {scene.status === 'failed' && (
-                    <Tooltip title={scene.error}>
-                      <Tag color="error" style={{ borderRadius: 6 }}>失败</Tag>
-                    </Tooltip>
+                    <Tag color="error" style={{ borderRadius: 6 }}>失败</Tag>
                   )}
                   {scene.status === 'processing' && <Spin size="small" />}
                   <Button size="small" icon={<ReloadOutlined />} onClick={() => regenerateScene(i)}
