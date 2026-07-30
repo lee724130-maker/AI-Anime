@@ -7,9 +7,7 @@ import GlobalAssetPicker from './components/GlobalAssetPicker';
 
 const { Title, Text } = Typography;
 
-const CATEGORY_LABELS: Record<string, string> = {
-  product: '产品展示', holiday: '节日营销', brand: '品牌广告', character: '角色宣传', general: '通用',
-};
+// Category is dynamically set by AI during analysis
 
 interface TemplateScene {
   name: string; duration: number; description: string; type: string;
@@ -118,7 +116,7 @@ export default function ViralTemplateDetail() {
             </div>
             <Title level={4} style={{ margin: '0 0 4px' }}>{template.name}</Title>
             <Space style={{ marginBottom: 12 }}>
-              <Tag style={{ borderRadius: 6 }}>{CATEGORY_LABELS[template.category] || template.category}</Tag>
+              <Tag style={{ borderRadius: 6 }}>{template.category}</Tag>
               <Text type="secondary" style={{ fontSize: 12 }}><FireOutlined /> 使用 {template.usage_count} 次</Text>
               <Button type="text" size="small" icon={<CopyOutlined />} loading={duplicating}
                 onClick={handleDuplicate} style={{ fontSize: 12 }}>复制模板</Button>

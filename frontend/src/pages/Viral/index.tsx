@@ -6,10 +6,6 @@ import api from '../../services/api';
 
 const { Title, Text } = Typography;
 
-const CATEGORY_LABELS: Record<string, string> = {
-  all: '全部', product: '产品展示', holiday: '节日营销', brand: '品牌广告', character: '角色宣传', general: '通用',
-};
-
 const STATUS_MAP: Record<string, { color: string; label: string; icon: any }> = {
   pending: { color: 'default', label: '待生成', icon: <ClockCircleOutlined /> },
   processing: { color: 'processing', label: '生成中', icon: <SyncOutlined spin /> },
@@ -94,7 +90,7 @@ export default function ViralIndex() {
             style={{ width: '100%', borderRadius: 10 }}
             options={[
               { value: 'all', label: '全部分类' },
-              ...categories.map(c => ({ value: c.category, label: `${CATEGORY_LABELS[c.category] || c.category} (${c.count})` })),
+              ...categories.map(c => ({ value: c.category, label: `${c.category} (${c.count})` })),
             ]}
           />
         </Col>
@@ -131,7 +127,7 @@ export default function ViralIndex() {
               </Text>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Space size={4}>
-                  <Tag style={{ borderRadius: 6, fontSize: 10 }}>{CATEGORY_LABELS[tpl.category] || tpl.category}</Tag>
+                  <Tag style={{ borderRadius: 6, fontSize: 10 }}>{tpl.category}</Tag>
                   <Text type="secondary" style={{ fontSize: 11 }}>
                     <FireOutlined /> {tpl.usage_count}
                   </Text>

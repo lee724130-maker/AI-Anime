@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
+import { chromium } from 'playwright';
 import { ViralTemplate } from './viral-template.entity';
 import { ViralProject } from './viral-project.entity';
 import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, AnalyzeVideoDto } from './viral.dto';
@@ -139,15 +140,22 @@ export class ViralService {
     const { videoUrl, name, category, description } = dto;
     if (!videoUrl) throw new BadRequestException('视频 URL 不能为空');
 
+    // Extract the first valid URL from pasted text (handles TikTok share text with extra description)
+    const extractedUrl = videoUrl.match(/https?:\/\/[^\s,，。、]+/);
+    const finalUrl = extractedUrl ? extractedUrl[0] : videoUrl;
+    if (finalUrl !== videoUrl) {
+      this.logger.log(`从粘贴文本中提取 URL: ${finalUrl}`);
+    }
+
     const taskId = Date.now();
     const workDir = path.join(this.outputDir, `viral_analyze_${taskId}`);
     fs.mkdirSync(workDir, { recursive: true });
 
     try {
       // Step 1: Download video
-      this.logger.log(`下载视频: ${videoUrl}`);
+      this.logger.log(`下载视频: ${finalUrl}`);
       const videoPath = path.join(workDir, 'source.mp4');
-      await this.downloadVideo(videoUrl, videoPath);
+      await this.downloadVideo(finalUrl, videoPath);
 
       // Step 2: Get video info
       const info = await this.getVideoInfo(videoPath);
@@ -165,7 +173,7 @@ export class ViralService {
 {
   "name": "模板名称",
   "description": "模板简短描述",
-  "category": "模板分类 (product/holiday/brand/character/general)",
+  "category": "根据视频内容自动判断的类别，如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、知识科普、美妆教程、搞笑段子、品牌广告、节日祝福、影视解说等（中文，不限以上列表）",
   "scenes": [
     {
       "name": "场景名",
@@ -189,7 +197,8 @@ export class ViralService {
 - scenes 是分镜数组，每个场景包含 name(中文)、duration(秒)、description(中文描述)、type(image/video/text)
 - variables 是用户需要填写的变量，例如产品名称、广告语等
 - 场景数量控制在 3-6 个之间
-- 总时长控制在 8-15 秒之间`;
+- 总时长控制在 8-15 秒之间
+- category 不限于固定列表，根据视频实际内容动态判断，例如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、影视剪辑等`;
 
       const userPrompt = `请分析这个视频的结构，识别出场景分镜和需要用户填写的变量。视频时长约 ${info.duration.toFixed(0)} 秒，分辨率 ${info.width}x${info.height}。`;
 
@@ -231,7 +240,7 @@ export class ViralService {
         category: category || parsed.category || 'general',
         scenes: parsed.scenes || [],
         variables: parsed.variables || [],
-        reference_url: videoUrl,
+        reference_url: finalUrl,
         reference_frames: frames,
         video_info: info,
       };
@@ -242,18 +251,91 @@ export class ViralService {
   }
 
   private async downloadVideo(url: string, outputPath: string): Promise<void> {
-    // Try yt-dlp first (handles Douyin, YouTube, etc.)
+    // Try yt-dlp first (handles Douyin, YouTube, Bilibili, etc.)
     try {
       execSync(`yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputPath}" "${url}"`, {
         timeout: 120000,
         stdio: 'pipe',
       });
-      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 0) return;
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return;
     } catch (err: any) {
-      this.logger.warn(`yt-dlp 下载失败: ${err.message}，尝试直接下载`);
+      this.logger.warn(`yt-dlp 下载失败: ${err.message}，尝试 Playwright 降级`);
     }
 
-    // Fallback: direct download (for direct video URLs)
+    // Fallback: Playwright headless browser (handles Douyin/TikTok requiring cookies)
+    try {
+      const browser = await chromium.launch({ headless: true });
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
+        locale: 'zh-CN',
+        viewport: { width: 390, height: 844 }, // Mobile viewport for Douyin
+      });
+      const page = await context.newPage();
+      let videoUrl: string | null = null;
+
+      // Intercept network responses to find video content
+      page.on('response', (response) => {
+        const contentType = response.headers()['content-type'] || '';
+        if (contentType.startsWith('video/') && !videoUrl) {
+          videoUrl = response.url();
+          this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${videoUrl.substring(0, 100)}`);
+        }
+      });
+
+      this.logger.log(`Playwright: 打开页面 ${url}`);
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
+
+      // Wait a bit for dynamic content
+      await page.waitForTimeout(3000);
+
+      // Try to extract video URL from <video> elements
+      if (!videoUrl) {
+        videoUrl = await page.evaluate(() => {
+          const videos = document.querySelectorAll('video');
+          for (const v of videos) {
+            const src = (v as HTMLVideoElement).src;
+            if (src && src.startsWith('http')) return src;
+          }
+          return null;
+        });
+      }
+
+      // Try to extract from page source (Douyin embeds video URL in script data)
+      if (!videoUrl) {
+        videoUrl = await page.evaluate(() => {
+          const html = document.documentElement.innerHTML;
+          // Look for common video URL patterns
+          const patterns = [
+            /https?:\/\/[^"'\s]*\.(mp4|m3u8)[^"'\s]*/gi,
+            /"video_id":"([^"]+)"/,
+            /"play_addr":[^}]*"url_list":\["([^"]+)"/,
+            /"src":"(https?:\/\/[^"]+\.mp4[^"]*)"/,
+          ];
+          for (const pattern of patterns) {
+            const match = html.match(pattern);
+            if (match) return match[1] || match[0];
+          }
+          return null;
+        });
+      }
+
+      await browser.close();
+
+      if (videoUrl) {
+        this.logger.log(`Playwright: 下载视频 ${videoUrl.substring(0, 80)}`);
+        const response = await axios.get(videoUrl, {
+          responseType: 'arraybuffer',
+          timeout: 120000,
+          headers: { 'Referer': url, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+        });
+        fs.writeFileSync(outputPath, Buffer.from(response.data));
+        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) return;
+      }
+    } catch (err: any) {
+      this.logger.warn(`Playwright 下载失败: ${err.message}`);
+    }
+
+    // Last resort: direct download (for direct MP4 URLs)
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
       timeout: 120000,

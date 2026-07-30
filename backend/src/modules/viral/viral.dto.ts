@@ -1,4 +1,5 @@
 import { IsString, IsOptional, IsInt, Min, Max, IsArray, IsBoolean, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateTemplateDto {
   @IsString() @MaxLength(100)
@@ -80,10 +81,10 @@ export class ListTemplateQuery {
   @IsOptional() @IsString()
   sort?: string;
 
-  @IsOptional() @IsInt() @Min(1)
+  @IsOptional() @IsInt() @Min(1) @Type(() => Number)
   page?: number;
 
-  @IsOptional() @IsInt() @Min(1) @Max(100)
+  @IsOptional() @IsInt() @Min(1) @Max(100) @Type(() => Number)
   limit?: number;
 }
 

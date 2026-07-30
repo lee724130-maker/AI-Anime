@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Card, Input, Button, Space, Tag, message, Spin, Divider, Row, Col, Select, Form, Alert, Steps } from 'antd';
+import { Typography, Card, Input, Button, Space, Tag, message, Spin, Divider, Row, Col, Form, Alert, Steps } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import SceneEditor from './components/SceneEditor';
@@ -8,13 +8,7 @@ import type { SceneItem } from './components/SceneEditor';
 
 const { Title, Text } = Typography;
 
-const CATEGORY_OPTIONS = [
-  { value: 'product', label: '产品展示' },
-  { value: 'holiday', label: '节日营销' },
-  { value: 'brand', label: '品牌广告' },
-  { value: 'character', label: '角色宣传' },
-  { value: 'general', label: '通用' },
-];
+// Category is now dynamically determined by LLM during video analysis
 
 interface VariableItem {
   key: string; label: string; type: string; placeholder: string; required: boolean;
@@ -154,12 +148,12 @@ export default function CreateTemplate() {
               />
             </Col>
             <Col span={12}>
-              <Text strong style={{ display: 'block', marginBottom: 6 }}>分类</Text>
-              <Select
+              <Text strong style={{ display: 'block', marginBottom: 6 }}>分类（AI 将自动分析，可手动修改）</Text>
+              <Input
+                placeholder="留空由 AI 自动分类"
                 value={category}
-                onChange={setCategory}
-                style={{ width: '100%' }}
-                options={CATEGORY_OPTIONS}
+                onChange={e => setCategory(e.target.value)}
+                style={{ borderRadius: 8 }}
               />
             </Col>
           </Row>
@@ -204,7 +198,7 @@ export default function CreateTemplate() {
               </Col>
               <Col span={8}>
                 <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>分类</Text>
-                <Select value={category} onChange={setCategory} style={{ width: '100%' }} options={CATEGORY_OPTIONS} />
+                <Input value={category} onChange={e => setCategory(e.target.value)} style={{ borderRadius: 8 }} />
               </Col>
               <Col span={8}>
                 <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>参考视频</Text>
