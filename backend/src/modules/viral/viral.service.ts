@@ -200,7 +200,10 @@ export class ViralService {
 - 总时长控制在 8-15 秒之间
 - category 不限于固定列表，根据视频实际内容动态判断，例如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、影视剪辑等`;
 
-      const userPrompt = `请分析这个视频的结构，识别出场景分镜和需要用户填写的变量。视频时长约 ${info.duration.toFixed(0)} 秒，分辨率 ${info.width}x${info.height}。`;
+      const pageTitle = await this.getPageTitle(finalUrl);
+      const userPrompt = `请分析这个视频的结构，识别出场景分镜和需要用户填写的变量。
+视频时长约 ${info.duration.toFixed(0)} 秒，分辨率 ${info.width}x${info.height}。
+${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内容类型。` : ''}`;
 
       let llmResult = '';
       try {
@@ -237,7 +240,7 @@ export class ViralService {
         }
       }
 
-      return {
+      const result = {
         name: name || parsed.name || '未命名模板',
         description: description || parsed.description || '',
         category: category || parsed.category || 'general',
@@ -247,6 +250,20 @@ export class ViralService {
         reference_frames: frames,
         video_info: info,
       };
+      this.logger.log(`========== AI 视频分析结果 ==========`);
+      this.logger.log(`名称: ${result.name}`);
+      this.logger.log(`分类: ${result.category}`);
+      this.logger.log(`描述: ${result.description}`);
+      this.logger.log(`场景 (${result.scenes.length} 个):`);
+      for (const s of result.scenes) {
+        this.logger.log(`  [${s.type}] ${s.name} (${s.duration}s): ${s.description}`);
+      }
+      this.logger.log(`变量 (${result.variables.length} 个):`);
+      for (const v of result.variables) {
+        this.logger.log(`  ${v.key} (${v.label}, ${v.type}, ${v.required ? '必填' : '选填'}): ${v.placeholder}`);
+      }
+      this.logger.log(`====================================`);
+      return result;
     } finally {
       // Cleanup temp files
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -278,57 +295,79 @@ export class ViralService {
       });
       const page = await context.newPage();
 
+      const isPlaceholderUrl = (url: string) =>
+        url.includes('uuu_265') || url.includes('placeholder') || url.includes('default') || url.endsWith('.ts');
+
       // Intercept network responses to find video content
       page.on('response', (response) => {
         const contentType = response.headers()['content-type'] || '';
-        if (contentType.startsWith('video/') && !playwrightVideoUrl) {
-          playwrightVideoUrl = response.url();
-          this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${playwrightVideoUrl.substring(0, 100)}`);
+        if (contentType.startsWith('video/')) {
+          const url = response.url();
+          if (isPlaceholderUrl(url)) {
+            this.logger.log(`Playwright: 跳过占位视频: ${url.substring(0, 80)}`);
+            return;
+          }
+          if (!playwrightVideoUrl) {
+            playwrightVideoUrl = url;
+            this.logger.log(`Playwright: 从网络请求捕获视频 URL: ${playwrightVideoUrl.substring(0, 100)}`);
+          }
         }
       });
 
       this.logger.log(`Playwright: 打开页面 ${url}`);
       // Use domcontentloaded + short timeout + manual wait (networkidle never completes for Douyin)
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-      await page.waitForTimeout(5000);
+      await page.waitForTimeout(8000);
 
       // Try to extract video URL from <video> elements
-      if (!playwrightVideoUrl) {
-        playwrightVideoUrl = await page.evaluate(() => {
-          const videos = document.querySelectorAll('video');
-          for (const v of videos) {
-            const src = (v as HTMLVideoElement).src;
-            if (src && src.startsWith('http')) return src;
-          }
-          return null;
-        }).catch(() => null);
-      }
+      let domUrl: string | null = null;
+      domUrl = await page.evaluate(() => {
+        const videos = document.querySelectorAll('video');
+        for (const v of videos) {
+          const src = (v as HTMLVideoElement).src;
+          if (src && src.startsWith('http') && !src.includes('uuu_265')) return src;
+        }
+        return null;
+      }).catch(() => null);
+      if (domUrl) playwrightVideoUrl = domUrl;
 
       // Try to extract from page source (Douyin embeds video URL in script data)
-      if (!playwrightVideoUrl) {
-        playwrightVideoUrl = await page.evaluate(() => {
-          const html = document.documentElement.innerHTML;
-          const patterns = [
-            // Douyin: play_addr → url_list
-            /"play_addr":(?:\{[^}]*\}|[^}]*\{[^}]*"url_list":\["([^"]+\.(?:mp4|m3u8)[^"]*)")/,
-            /"play_api":"([^"]+\.(?:mp4|m3u8)[^"]*)/,
-            // Generic: mp4/m3u8 URLs
-            /https?:\/\/[^"'\s>]*\.(mp4|m3u8)[^"'\s>]*/gi,
-            // video src attribute
-            /<video[^>]*src="([^"]+)"/,
-            // Douyin render_data
-            /"video":\s*\{[^}]*"src":\s*"([^"]+)"/,
-          ];
-          for (const pattern of patterns) {
-            const match = html.match(pattern);
-            if (match) {
-              const url = match[1] || match[0];
-              // Skip placeholder/empty URLs
-              if (url && url.includes('.mp4') && !url.includes('uuu_265') && !url.includes('placeholder')) return url;
-            }
+      let sourceUrl: string | null = null;
+      sourceUrl = await page.evaluate(() => {
+        const html = document.documentElement.innerHTML;
+        const patterns = [
+          // Douyin: play_addr → url_list
+          /"play_addr":(?:\{[^}]*\}|[^}]*\{[^}]*"url_list":\["([^"]+\.(?:mp4|m3u8)[^"]*)")/,
+          /"play_api":"([^"]+\.(?:mp4|m3u8)[^"]*)/,
+          // video_id in JSON
+          /"video_id":"([^"]+)"/,
+          // Generic: mp4/m3u8 URLs (exclude placeholder patterns)
+          /https?:\/\/[^"'\s>]*\.(mp4|m3u8)[^"'\s>]*/gi,
+          // video src attribute
+          /<video[^>]*src="([^"]+)"/,
+          // Douyin render_data
+          /"video":\s*\{[^}]*"src":\s*"([^"]+)"/,
+        ];
+        for (const pattern of patterns) {
+          const match = html.match(pattern);
+          if (match) {
+            const url = match[1] || match[0];
+            if (url && url.includes('.mp4') && !url.includes('uuu_265') && !url.includes('placeholder')) return url;
           }
-          return null;
-        }).catch(() => null);
+        }
+        return null;
+      }).catch(() => null);
+      if (sourceUrl && !sourceUrl.includes('uuu_265')) playwrightVideoUrl = sourceUrl;
+
+      // Last resort: try to get video info from page title/meta
+      if (!playwrightVideoUrl) {
+        const pageMeta = await page.evaluate(() => {
+          const title = document.querySelector('title')?.textContent || '';
+          const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+          const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
+          return { title, ogTitle, ogDesc };
+        }).catch(() => ({ title: '', ogTitle: '', ogDesc: '' }));
+        this.logger.log(`Playwright: 页面元数据 - 标题: "${pageMeta.title}", OG: "${pageMeta.ogTitle}"`);
       }
 
       await browser.close().catch(() => {});
@@ -419,6 +458,17 @@ export class ViralService {
       } catch { /* ignore */ }
     }
     return base64Frames;
+  }
+
+  private async getPageTitle(url: string): Promise<string> {
+    try {
+      const resp = await axios.get(url, {
+        timeout: 8000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      });
+      const match = resp.data.match(/<title[^>]*>(.*?)<\/title>/i);
+      return match ? match[1].trim() : '';
+    } catch { return ''; }
   }
 
   private buildBasicTemplate(

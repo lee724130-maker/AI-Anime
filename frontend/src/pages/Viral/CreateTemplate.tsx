@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Card, Input, Button, Space, Tag, message, Spin, Divider, Row, Col, Form, Alert, Steps } from 'antd';
+import { Typography, Card, Input, Button, Space, Tag, message, Spin, Divider, Row, Col, Select, Form, Alert, Steps } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import SceneEditor from './components/SceneEditor';
