@@ -18,6 +18,7 @@
 - **后端**: `listTemplates` 返回 `cover_url`（优先 thumbnail，否则取 reference_frames 首帧）；`listProjects` 返回 `cover_url`（优先第一个 completed 场景的 videoPath/imagePath，本地路径自动转 `/static/` URL，兜底 result_url）
 - **前端**: 新增 `CoverThumb` 组件（视频→video 首帧封面，图片→img，失败→渐变占位），用于模板卡片、首页"我的创作"卡片、ProjectList 列表封面
 - **文件**: `backend/src/modules/viral/viral.service.ts`、`frontend/src/pages/Viral/CoverThumb.tsx`、`index.tsx`、`ProjectList.tsx`
+- **⚠️ 坑**: `/static/` 相对路径在 vite dev（5173）下会 404 → `frontend/vite.config.ts` 新增 `/api` + `/static` 代理到 3000（项目 2 的 text 场景文件缺失属旧数据，CoverThumb 自动降级占位图）
 - **生效条件**: 需重启后端
 
 #### 项目 5 三问题诊断 + 修复 ✅
