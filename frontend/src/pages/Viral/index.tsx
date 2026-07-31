@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge, message, Modal } from 'antd';
+import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, Badge, message, Modal } from 'antd';
 import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import CoverThumb from './CoverThumb';

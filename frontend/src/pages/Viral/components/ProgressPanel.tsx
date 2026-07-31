@@ -19,7 +19,7 @@ interface Props {
   scenes?: SceneStatus[];
 }
 
-export default function ProgressPanel({ progress, status, scenes }: Props) {
+export default function ProgressPanel({ progress, scenes }: Props) {
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ marginBottom: 16 }}>

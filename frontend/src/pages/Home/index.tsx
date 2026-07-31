@@ -2,10 +2,10 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Typography, Row, Col, Card, Tag, List, Space, Button, Progress, Spin, Empty, Tooltip, Badge } from 'antd';
 import {
-  TeamOutlined, VideoCameraOutlined, WalletOutlined,
+  VideoCameraOutlined, WalletOutlined,
   ThunderboltOutlined, ClockCircleOutlined,
   CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, DatabaseOutlined,
-  ExperimentOutlined, ScissorOutlined,
+  ExperimentOutlined,
   ReloadOutlined, PlusOutlined,
   AimOutlined, RightOutlined,
 } from '@ant-design/icons';

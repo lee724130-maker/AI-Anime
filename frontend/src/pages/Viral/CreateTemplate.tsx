@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Card, Input, Button, Space, Tag, message, Spin, Divider, Row, Col, Select, Form, Alert, Steps } from 'antd';
+import { Typography, Card, Input, Button, Space, message, Spin, Divider, Row, Col, Select, Alert, Steps } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import SceneEditor from './components/SceneEditor';
@@ -16,7 +16,6 @@ interface VariableItem {
 
 export default function CreateTemplate() {
   const navigate = useNavigate();
-  const [form] = Form.useForm();
   const [step, setStep] = useState<'input' | 'analyzing' | 'edit'>('input');
   const [videoUrl, setVideoUrl] = useState('');
   const [name, setName] = useState('');

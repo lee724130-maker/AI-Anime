@@ -158,6 +158,13 @@ export class ViralService {
   async getTemplateById(id: number) {
     const tpl = await this.templateRepo.findOne({ where: { id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    let cover: string | null = tpl.thumbnail || null;
+    if (!cover && tpl.reference_frames) {
+      try {
+        const frames = JSON.parse(tpl.reference_frames);
+        if (Array.isArray(frames) && frames.length) cover = frames[0];
+      } catch { /* ignore */ }
+    }
     return {
       ...tpl,
       tags: tpl.tags ? JSON.parse(tpl.tags) : [],
@@ -165,6 +172,7 @@ export class ViralService {
       variables: tpl.variables ? JSON.parse(tpl.variables) : [],
       reference_frames: tpl.reference_frames ? JSON.parse(tpl.reference_frames) : null,
       audio: tpl.audio ? JSON.parse(tpl.audio) : null,
+      cover_url: cover,
     };
   }
 

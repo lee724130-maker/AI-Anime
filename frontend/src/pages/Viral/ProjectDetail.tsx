@@ -15,7 +15,7 @@ const STATUS_MAP: Record<string, { color: string; label: string; icon: any }> = 
   failed: { color: 'error', label: '失败', icon: <CloseCircleOutlined /> },
 };
 
-const BASE_URL = 'http://localhost:3000';
+const LANG_MAP: Record<string, string> = { zh: '中文', en: '英文', ja: '日文' };
 
 export default function ViralProjectDetail() {
   const { id } = useParams();
@@ -23,7 +23,6 @@ export default function ViralProjectDetail() {
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(false);
   const pollRef = useRef<any>(null);
 
   const fetchProject = useCallback(async () => {
@@ -223,7 +222,7 @@ export default function ViralProjectDetail() {
             <Tag style={{ borderRadius: 6 }}>{project.style === 'realistic' ? '写实' : '动漫'}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="语言">
-            <Tag style={{ borderRadius: 6 }}>{{ zh: '中文', en: '英文', ja: '日文' }[project.language || 'zh']}</Tag>
+            <Tag style={{ borderRadius: 6 }}>{LANG_MAP[project.language || 'zh']}</Tag>
           </Descriptions.Item>
         </Descriptions>
       </Card>

@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Modal, Button, Space, Typography } from 'antd';
+import { Modal, Button, Space } from 'antd';
 import { FullscreenOutlined, DownloadOutlined } from '@ant-design/icons';
 
-const { Text } = Typography;
 const BASE_URL = 'http://localhost:3000';
 
 interface Props {

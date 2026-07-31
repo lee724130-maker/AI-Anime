@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Descriptions, Image, Select } from 'antd';
-import { ArrowLeftOutlined, ThunderboltOutlined, ExperimentOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons';
+import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Image, Select } from 'antd';
+import { ArrowLeftOutlined, ThunderboltOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import GlobalAssetPicker from './components/GlobalAssetPicker';
+import CoverThumb from './CoverThumb';
 
 const { Title, Text } = Typography;
 const API_BASE = 'http://localhost:3000';
@@ -22,7 +23,7 @@ interface TemplateDetail {
   id: number; name: string; description: string; category: string;
   tags: string[]; scenes: TemplateScene[]; variables: TemplateVariable[];
   reference_url: string; usage_count: number; thumbnail: string;
-  reference_frames?: string[];
+  reference_frames?: string[]; cover_url?: string;
 }
 
 export default function ViralTemplateDetail() {
@@ -117,12 +118,8 @@ export default function ViralTemplateDetail() {
         {/* Left: Template Info + Scenes */}
         <Col xs={24} lg={14}>
           <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', marginBottom: 16 }}>
-            <div style={{
-              height: 200, borderRadius: 10, marginBottom: 16,
-              background: template.thumbnail ? `url(${template.thumbnail}) center/cover` : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              {!template.thumbnail && <ExperimentOutlined style={{ fontSize: 60, color: 'rgba(255,255,255,0.3)' }} />}
+            <div style={{ marginBottom: 16 }}>
+              <CoverThumb src={template.cover_url || template.thumbnail} height={200} />
             </div>
             <Title level={4} style={{ margin: '0 0 4px' }}>{template.name}</Title>
             <Space style={{ marginBottom: 12 }}>

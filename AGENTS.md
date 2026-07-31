@@ -15,11 +15,14 @@
 
 #### 模板/项目卡片封面 ✅
 - **需求**: 模板卡片和创作卡片无封面，无法直观了解内容
-- **后端**: `listTemplates` 返回 `cover_url`（优先 thumbnail，否则取 reference_frames 首帧）；`listProjects` 返回 `cover_url`（优先第一个 completed 场景的 videoPath/imagePath，本地路径自动转 `/static/` URL，兜底 result_url）
-- **前端**: 新增 `CoverThumb` 组件（视频→video 首帧封面，图片→img，失败→渐变占位），用于模板卡片、首页"我的创作"卡片、ProjectList 列表封面
-- **文件**: `backend/src/modules/viral/viral.service.ts`、`frontend/src/pages/Viral/CoverThumb.tsx`、`index.tsx`、`ProjectList.tsx`
+- **后端**: `listTemplates` / `getTemplateById` 返回 `cover_url`（优先 thumbnail，否则取 reference_frames 首帧）；`listProjects` 返回 `cover_url`（优先第一个 completed 场景的 videoPath/imagePath，本地路径自动转 `/static/` URL，兜底 result_url）
+- **前端**: 新增 `CoverThumb` 组件（视频→video 首帧封面，图片→img，失败→渐变占位），用于模板卡片、模板详情页、首页"我的创作"卡片、ProjectList 列表封面
+- **文件**: `backend/src/modules/viral/viral.service.ts`、`frontend/src/pages/Viral/CoverThumb.tsx`、`index.tsx`、`ProjectList.tsx`、`TemplateDetail.tsx`
 - **⚠️ 坑**: `/static/` 相对路径在 vite dev（5173）下会 404 → `frontend/vite.config.ts` 新增 `/api` + `/static` 代理到 3000（项目 2 的 text 场景文件缺失属旧数据，CoverThumb 自动降级占位图）
-- **验证**: 已 Playwright 端到端验证——模板卡片 4 张全部渲染参考帧封面图、创作卡片渲染场景视频首帧封面；封面 URL 经 5173 代理全部 HTTP 200
+- **验证**: 已 Playwright 端到端验证——模板卡片 4 张全部渲染参考帧封面图、创作卡片渲染场景视频首帧封面、模板详情页封面渲染；封面 URL 经 5173 代理全部 HTTP 200
+
+#### 代码质量清理 ✅
+- 前端 `tsc -b` 全绿：清理 Viral 全部页面/components 的未使用 import、未使用变量（List/Form/Descriptions/Tag/Space/Row/Col/TeamOutlined/ScissorOutlined/ModelItem/PROVIDER_LABELS 等）、`ProjectDetail` 语言映射类型修复（TS7053）、删除未引用的死代码 `TemplateCard.tsx`
 
 #### 项目 5 三问题诊断 + 修复 ✅
 模板 8（服饰穿搭）生成的项目 5 存在三个问题，已全部定位并修复：
@@ -73,11 +76,12 @@
 ### 关键文件清单
 | 文件 | 修改内容 |
 |------|---------|
-| `backend/src/modules/viral/viral.service.ts` | 项目 CRUD、场景生成、extractFrames 重构、persistSourceVideo、text 场景背景色 |
+| `backend/src/modules/viral/viral.service.ts` | 项目 CRUD、场景生成、extractFrames 重构、persistSourceVideo、text 场景背景色、cover_url |
 | `backend/src/utils/ffmpeg.util.ts` | generateTextVideo 淡入淡出、mergeVideos 保留音频、adjustVideo -c:a aac |
 | `backend/src/modules/viral/viral.controller.ts` / `viral.dto.ts` / `viral-project.entity.ts` | 项目/模板接口与实体 |
-| `frontend/src/pages/Viral/TemplateDetail.tsx` | 风格默认值 realistic、变量/参考图表单 |
-| `frontend/src/pages/Viral/ProjectDetail.tsx` / `ProjectList.tsx` / `index.tsx` / `CreateTemplate.tsx` | 项目详情/列表/模板集市 |
+| `frontend/vite.config.ts` | `/api` + `/static` 代理到 3000（封面图 dev 下 404 修复） |
+| `frontend/src/pages/Viral/TemplateDetail.tsx` | 风格默认值 realistic、变量/参考图表单、详情页封面 |
+| `frontend/src/pages/Viral/CoverThumb.tsx` / `index.tsx` / `ProjectList.tsx` / `ProjectDetail.tsx` | 封面组件/模板集市/项目列表/项目详情 |
 
 ---
 

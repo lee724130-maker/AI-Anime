@@ -12,18 +12,6 @@ const { Title, Text } = Typography;
 const API_BASE = 'http://localhost:3000';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
-interface ModelItem {
-  id: number; provider: string; capability: string;
-  model_id: string; model_name: string; priority: number; status: string;
-  supported_ratios: string | null; supported_resolutions: string | null;
-  min_duration: number | null; max_duration: number | null;
-}
-
-const PROVIDER_LABELS: Record<string, string> = {
-  volcengine: '火山引擎', aliyun: '阿里云', openai: 'OpenAI',
-  runway: 'Runway', deepseek: 'DeepSeek',
-};
-
 const RATIO_LABELS: Record<string, string> = {
   '9:16': '竖屏', '16:9': '横屏', '1:1': '方屏', '4:3': '传统', '3:4': '海报', '21:9': '超宽',
 };
