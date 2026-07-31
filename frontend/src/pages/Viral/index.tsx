@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge, message, Modal } from 'antd';
-import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ExperimentOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined } from '@ant-design/icons';
+import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import CoverThumb from './CoverThumb';
 
 const { Title, Text } = Typography;
 
@@ -15,13 +16,13 @@ const STATUS_MAP: Record<string, { color: string; label: string; icon: any }> = 
 
 interface TemplateItem {
   id: number; name: string; description: string; category: string;
-  tags: string[]; thumbnail: string; usage_count: number; is_system: boolean;
+  tags: string[]; thumbnail: string; cover_url: string; usage_count: number; is_system: boolean;
   created_at: string;
 }
 
 interface ProjectItem {
   id: number; template_id: number; name: string; status: string;
-  progress: number; result_url: string; created_at: string;
+  progress: number; result_url: string; cover_url: string; created_at: string;
 }
 
 export default function ViralIndex() {
@@ -133,12 +134,8 @@ export default function ViralIndex() {
           <Col xs={24} sm={12} md={8} key={tpl.id}>
             <Card hoverable style={{ ...cardStyle, height: '100%' }}
               onClick={() => navigate(`/viral/templates/${tpl.id}`)}>
-              <div style={{
-                height: 140, borderRadius: 10, marginBottom: 12,
-                background: tpl.thumbnail ? `url(${tpl.thumbnail}) center/cover` : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {!tpl.thumbnail && <ExperimentOutlined style={{ fontSize: 40, color: 'rgba(255,255,255,0.4)' }} />}
+              <div style={{ marginBottom: 12 }}>
+                <CoverThumb src={tpl.cover_url || tpl.thumbnail} height={140} />
               </div>
               <Title level={5} style={{ margin: '0 0 4px', fontSize: 15 }}>{tpl.name}</Title>
               <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.4 }}>
@@ -189,10 +186,10 @@ export default function ViralIndex() {
             return (
               <Col xs={12} sm={8} md={6} key={p.id}>
                 <Card hoverable style={cardStyle} onClick={() => navigate(`/viral/projects/${p.id}`)}>
-                  <div style={{ textAlign: 'center', padding: '4px 0' }}>
-                    <div style={{ fontSize: 24, color: sm.color === 'success' ? '#52c41a' : sm.color === 'error' ? '#ff4d4f' : '#faad14', marginBottom: 8 }}>
-                      {sm.icon}
-                    </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <CoverThumb src={p.cover_url} height={90} />
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
                     <Text style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }} ellipsis>{p.name}</Text>
                     <Tag color={sm.color} style={{ borderRadius: 6, fontSize: 10 }}>{sm.label}</Tag>
                     {p.status === 'processing' && (

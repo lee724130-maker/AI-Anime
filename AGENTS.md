@@ -13,6 +13,13 @@
 
 ### 今日完成功能
 
+#### 模板/项目卡片封面 ✅
+- **需求**: 模板卡片和创作卡片无封面，无法直观了解内容
+- **后端**: `listTemplates` 返回 `cover_url`（优先 thumbnail，否则取 reference_frames 首帧）；`listProjects` 返回 `cover_url`（优先第一个 completed 场景的 videoPath/imagePath，本地路径自动转 `/static/` URL，兜底 result_url）
+- **前端**: 新增 `CoverThumb` 组件（视频→video 首帧封面，图片→img，失败→渐变占位），用于模板卡片、首页"我的创作"卡片、ProjectList 列表封面
+- **文件**: `backend/src/modules/viral/viral.service.ts`、`frontend/src/pages/Viral/CoverThumb.tsx`、`index.tsx`、`ProjectList.tsx`
+- **生效条件**: 需重启后端
+
 #### 项目 5 三问题诊断 + 修复 ✅
 模板 8（服饰穿搭）生成的项目 5 存在三个问题，已全部定位并修复：
 

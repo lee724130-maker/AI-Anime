@@ -137,10 +137,20 @@ export class ViralService {
       take: limit,
     });
 
-    const parsed = items.map(t => ({
-      ...t,
-      tags: t.tags ? JSON.parse(t.tags) : [],
-    }));
+    const parsed = items.map(t => {
+      let cover = t.thumbnail || null;
+      if (!cover && t.reference_frames) {
+        try {
+          const frames = JSON.parse(t.reference_frames);
+          if (Array.isArray(frames) && frames.length) cover = frames[0];
+        } catch { /* ignore */ }
+      }
+      return {
+        ...t,
+        tags: t.tags ? JSON.parse(t.tags) : [],
+        cover_url: cover,
+      };
+    });
 
     return { items: parsed, total, page, limit };
   }
@@ -820,11 +830,26 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       where: { user_id: userId },
       order: { created_at: 'DESC' },
     });
-    return items.map(p => ({
-      ...p,
-      variables: p.variables ? JSON.parse(p.variables) : [],
-      scenes: p.scenes ? JSON.parse(p.scenes) : [],
-    }));
+    const toStatic = (p: string) => {
+      const m = p.replace(/\\/g, '/').match(/output\/([^/]+)$/);
+      return m ? `/static/${m[1]}` : p;
+    };
+    return items.map(p => {
+      const scenes = p.scenes ? JSON.parse(p.scenes) : [];
+      let cover: string | null = null;
+      for (const s of scenes) {
+        if (s.status !== 'completed') continue;
+        if (s.videoPath) { cover = toStatic(s.videoPath); break; }
+        if (s.imagePath) { cover = toStatic(s.imagePath); break; }
+      }
+      if (!cover && p.result_url) cover = p.result_url;
+      return {
+        ...p,
+        variables: p.variables ? JSON.parse(p.variables) : [],
+        scenes,
+        cover_url: cover,
+      };
+    });
   }
 
   async getProjectById(id: number, userId: number) {

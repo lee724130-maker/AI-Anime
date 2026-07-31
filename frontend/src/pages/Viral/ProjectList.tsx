@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Typography, List, Card, Tag, Button, Space, Spin, Empty, Progress, message, Modal } from 'antd';
 import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, RightOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import CoverThumb from './CoverThumb';
 
 const { Title, Text } = Typography;
 
@@ -15,7 +16,7 @@ const STATUS_MAP: Record<string, { color: string; label: string; icon: any }> = 
 
 interface ProjectItem {
   id: number; template_id: number; name: string; status: string;
-  progress: number; result_url: string; created_at: string; error_msg: string;
+  progress: number; result_url: string; cover_url: string; created_at: string; error_msg: string;
 }
 
 export default function ViralProjectList() {
@@ -80,7 +81,11 @@ export default function ViralProjectList() {
                 marginBottom: 12,
               }} onClick={() => navigate(`/viral/projects/${p.id}`)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                    <div style={{ width: 160, marginRight: 16 }}>
+                      <CoverThumb src={p.cover_url} height={90} radius={8} />
+                    </div>
+                    <div style={{ flex: 1 }}>
                     <Space size={8}>
                       <span style={{ fontSize: 18, color: sm.color === 'success' ? '#52c41a' : sm.color === 'error' ? '#ff4d4f' : '#faad14' }}>
                         {sm.icon}
@@ -101,13 +106,14 @@ export default function ViralProjectList() {
                         <Text type="danger" style={{ fontSize: 11, maxWidth: 300 }} ellipsis>{p.error_msg}</Text>
                       )}
                     </div>
-                  </div>
+                    </div>
                   <Space size={4}>
                     <Button type="text" danger icon={<DeleteOutlined />}
                       style={{ color: '#ff4d4f', fontSize: 14 }}
                       onClick={(e) => handleDelete(e, p)} />
                     <Button type="text" icon={<RightOutlined />} style={{ color: '#bbb' }} />
                   </Space>
+                  </div>
                 </div>
               </Card>
             );
