@@ -7,6 +7,7 @@
 #### 模板/项目卡片封面 ✅
 - 后端列表接口新增 `cover_url`：模板优先 thumbnail 否则取 reference_frames 首帧；项目优先首个 completed 场景视频/图片（本地路径转 `/static/`），兜底 result_url
 - 前端新增 `CoverThumb` 组件（视频首帧/图片/渐变占位），应用于模板卡片、我的创作卡片、创作列表
+- **修复**: 封面图 404 问题（`/static/` 相对路径在 vite dev 下不可达）→ `vite.config.ts` 新增 `/api` + `/static` 代理到 3000；Playwright 端到端验证封面全部渲染
 
 #### Viral Studio 爆款复刻全链路 ✅
 - 模板分析（抖音视频 → 模板结构）→ 项目创建 → 场景生成（video/image/text）→ 合并 → 下载全流程打通
