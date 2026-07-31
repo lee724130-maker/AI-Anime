@@ -574,6 +574,7 @@ export class AIServiceUtil {
     apiKey: string,
     options: VideoGenerationOptions,
     textPrompt?: string,
+    downgradeDepth = 0,
   ): Promise<string> {
     const prompt = textPrompt || options.prompt || 'cinematic video';
     this.logger.log(`通义万相 video prompt: ${prompt.slice(0, 120)}...`);
@@ -694,12 +695,19 @@ export class AIServiceUtil {
           const singleUrl = allItems.length > 0
             ? allItems[0].url
             : (options.imageUrl || '');
+          const isWan26 = /wan2\.6/.test(model);
+          // Convert local /static/ files (incl. full http://localhost:3000/static/... URLs)
+          // to base64 so the cloud provider can read them. Keeps remote URLs as-is.
           const toBase64 = (url: string) => {
-            if (!url.startsWith('/static/')) return url;
+            if (!url.startsWith('/static/')) {
+              const m = url.match(/^https?:\/\/[^/]+\/static\/(.+)$/);
+              if (!m) return url; // remote public URL — provider can access it
+              url = `/static/${m[1]}`;
+            }
             try {
               const ext = path.extname(url).toLowerCase();
               const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
-              const localPath = path.join(process.cwd(), 'output', path.basename(url));
+              const localPath = path.join(process.cwd(), 'output', url.replace('/static/', ''));
               if (!fs.existsSync(localPath)) {
                 this.logger.warn(`File not found for base64 conversion: ${localPath}`);
                 return url;
@@ -711,14 +719,16 @@ export class AIServiceUtil {
               return url;
             }
           };
+          // Cap R2V reference count: wan2.6 requires <5, others typically <=5
+          const maxR2VRefs = isR2V ? (isWan26 ? 4 : 5) : 1;
+          const r2vItems = allItems.slice(0, maxR2VRefs);
 
           if (isI2V) {
             // I2V — single reference image
-            // 老版本模型 (wan2.0-2.2, wanx2.1, happyhorse) 需要 img_url 格式
+            // 老版本模型 (wan2.0-2.5, wanx2.1, happyhorse) 需要 img_url 格式
             // wan2.6 需要 reference_url 格式
-            // 新版本模型 (wan2.5+, wan2.7+) 需要 media 格式
-            const needsImgUrl = /wan2\.[0-2]/.test(model) || model.startsWith('wanx') || model.startsWith('happyhorse');
-            const isWan26 = /wan2\.6/.test(model);
+            // 新版本模型 (wan2.7+) 需要 media 格式
+            const needsImgUrl = /wan2\.[0-5]/.test(model) || model.startsWith('wanx') || model.startsWith('happyhorse');
             
             if (needsImgUrl) {
               input.img_url = toBase64(singleUrl);
@@ -728,30 +738,29 @@ export class AIServiceUtil {
               input.reference_url = toBase64(singleUrl);
               this.logger.log(`${model} using reference_url format (wan2.6 API)`);
             } else {
-              // wan2.5+ 使用 media 格式
-              // wan2.7+ 使用 first_frame 类型
-              // wan2.5 使用 reference_image 类型
-              const mediaType = /wan2\.[7-9]/.test(model) ? 'first_frame' : 'reference_image';
-              input.media = [{ type: mediaType, url: toBase64(singleUrl) }];
-              this.logger.log(`${model} using media format with ${mediaType} type (new API)`);
+              // wan2.7+ 使用 media 格式 (first_frame 类型)
+              input.media = [{ type: 'first_frame', url: toBase64(singleUrl) }];
+              this.logger.log(`${model} using media format with first_frame type (new API)`);
             }
           } else if (isR2V) {
             // R2V — multiple reference images
             // 老版本模型需要 img_urls 格式
             // wan2.6 需要 reference_urls 格式
-            // 新版本 (wan2.5+, wan2.7+) 需要 media 格式
-            const needsImgUrl = /wan2\.[0-2]/.test(model) || model.startsWith('wanx') || model.startsWith('happyhorse');
-            const isWan26 = /wan2\.6/.test(model);
+            // 新版本 (wan2.7+) 需要 media 格式
+            const needsImgUrl = /wan2\.[0-5]/.test(model) || model.startsWith('wanx') || model.startsWith('happyhorse');
+            if (r2vItems.length < allItems.length) {
+              this.logger.warn(`${model} 参考图 ${allItems.length} 张超过上限 ${maxR2VRefs}，截取前 ${r2vItems.length} 张`);
+            }
             
             if (needsImgUrl) {
-              input.img_urls = allItems.map(m => toBase64(m.url));
+              input.img_urls = r2vItems.map(m => toBase64(m.url));
               this.logger.log(`${model} using img_urls format (old API)`);
             } else if (isWan26) {
               // wan2.6 系列需要 reference_urls 格式
-              input.reference_urls = allItems.map(m => toBase64(m.url));
+              input.reference_urls = r2vItems.map(m => toBase64(m.url));
               this.logger.log(`${model} using reference_urls format (wan2.6 API)`);
             } else {
-              input.media = allItems.map(m => ({ type: 'reference_image', url: toBase64(m.url) }));
+              input.media = r2vItems.map(m => ({ type: 'reference_image', url: toBase64(m.url) }));
               this.logger.log(`${model} using media format with reference_image type (new API)`);
             }
           }
@@ -899,157 +908,36 @@ export class AIServiceUtil {
     }
     }
 
-    // 所有通义万相模型都失败了，尝试降级策略
+    // 所有通义万相模型都失败了，尝试降级策略（递归复用主循环，确保格式/数量/参数适配一致）
     this.logger.error(`All 通义万相 models failed. Last error: ${lastError?.message}`);
 
     // 降级策略1: 如果是 R2V 模式（多图），回退到 I2V 模式（只用第一张图）
-    if (options.media && options.media.length > 1) {
+    if (downgradeDepth < 1 && options.media && options.media.length > 1) {
       this.logger.warn('R2V 所有模型失败，降级到 I2V 模式（仅使用第一张图片）');
-      const singleMedia = [options.media[0]];
-      const i2vModels = filteredModels.filter(m => m.includes('-i2v'));
-      if (i2vModels.length > 0) {
-        for (const model of i2vModels) {
-          try {
-            this.logger.log(`尝试 I2V 降级模型: ${model}`);
-            const i2vOptions = { ...options, media: singleMedia };
-            // 重新走一遍提交逻辑（简化版）
-            const dbModel = dbModelMap.get(model);
-            let adaptedOptions = { ...i2vOptions };
-            
-            // 自动调整参数
-            if (dbModel) {
-              if (adaptedOptions.duration && dbModel.min_duration && dbModel.max_duration) {
-                if (adaptedOptions.duration < dbModel.min_duration) adaptedOptions.duration = dbModel.min_duration;
-                else if (adaptedOptions.duration > dbModel.max_duration) adaptedOptions.duration = dbModel.max_duration;
-              }
-            }
-
-            const singleUrl = singleMedia[0].url;
-            const toBase64 = (url: string) => {
-              if (!url.startsWith('/static/')) return url;
-              try {
-                const ext = path.extname(url).toLowerCase();
-                const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
-                const localPath = path.join(process.cwd(), 'output', path.basename(url));
-                if (!fs.existsSync(localPath)) return url;
-                const b64 = fs.readFileSync(localPath).toString('base64');
-                return `data:${mime};base64,${b64}`;
-              } catch { return url; }
-            };
-
-            const input: any = { prompt };
-            input.img_url = toBase64(singleUrl);
-
-            const params: any = {
-              resolution: (adaptedOptions.resolution || '720p').toUpperCase(),
-              prompt_extend: true,
-              watermark: false,
-              duration: Math.round(adaptedOptions.duration || 5),
-              ratio: adaptedOptions.ratio || '16:9',
-            };
-
-            const submitRes = await axios.post(
-              'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis',
-              { model, input, parameters: params },
-              {
-                headers: {
-                  Authorization: `Bearer ${apiKey}`,
-                  'Content-Type': 'application/json',
-                  'X-DashScope-Async': 'enable',
-                },
-                timeout: 30000,
-              },
-            );
-
-            const taskId = submitRes.data.output?.task_id || submitRes.data.output?.taskId;
-            if (taskId) {
-              this.logger.log(`I2V 降级模式任务提交成功: ${taskId}`);
-              for (let i = 0; i < 120; i++) {
-                const interval = i < 15 ? 2000 : 5000;
-                await this.delay(interval);
-                const pollRes = await axios.get(
-                  `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`,
-                  { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 15000 },
-                );
-                const status = pollRes.data.output?.task_status || pollRes.data.status;
-                if (status === 'SUCCEEDED' || status === 'succeeded') {
-                  const videoUrl = pollRes.data.output?.video_url;
-                  if (videoUrl) {
-                    this.logger.log(`I2V 降级视频生成成功: ${videoUrl.slice(0, 80)}...`);
-                    return videoUrl;
-                  }
-                }
-                if (status === 'FAILED' || status === 'failed') {
-                  this.logger.warn(`I2V 降级任务失败: ${pollRes.data.output?.message}`);
-                  break;
-                }
-              }
-            }
-          } catch (err: any) {
-            this.logger.warn(`I2V 降级模型 ${model} 失败: ${err.message}`);
-          }
-        }
+      try {
+        return await this.generateVideoWithTongyi(
+          apiKey,
+          { ...options, media: [options.media[0]] },
+          textPrompt,
+          downgradeDepth + 1,
+        );
+      } catch (err: any) {
+        this.logger.warn(`I2V 降级也失败: ${err.message}`);
       }
     }
 
     // 降级策略2: 回退到 T2V 模式（不使用图片）
-    if (options.media && options.media.length > 0) {
+    if (downgradeDepth < 2 && options.media && options.media.length > 0) {
       this.logger.warn('I2V 降级也失败，回退到 T2V 模式（纯文字生成视频）');
-      const t2vModels = filteredModels.filter(m => !m.includes('-i2v') && !m.includes('-r2v'));
-      if (t2vModels.length > 0) {
-        for (const model of t2vModels) {
-          try {
-            this.logger.log(`尝试 T2V 降级模型: ${model}`);
-            const input: any = { prompt };
-            const params: any = {
-              resolution: (options.resolution || '720p').toUpperCase(),
-              prompt_extend: true,
-              watermark: false,
-              duration: Math.round(options.duration || 5),
-              ratio: options.ratio || '16:9',
-            };
-
-            const submitRes = await axios.post(
-              'https://dashscope.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis',
-              { model, input, parameters: params },
-              {
-                headers: {
-                  Authorization: `Bearer ${apiKey}`,
-                  'Content-Type': 'application/json',
-                  'X-DashScope-Async': 'enable',
-                },
-                timeout: 30000,
-              },
-            );
-
-            const taskId = submitRes.data.output?.task_id || submitRes.data.output?.taskId;
-            if (taskId) {
-              this.logger.log(`T2V 降级模式任务提交成功: ${taskId}`);
-              for (let i = 0; i < 120; i++) {
-                const interval = i < 15 ? 2000 : 5000;
-                await this.delay(interval);
-                const pollRes = await axios.get(
-                  `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`,
-                  { headers: { Authorization: `Bearer ${apiKey}` }, timeout: 15000 },
-                );
-                const status = pollRes.data.output?.task_status || pollRes.data.status;
-                if (status === 'SUCCEEDED' || status === 'succeeded') {
-                  const videoUrl = pollRes.data.output?.video_url;
-                  if (videoUrl) {
-                    this.logger.log(`T2V 降级视频生成成功: ${videoUrl.slice(0, 80)}...`);
-                    return videoUrl;
-                  }
-                }
-                if (status === 'FAILED' || status === 'failed') {
-                  this.logger.warn(`T2V 降级任务失败: ${pollRes.data.output?.message}`);
-                  break;
-                }
-              }
-            }
-          } catch (err: any) {
-            this.logger.warn(`T2V 降级模型 ${model} 失败: ${err.message}`);
-          }
-        }
+      try {
+        return await this.generateVideoWithTongyi(
+          apiKey,
+          { ...options, media: undefined },
+          textPrompt,
+          downgradeDepth + 1,
+        );
+      } catch (err: any) {
+        this.logger.warn(`T2V 降级也失败: ${err.message}`);
       }
     }
 
@@ -1188,12 +1076,31 @@ export class AIServiceUtil {
 
     // If we have an image, add it as first_frame reference
     if (options.imageUrl) {
-      if (options.imageUrl.startsWith('http')) {
+      if (options.imageUrl.startsWith('data:')) {
         contentItems.push({
           type: 'image_url',
           image_url: { url: options.imageUrl },
           role: 'first_frame',
         });
+      } else if (options.imageUrl.startsWith('http')) {
+        // Convert localhost/static URLs to base64 (cloud can't reach localhost),
+        // keep remote public URLs as-is
+        try {
+          const m = options.imageUrl.match(/^https?:\/\/[^/]+\/static\/(.+)$/);
+          if (m) {
+            const b64 = await this.imageToBase64(`/static/${m[1]}`);
+            contentItems.push({
+              type: 'image_url',
+              image_url: { url: `data:image/jpeg;base64,${b64}` },
+              role: 'first_frame',
+            });
+          } else {
+            contentItems.push({ type: 'image_url', image_url: { url: options.imageUrl }, role: 'first_frame' });
+          }
+        } catch (err: any) {
+          this.logger.warn(`Seedance image base64 conversion failed: ${err.message}, falling back to raw URL`);
+          contentItems.push({ type: 'image_url', image_url: { url: options.imageUrl }, role: 'first_frame' });
+        }
       } else if (fs.existsSync(options.imageUrl)) {
         // Read local file and encode as base64 data URI
         const imgBuffer = fs.readFileSync(options.imageUrl);
@@ -1360,12 +1267,30 @@ export class AIServiceUtil {
   ): Promise<string> {
     const prompt = textPrompt || options.prompt || '';
     try {
+      // Convert localhost/static URLs to data URI (cloud can't reach localhost)
+      let imageUrl: string | undefined;
+      if (options.imageUrl) {
+        const m = options.imageUrl.match(/^https?:\/\/[^/]+\/static\/(.+)$/);
+        if (m) {
+          try {
+            const b64 = await this.imageToBase64(`/static/${m[1]}`);
+            imageUrl = `data:image/jpeg;base64,${b64}`;
+          } catch { imageUrl = options.imageUrl; }
+        } else if (options.imageUrl.startsWith('/static/') || (!options.imageUrl.startsWith('http') && !options.imageUrl.startsWith('data:'))) {
+          try {
+            const b64 = await this.imageToBase64(options.imageUrl);
+            imageUrl = `data:image/jpeg;base64,${b64}`;
+          } catch { imageUrl = options.imageUrl; }
+        } else {
+          imageUrl = options.imageUrl;
+        }
+      }
       const response = await axios.post(
         'https://api.z.ai/api/paas/v4/videos/generations',
         {
           model: 'cogvideox-3',
           prompt,
-          image_url: options.imageUrl || undefined,
+          image_url: imageUrl || undefined,
           quality: 'quality',
           with_audio: true,
           size: (options.resolution || '720p').toUpperCase().replace('P', ''),
@@ -1414,13 +1339,32 @@ export class AIServiceUtil {
     options: VideoGenerationOptions,
   ): Promise<string> {
     try {
+      // Convert localhost/static URLs to data URI (cloud can't reach localhost)
+      let imageUrl: string | undefined;
+      if (options.imageUrl) {
+        const m = options.imageUrl.match(/^https?:\/\/[^/]+\/static\/(.+)$/);
+        if (m) {
+          try {
+            const b64 = await this.imageToBase64(`/static/${m[1]}`);
+            imageUrl = `data:image/jpeg;base64,${b64}`;
+          } catch { imageUrl = options.imageUrl; }
+        } else if (options.imageUrl.startsWith('/static/') || (!options.imageUrl.startsWith('http') && !options.imageUrl.startsWith('data:'))) {
+          try {
+            const b64 = await this.imageToBase64(options.imageUrl);
+            imageUrl = `data:image/jpeg;base64,${b64}`;
+          } catch { imageUrl = options.imageUrl; }
+        } else {
+          imageUrl = options.imageUrl;
+        }
+      }
+
       // Step 1: Create the task
       const createRes = await axios.post(
         'https://api.runwayml.com/v1/tasks',
         {
           model: 'gen3',
           input: {
-            image_url: options.imageUrl,
+            image_url: imageUrl,
             prompt: options.prompt || 'A cinematic anime scene',
             duration: options.duration || 4,
           },

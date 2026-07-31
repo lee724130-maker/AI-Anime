@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Button, Spin, Tag, Space, Descriptions, Empty, message, Modal } from 'antd';
+import { Typography, Card, Button, Spin, Tag, Space, Descriptions, Empty, message, Modal, Divider, Select } from 'antd';
 import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ReloadOutlined, ThunderboltOutlined, FileTextOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import ProgressPanel from './components/ProgressPanel';
@@ -74,6 +74,33 @@ export default function ViralProjectDetail() {
     });
   };
 
+  const [refreshingSource, setRefreshingSource] = useState(false);
+  const refreshSource = async () => {
+    setRefreshingSource(true);
+    try {
+      const { data } = await api.post(`/api/viral/templates/${project.template_id}/refresh-source`);
+      if (data?.updated) {
+        message.success('原视频已获取成功');
+        fetchProject();
+      } else {
+        message.info(data?.message || '模板已使用本地视频');
+      }
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || '获取原视频失败');
+    }
+    setRefreshingSource(false);
+  };
+
+  const changeRatio = async (ratio: string) => {
+    try {
+      await api.put(`/api/viral/projects/${id}`, { ratio });
+      message.success('比例已更新，重新生成后生效');
+      fetchProject();
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || '比例更新失败');
+    }
+  };
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
   }
@@ -116,8 +143,17 @@ export default function ViralProjectDetail() {
                 重新生成
               </Button>
             )}
-          </Space>
-        </div>
+            <Select
+              value={project.ratio || '9:16'}
+              onChange={changeRatio}
+              options={[
+                { label: '9:16 竖屏', value: '9:16' },
+                { label: '16:9 横屏', value: '16:9' },
+                { label: '1:1 方形', value: '1:1' },
+              ]}
+              style={{ width: 130 }}
+            />
+          </Space>        </div>
 
         {(project.status === 'processing') && (
           <ProgressPanel
@@ -128,7 +164,40 @@ export default function ViralProjectDetail() {
         )}
 
         {project.status === 'completed' && project.result_url && (
-          <VideoPreview url={project.result_url} />
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ background: '#7c3aed20', color: '#7c3aed', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
+                AI 生成视频
+              </span>
+              <Text type="secondary" style={{ fontSize: 12 }}>根据模板生成的视频</Text>
+            </div>
+            <VideoPreview url={project.result_url} />
+            <Divider style={{ margin: '20px 0' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <span style={{ background: '#1890ff20', color: '#1890ff', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
+                原视频
+              </span>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {project.template_name ? `${project.template_name} 的参考视频` : '模板参考视频'}
+              </Text>
+              {project.reference_url && !project.reference_url.startsWith('/static/') && (
+                <Button size="small" type="primary" loading={refreshingSource} onClick={refreshSource}
+                  style={{ borderRadius: 6, background: '#1890ff', borderColor: '#1890ff', marginLeft: 'auto' }}>
+                  获取原视频
+                </Button>
+              )}
+            </div>
+            {project.reference_url && project.reference_url.startsWith('/static/') ? (
+              <VideoPreview url={project.reference_url} />
+            ) : (
+              <div style={{
+                background: '#f5f7fa', borderRadius: 10, padding: '28px 16px',
+                textAlign: 'center', color: '#999', fontSize: 13,
+              }}>
+                原视频暂未保存到本地，点击右上角「获取原视频」下载保存后可播放
+              </div>
+            )}
+          </div>
         )}
 
         {project.error_msg && (
@@ -144,6 +213,18 @@ export default function ViralProjectDetail() {
             <Tag color={sm.color} style={{ borderRadius: 6 }}>{sm.label}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="进度">{project.progress}%</Descriptions.Item>
+          <Descriptions.Item label="视频比例">
+            <Tag style={{ borderRadius: 6 }}>{project.ratio || '9:16'}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="分辨率">
+            <Tag style={{ borderRadius: 6 }}>{project.resolution || '720p'}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="风格">
+            <Tag style={{ borderRadius: 6 }}>{project.style === 'realistic' ? '写实' : '动漫'}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="语言">
+            <Tag style={{ borderRadius: 6 }}>{{ zh: '中文', en: '英文', ja: '日文' }[project.language || 'zh']}</Tag>
+          </Descriptions.Item>
         </Descriptions>
       </Card>
 

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Descriptions, Image } from 'antd';
-import { ArrowLeftOutlined, ThunderboltOutlined, ExperimentOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Descriptions, Image, Select } from 'antd';
+import { ArrowLeftOutlined, ThunderboltOutlined, ExperimentOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import GlobalAssetPicker from './components/GlobalAssetPicker';
 
 const { Title, Text } = Typography;
+const API_BASE = 'http://localhost:3000';
 
 // Category is dynamically set by AI during analysis
 
@@ -14,13 +15,14 @@ interface TemplateScene {
 }
 
 interface TemplateVariable {
-  key: string; label: string; type: string; placeholder: string; required: boolean; options?: string[];
+  key: string; label: string; type: string; placeholder: string; required: boolean; default_value?: string; options?: string[];
 }
 
 interface TemplateDetail {
   id: number; name: string; description: string; category: string;
   tags: string[]; scenes: TemplateScene[]; variables: TemplateVariable[];
   reference_url: string; usage_count: number; thumbnail: string;
+  reference_frames?: string[];
 }
 
 export default function ViralTemplateDetail() {
@@ -39,10 +41,12 @@ export default function ViralTemplateDetail() {
       try {
         const { data } = await api.get(`/api/viral/templates/${id}`);
         setTemplate(data);
-        // Pre-fill form defaults
-        const defaults: Record<string, any> = {};
+        // Pre-fill form defaults: project name auto-filled, variables use AI suggested values
+        const defaults: Record<string, any> = {
+          project_name: `${data.name} - 我的版本`,
+        };
         for (const v of data.variables || []) {
-          defaults[v.key] = v.options ? v.options[0] : '';
+          defaults[v.key] = v.default_value || (v.options ? v.options[0] : '');
         }
         form.setFieldsValue(defaults);
       } catch { message.error('模板加载失败'); }
@@ -55,13 +59,19 @@ export default function ViralTemplateDetail() {
       const values = await form.validateFields();
       setSubmitting(true);
 
-      const variables = Object.entries(values).map(([key, value]) => ({ key, value }));
+      const variables = Object.entries(values)
+        .filter(([key]) => !['project_name', 'project_ratio', 'project_resolution', 'project_style', 'project_language'].includes(key))
+        .map(([key, value]) => ({ key, value }));
 
       const { data } = await api.post('/api/viral/projects', {
         template_id: Number(id),
         name: values.project_name || template?.name || '未命名项目',
         variables: JSON.stringify(variables),
         media_refs: selectedImages.length > 0 ? JSON.stringify(selectedImages) : undefined,
+        ratio: values.project_ratio || '9:16',
+        resolution: values.project_resolution || '720p',
+        style: values.project_style || 'realistic',
+        language: values.project_language || 'zh',
       });
 
       message.success('创作项目已创建！');
@@ -123,6 +133,21 @@ export default function ViralTemplateDetail() {
             </Space>
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{template.description}</Text>
 
+            {template.reference_url && (
+              <div style={{
+                padding: '8px 12px', marginBottom: 16, borderRadius: 8,
+                background: '#fafafa', border: '1px solid #f0f0f0',
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <LinkOutlined style={{ color: '#7c3aed', flexShrink: 0 }} />
+                <Text style={{ fontSize: 12 }} ellipsis={{ tooltip: template.reference_url }}>
+                  参考视频: {template.reference_url}
+                </Text>
+                <a href={template.reference_url} target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 12, color: '#7c3aed', flexShrink: 0 }}>打开</a>
+              </div>
+            )}
+
             <Divider style={{ margin: '12px 0' }} />
 
             <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>模板结构（{template.scenes.length} 个场景）</Text>
@@ -153,6 +178,52 @@ export default function ViralTemplateDetail() {
                 <Input placeholder={`${template.name} - 我的版本`} style={{ borderRadius: 8 }} />
               </Form.Item>
 
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item name="project_ratio" label="视频比例" initialValue="9:16">
+                    <Select
+                      options={[
+                        { label: '竖屏 9:16', value: '9:16' },
+                        { label: '横屏 16:9', value: '16:9' },
+                        { label: '方形 1:1', value: '1:1' },
+                      ]}
+                      style={{ borderRadius: 8 }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="project_resolution" label="分辨率" initialValue="720p">
+                    <Select
+                      options={['480p', '720p', '1080p'].map(r => ({ label: r, value: r }))}
+                      style={{ borderRadius: 8 }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="project_style" label="风格" initialValue="realistic">
+                    <Select
+                      options={[
+                        { label: '写实', value: 'realistic' },
+                        { label: '动漫', value: 'anime' },
+                      ]}
+                      style={{ borderRadius: 8 }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="project_language" label="语言" initialValue="zh">
+                    <Select
+                      options={[
+                        { label: '中文', value: 'zh' },
+                        { label: '英文', value: 'en' },
+                        { label: '日文', value: 'ja' },
+                      ]}
+                      style={{ borderRadius: 8 }}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+
               <Divider style={{ margin: '12px 0' }} />
               <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>替换内容</Text>
 
@@ -174,7 +245,52 @@ export default function ViralTemplateDetail() {
               ))}
 
               <Divider style={{ margin: '12px 0' }} />
-              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>参考素材（可选）</Text>
+              <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>参考素材（可选）</Text>
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+                点击视频截图选择，或从大资产库添加（图片将作为 AI 生成时的参考）
+              </Text>
+
+              {template.reference_frames && template.reference_frames.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                    视频截图（点击选择/取消）
+                  </Text>
+                  <Row gutter={[6, 6]}>
+                    {template.reference_frames.map((frame, i) => {
+                      const frameUrl = frame.startsWith('http') ? frame : API_BASE + frame;
+                      const isSelected = selectedImages.includes(frameUrl);
+                      return (
+                        <Col key={i} xs={6} sm={4} lg={6} xl={4}>
+                          <div onClick={() => {
+                            if (isSelected) {
+                              setSelectedImages(selectedImages.filter(u => u !== frameUrl));
+                            } else {
+                              setSelectedImages([...selectedImages, frameUrl]);
+                            }
+                          }}
+                            style={{
+                              borderRadius: 8, overflow: 'hidden', cursor: 'pointer',
+                              border: isSelected ? '2px solid #7c3aed' : '2px solid transparent',
+                              position: 'relative', background: '#f5f5f5',
+                            }}>
+                            <Image src={frameUrl} preview={false}
+                              style={{ width: '100%', height: 56, objectFit: 'cover' }} />
+                            {isSelected && (
+                              <div style={{
+                                position: 'absolute', inset: 0, background: 'rgba(124,58,237,0.25)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>
+                                <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>✓</Text>
+                              </div>
+                            )}
+                          </div>
+                        </Col>
+                      );
+                    })}
+                  </Row>
+                </div>
+              )}
+
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
                 {selectedImages.map((url, i) => (
                   <div key={i} style={{ position: 'relative', width: 60, height: 60, borderRadius: 8, overflow: 'hidden' }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge, message } from 'antd';
-import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ExperimentOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined } from '@ant-design/icons';
+import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, List, Badge, message, Modal } from 'antd';
+import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ExperimentOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { Title, Text } = Typography;
@@ -52,6 +52,25 @@ export default function ViralIndex() {
   };
 
   useEffect(() => { fetchData(); }, [category]);
+
+  const handleDelete = (tpl: TemplateItem) => {
+    Modal.confirm({
+      title: '确认删除模板',
+      content: `确定要删除「${tpl.name}」吗？删除后无法恢复，已创建的创作项目不受影响。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.delete(`/api/viral/templates/${tpl.id}`);
+          message.success('模板已删除');
+          fetchData();
+        } catch (err: any) {
+          message.error('删除失败: ' + (err?.response?.data?.message || err.message));
+        }
+      },
+    });
+  };
 
   const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
 
@@ -132,10 +151,14 @@ export default function ViralIndex() {
                     <FireOutlined /> {tpl.usage_count}
                   </Text>
                 </Space>
-                <Button type="primary" size="small" style={{ borderRadius: 8, background: '#7c3aed', borderColor: '#7c3aed', fontSize: 11 }}
-                  onClick={e => { e.stopPropagation(); navigate(`/viral/templates/${tpl.id}`); }}>
-                  使用此模板
-                </Button>
+                <Space size={4}>
+                  <Button danger size="middle" type="text" icon={<DeleteOutlined />} style={{ fontSize: 15, padding: '4px 6px' }}
+                    onClick={e => { e.stopPropagation(); handleDelete(tpl); }} />
+                  <Button type="primary" size="small" style={{ borderRadius: 8, background: '#7c3aed', borderColor: '#7c3aed', fontSize: 11 }}
+                    onClick={e => { e.stopPropagation(); navigate(`/viral/templates/${tpl.id}`); }}>
+                    使用此模板
+                  </Button>
+                </Space>
               </div>
             </Card>
           </Col>

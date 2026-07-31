@@ -45,6 +45,18 @@ export class ViralProject {
   @Column({ name: 'media_refs', type: 'text', nullable: true })
   media_refs: string;
 
+  @Column({ length: 10, default: '9:16' })
+  ratio: string;
+
+  @Column({ length: 10, default: '720p' })
+  resolution: string;
+
+  @Column({ length: 20, default: 'anime' })
+  style: string;
+
+  @Column({ length: 10, default: 'zh' })
+  language: string;
+
   @CreateDateColumn({ name: 'created_at' })
   created_at: Date;
 

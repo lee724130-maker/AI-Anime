@@ -35,6 +35,11 @@ export class ViralController {
     return this.service.duplicateTemplate(id, req.user.id);
   }
 
+  @Post('templates/:id/refresh-source')
+  refreshTemplateSource(@Param('id', ParseIntPipe) id: number) {
+    return this.service.refreshTemplateSourceVideo(id);
+  }
+
   @Put('templates/:id')
   updateTemplate(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTemplateDto) {
     return this.service.updateTemplate(id, dto);

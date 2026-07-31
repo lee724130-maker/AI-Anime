@@ -11,7 +11,7 @@ const { Title, Text } = Typography;
 // Category is now dynamically determined by LLM during video analysis
 
 interface VariableItem {
-  key: string; label: string; type: string; placeholder: string; required: boolean;
+  key: string; label: string; type: string; placeholder: string; required: boolean; default_value?: string;
 }
 
 export default function CreateTemplate() {
@@ -24,6 +24,8 @@ export default function CreateTemplate() {
   const [category, setCategory] = useState('');
   const [scenes, setScenes] = useState<SceneItem[]>([]);
   const [variables, setVariables] = useState<VariableItem[]>([]);
+  const [referenceFrames, setReferenceFrames] = useState<string[]>([]);
+  const [sourceUrl, setSourceUrl] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleAnalyze = async () => {
@@ -44,6 +46,10 @@ export default function CreateTemplate() {
       setCategory(data.category || '');
       setScenes(data.scenes || []);
       setVariables(data.variables || []);
+      setReferenceFrames(data.reference_frames || []);
+      // Use the clean extracted URL from analysis (strips share-text decorations)
+      if (data.reference_url) setVideoUrl(data.reference_url);
+      if (data.source_url) setSourceUrl(data.source_url);
       setStep('edit');
       message.success('视频分析完成！可编辑后保存为模板');
     } catch (err: any) {
@@ -62,6 +68,8 @@ export default function CreateTemplate() {
         scenes: JSON.stringify(scenes),
         variables: JSON.stringify(variables),
         reference_url: videoUrl,
+        reference_frames: JSON.stringify(referenceFrames),
+        source_url: sourceUrl || undefined,
         tags: JSON.stringify([]),
       });
       message.success('模板保存成功！');
@@ -73,7 +81,7 @@ export default function CreateTemplate() {
   };
 
   const addVariable = () => {
-    setVariables([...variables, { key: '', label: '', type: 'text', placeholder: '', required: false }]);
+    setVariables([...variables, { key: '', label: '', type: 'text', placeholder: '', default_value: '', required: false }]);
   };
 
   const updateVariable = (i: number, field: string, value: any) => {
@@ -227,15 +235,15 @@ export default function CreateTemplate() {
                   <Button type="text" size="small" danger onClick={() => removeVariable(i)}>删除</Button>
                 </div>
                 <Row gutter={8}>
-                  <Col span={6}>
+                  <Col span={5}>
                     <Input size="small" placeholder="key (英文)" value={v.key}
                       onChange={e => updateVariable(i, 'key', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
-                  <Col span={6}>
+                  <Col span={5}>
                     <Input size="small" placeholder="标签 (中文)" value={v.label}
                       onChange={e => updateVariable(i, 'label', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
-                  <Col span={4}>
+                  <Col span={3}>
                     <Select size="small" value={v.type} onChange={val => updateVariable(i, 'type', val)}
                       style={{ width: '100%' }}
                       options={[
@@ -245,7 +253,11 @@ export default function CreateTemplate() {
                       ]} />
                   </Col>
                   <Col span={5}>
-                    <Input size="small" placeholder="占位提示" value={v.placeholder}
+                    <Input size="small" placeholder="建议值" value={v.default_value}
+                      onChange={e => updateVariable(i, 'default_value', e.target.value)} style={{ borderRadius: 6 }} />
+                  </Col>
+                  <Col span={3}>
+                    <Input size="small" placeholder="提示" value={v.placeholder}
                       onChange={e => updateVariable(i, 'placeholder', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
                   <Col span={3} style={{ display: 'flex', alignItems: 'center' }}>

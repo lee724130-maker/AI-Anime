@@ -208,15 +208,20 @@ export class FFmpegUtil {
     );
 
     try {
+      // If no duration given, use the video's own duration so that a shorter
+      // BGM never truncates the video (shortest would cut to BGM length)
+      if (!duration) {
+        const info = await this.getVideoInfo(videoPath);
+        duration = info.duration || 5;
+        this.logger.log(`compositeVideoWithAudio: no duration, using video length ${duration}s`);
+      }
+
       const args: string[] = [
         '-y',
         '-i', videoPath,
         '-i', audioPath,
+        '-t', String(duration),
       ];
-
-      if (duration) {
-        args.push('-t', String(duration));
-      }
 
       const hasSubtitles = subtitlePath && fs.existsSync(subtitlePath);
       this.logger.log(`compositeVideoWithAudio: subtitlePath="${subtitlePath}", exists=${!!subtitlePath && fs.existsSync(subtitlePath)}`);
@@ -235,7 +240,6 @@ export class FFmpegUtil {
       args.push(
         '-c:a', 'aac',
         '-b:a', '128k',
-        '-shortest',
         outPath,
       );
 
@@ -295,7 +299,10 @@ export class FFmpegUtil {
   }
 
   /**
-   * Merge multiple video files into one via concat demuxer
+   * Merge multiple video files into one via filter_complex concat.
+   * Re-encodes all inputs to a unified 24fps CFR stream at the resolution of
+   * the FIRST input (fixes black screen at start from mismatched fps/timebase,
+   * and concat failures from mismatched resolutions between clips).
    */
   async mergeVideos(videoPaths: string[] | { path: string }[]): Promise<string> {
     if (!videoPaths || videoPaths.length === 0) {
@@ -307,27 +314,64 @@ export class FFmpegUtil {
       throw new Error('No valid video files to merge');
     }
 
-    const outPath = path.join(this.outputDir, `merged_${Date.now()}.mp4`);
-    const concatFile = path.join(this.outputDir, `concat_${Date.now()}.txt`);
-    const concatContent = validPaths
-      .map((p) => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
-      .join('\n');
-    fs.writeFileSync(concatFile, concatContent);
+    // Detect target resolution from the first video so all clips are
+    // normalized to the same size (concat requires identical dimensions)
+    const firstInfo = await this.getVideoInfo(validPaths[0]);
+    const targetW = firstInfo.width && firstInfo.width % 2 === 0 ? firstInfo.width : 1080;
+    const targetH = firstInfo.height && firstInfo.height % 2 === 0 ? firstInfo.height : 1920;
+    const normFilter = `scale=${targetW}:${targetH}:force_original_aspect_ratio=increase,crop=${targetW}:${targetH},setsar=1,fps=24,setpts=PTS-STARTPTS`;
 
-    // Normalize each file to TS (handles mismatched streams like missing audio), then concat
-    const tsFiles = validPaths.map((p, i) => {
-      const ts = path.join(this.outputDir, `concat_ts_${i}_${Date.now()}.ts`);
-      return { mp4: p, ts };
+    // Detect which inputs carry an audio track (concat a=1 needs all inputs to have audio)
+    const hasAudioList = await Promise.all(
+      validPaths.map(async (p) => {
+        try {
+          const { stdout } = await execAsync(
+            `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${p}"`,
+            { timeout: 10000 },
+          );
+          return stdout.trim().length > 0;
+        } catch {
+          return false;
+        }
+      }),
+    );
+    const videoInfos = await Promise.all(validPaths.map((p) => this.getVideoInfo(p)));
+
+    if (validPaths.length === 1) {
+      // Single input — just normalize it to a clean 24fps stream, keep audio
+      const outPath = path.join(this.outputDir, `merged_${Date.now()}.mp4`);
+      await this.ff(
+        `-y -i "${validPaths[0]}" -vf "${normFilter}" -c:v libx264 -preset veryfast -crf 20 -r 24 -g 48 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart "${outPath}"`,
+        { timeout: 300000 },
+      );
+      return outPath;
+    }
+
+    const outPath = path.join(this.outputDir, `merged_${Date.now()}.mp4`);
+
+    // Build filter_complex: normalize each input to 24fps + target resolution,
+    // normalize/pad audio, then concat both video and audio streams
+    const inputs = validPaths.map((p) => `-i "${p}"`).join(' ');
+    const normalized = validPaths.map((_, i) =>
+      `[${i}:v]${normFilter}[v${i}]`,
+    );
+    const audioParts = validPaths.map((_, i) => {
+      if (hasAudioList[i]) {
+        return `[${i}:a]aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[a${i}]`;
+      }
+      const dur = (videoInfos[i]?.duration || 5).toFixed(2);
+      return `anullsrc=r=44100:cl=stereo,atrim=duration=${dur},asetpts=PTS-STARTPTS[a${i}]`;
     });
-    for (const f of tsFiles) {
-      await this.ff(`-y -i "${f.mp4}" -c copy -bsf:v h264_mp4toannexb -f mpegts "${f.ts}"`);
-    }
-    const tsConcatInput = tsFiles.map(f => f.ts).join('|');
-    await this.ff(`-y -i "concat:${tsConcatInput}" -c copy -bsf:a aac_adtstoasc -movflags +faststart "${outPath}"`);
-    // Cleanup temp TS files
-    for (const f of tsFiles) {
-      try { fs.unlinkSync(f.ts); } catch { /* ignore */ }
-    }
+    const concatIn = validPaths.map((_, i) => `[v${i}][a${i}]`).join('');
+    const filterComplex =
+      `${[...normalized, ...audioParts].join(';')};${concatIn}concat=n=${validPaths.length}:v=1:a=1[vout][aout]`;
+
+    await this.ff(
+      `-y ${inputs} -filter_complex "${filterComplex}" -map "[vout]" -map "[aout]" ` +
+      `-c:v libx264 -preset veryfast -crf 20 -r 24 -g 48 -pix_fmt yuv420p -c:a aac -b:a 128k -movflags +faststart "${outPath}"`,
+      { timeout: 600000 },
+    );
+    this.logger.log(`Merged ${validPaths.length} videos into ${outPath}`);
     return outPath;
   }
 
@@ -388,6 +432,40 @@ export class FFmpegUtil {
   }
 
   /**
+   * Compress a video for persistent storage: keeps the FULL duration, scales
+   * to `maxWidth` keeping aspect ratio, keeps audio, re-encodes with high
+   * compression (crf 28). Throws on failure.
+   */
+  async compressForStorage(
+    inputPath: string,
+    outputPath: string,
+    options: { maxWidth?: number } = {},
+  ): Promise<void> {
+    const { maxWidth = 720 } = options;
+    const info = await this.getVideoInfo(inputPath);
+
+    const targetW = Math.min((info.width || 1280), maxWidth);
+    const targetH = info.width && info.height
+      ? Math.round((info.height / info.width) * targetW)
+      : Math.round(16 / 9 * targetW);
+    const w = targetW % 2 === 0 ? targetW : targetW - 1;
+    const h = targetH % 2 === 0 ? targetH : targetH - 1;
+
+    this.logger.log(
+      `Compress for storage: ${info.width}x${info.height} ${info.duration.toFixed(1)}s → ` +
+      `${w}x${h} full duration (crf 28)`,
+    );
+
+    await this.ff(
+      `-y -i "${inputPath}" ` +
+      `-vf "scale=-2:${h}" -c:v libx264 -preset veryfast -crf 28 ` +
+      `-c:a aac -b:a 96k -ac 2 -movflags +faststart "${outputPath}"`,
+      { timeout: 600000 },
+    );
+    this.logger.log(`Compressed video saved: ${outputPath}`);
+  }
+
+  /**
    * Adjust video to match target resolution and duration.
    * - Scales if resolution differs
    * - Loops or trims if duration differs by more than 0.5s
@@ -443,7 +521,7 @@ export class FFmpegUtil {
       }
 
       args.push('-r', '24', '-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
-      args.push('-an'); // Strip audio (we'll add back later if needed)
+      args.push('-c:a', 'aac', '-b:a', '128k'); // Keep audio (voiceover/BGM survives resizing)
       args.push(outPath);
 
       const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
@@ -583,7 +661,12 @@ export class FFmpegUtil {
       return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x=(w-text_w)/2:y=${y}:enable='between(t,0,${duration})'`;
     });
 
-    const filter = drawTextFilters.join(',');
+    const fadeIn = 0.5;
+    const fadeOut = Math.min(0.6, duration / 3);
+    const filter =
+      `${drawTextFilters.join(',')}` +
+      `,fade=t=in:st=0:d=${fadeIn}` +
+      `,fade=t=out:st=${Math.max(duration - fadeOut, 0)}:d=${fadeOut}`;
 
     try {
       await this.ff(

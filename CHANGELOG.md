@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-31
+
+### Viral Studio 全链路打通 + 项目 5 三问题修复
+
+#### Viral Studio 爆款复刻全链路 ✅
+- 模板分析（抖音视频 → 模板结构）→ 项目创建 → 场景生成（video/image/text）→ 合并 → 下载全流程打通
+- 项目 CRUD：`viral.controller.ts` / `viral.dto.ts` / `viral-project.entity.ts` + 前端 ProjectList/ProjectDetail
+- 场景生成：video 场景（R2V/I2V/T2V 自动选择，style 注入）、image 场景（T2I + zoompan）、text 场景（drawtext 动画）
+- 合并保留音频：`mergeVideos` concat v=1:a=1 + anullsrc 静音补齐；`adjustVideo` `-an` → `-c:a aac`
+- 智能抽帧 `extractFrames`：均匀分段 → scene 检测 → 三点采样兜底 → dHash 去重 → 上限 8 帧
+
+#### 项目 5 三问题诊断 + 修复 ✅
+- **结尾黑屏**: text 场景背景 `#1a1a2e`（近黑）→ 品牌紫 `#7C3AED` + 淡入淡出动画（`ffmpeg.util.ts`）
+- **原视频 404**: `viral_source_1785494547540.mp4` 文件丢失（无删除日志，疑似磁盘清理软件）→ Playwright 重新下载 + 压缩持久化恢复，HTTP 200 验证通过
+- **风格混乱**: 前端风格默认值 `anime` → `realistic`，避免 R2V 真人内容与 T2I 动漫内容混搭（`TemplateDetail.tsx`）
+
+#### 相关文件
+- `backend/src/modules/viral/viral.service.ts`: 项目 CRUD、场景生成、extractFrames、persistSourceVideo、text 场景背景色
+- `backend/src/utils/ffmpeg.util.ts`: generateTextVideo 淡入淡出、mergeVideos 音频保留、adjustVideo aac
+- `frontend/src/pages/Viral/TemplateDetail.tsx`: 风格默认值 realistic
+
 ## 2026-07-29
 
 ### AI 智能规划功能全面增强 + 百度百科 + Playwright 反爬 + 多视角生成

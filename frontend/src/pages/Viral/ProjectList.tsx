@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, List, Card, Tag, Button, Space, Spin, Empty, Progress, message } from 'antd';
-import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, RightOutlined } from '@ant-design/icons';
+import { Typography, List, Card, Tag, Button, Space, Spin, Empty, Progress, message, Modal } from 'antd';
+import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, RightOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { Title, Text } = Typography;
@@ -24,14 +24,34 @@ export default function ViralProjectList() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await api.get('/api/viral/projects');
-        setProjects(data || []);
-      } catch { message.error('项目列表加载失败'); }
-      setLoading(false);
-    })();
+    loadProjects();
   }, []);
+
+  const loadProjects = async () => {
+    try {
+      const { data } = await api.get('/api/viral/projects');
+      setProjects(data || []);
+    } catch { message.error('项目列表加载失败'); }
+    setLoading(false);
+  };
+
+  const handleDelete = (e: React.MouseEvent, p: ProjectItem) => {
+    e.stopPropagation();
+    Modal.confirm({
+      title: '确认删除',
+      content: `删除「${p.name}」后数据无法恢复！`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await api.delete(`/api/viral/projects/${p.id}`);
+          message.success('删除成功');
+          loadProjects();
+        } catch { message.error('删除失败'); }
+      },
+    });
+  };
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
@@ -82,7 +102,12 @@ export default function ViralProjectList() {
                       )}
                     </div>
                   </div>
-                  <Button type="text" icon={<RightOutlined />} style={{ color: '#bbb' }} />
+                  <Space size={4}>
+                    <Button type="text" danger icon={<DeleteOutlined />}
+                      style={{ color: '#ff4d4f', fontSize: 14 }}
+                      onClick={(e) => handleDelete(e, p)} />
+                    <Button type="text" icon={<RightOutlined />} style={{ color: '#bbb' }} />
+                  </Space>
                 </div>
               </Card>
             );

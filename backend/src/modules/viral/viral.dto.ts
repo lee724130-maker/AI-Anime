@@ -23,6 +23,9 @@ export class CreateTemplateDto {
   @IsOptional() @IsString()
   reference_frames?: string;
 
+  @IsOptional() @IsString()
+  source_url?: string;
+
   @IsString()
   scenes: string;
 
@@ -57,6 +60,9 @@ export class UpdateTemplateDto {
 
   @IsOptional() @IsString()
   reference_frames?: string;
+
+  @IsOptional() @IsString()
+  source_url?: string;
 
   @IsOptional() @IsString()
   scenes?: string;
@@ -114,6 +120,18 @@ export class CreateProjectDto {
 
   @IsOptional() @IsString()
   media_refs?: string;
+
+  @IsOptional() @IsString()
+  ratio?: string;
+
+  @IsOptional() @IsString()
+  resolution?: string;
+
+  @IsOptional() @IsString()
+  style?: string;
+
+  @IsOptional() @IsString()
+  language?: string;
 }
 
 export class RegenerateSceneDto {
@@ -127,4 +145,16 @@ export class UpdateProjectDto {
 
   @IsOptional() @IsString()
   variables?: string;
+
+  @IsOptional() @IsString()
+  ratio?: string;
+
+  @IsOptional() @IsString()
+  resolution?: string;
+
+  @IsOptional() @IsString()
+  style?: string;
+
+  @IsOptional() @IsString()
+  language?: string;
 }

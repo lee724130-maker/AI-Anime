@@ -741,7 +741,7 @@ export class DramaService {
         try {
           // Pick text matching the target language
           let audioLang = episode.audio_lang;
-          // Legacy 'none' → zh
+          // Legacy 'none' �� zh
           if (audioLang === 'none') audioLang = 'zh';
           let ttsText = '';
           if (audioLang === 'zh' || audioLang === 'ja') {
@@ -750,7 +750,25 @@ export class DramaService {
             ttsText = segment.prompt || segment.summary || segment.prompt_cn || '';
           }
           if (ttsText) {
-            await this.updateSegmentProgress(segment.id, '正在生成配音...', 78);
+            await this.updateSegmentProgress(segment.id, '������������...', 78);
+            // Translate the narration into the selected language so the
+            // spoken dialogue actually matches the chosen audio_lang
+            if (audioLang === 'en' || audioLang === 'ja') {
+              try {
+                const langName = audioLang === 'en' ? 'English' : 'Japanese';
+                const translated = await this.aiService.chatCompletion([
+                  { role: 'system', content: `You are a professional translator. Translate the dialogue below into ${langName}. Keep the tone natural for anime dubbing, keep character names and proper nouns as-is. Output ONLY the translated text, no quotes, no explanation.` },
+                  { role: 'user', content: ttsText.slice(0, 400) },
+                ], { temperature: 0.3, maxTokens: 600 });
+                const cleaned = (translated || '').trim().replace(/^["'“”]+|["'“”]+$/g, '');
+                if (cleaned) {
+                  this.logger.log(`Segment ${segment.id} TTS translated to ${audioLang}: ${cleaned.slice(0, 60)}...`);
+                  ttsText = cleaned;
+                }
+              } catch (transErr: any) {
+                this.logger.warn(`TTS translation to ${audioLang} failed (using source text): ${transErr.message}`);
+              }
+            }
             const voiceMap: Record<string, string> = { zh: 'nova', en: 'alloy', ja: 'nova' };
             const voice = voiceMap[audioLang] || 'alloy';
             const audioBuf = await this.aiService.generateTTS({

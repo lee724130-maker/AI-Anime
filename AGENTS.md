@@ -1,5 +1,78 @@
 # 修复日志
 
+## 2026-07-31
+
+### 服务状态（关停前）
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| 后端（NestJS，`node dist/src/main`） | 3000 | ✅ 运行中（PID 8224，需重启生效新代码） |
+| 前端（Vite） | 5173 | ✅ 运行中 |
+| 管理后台（Vite） | 5174 | ✅ 运行中 |
+| Redis | 6379 | ✅ 运行中 |
+| MySQL | 3306 | ✅ 运行中 |
+
+### 今日完成功能
+
+#### 项目 5 三问题诊断 + 修复 ✅
+模板 8（服饰穿搭）生成的项目 5 存在三个问题，已全部定位并修复：
+
+##### Bug 1 - 结尾黑屏（品牌 Slogan 文字场景）✅ 已修复
+- **根因**: `viral.service.ts` startGeneration 中 text 场景 `bgColor: '#1a1a2e'`（近黑色）+ 3s 静态白字 → 视觉上就是"结尾黑屏 3 秒"（实测尾部亮度 YAVG≈39，全片最暗）
+- **修复**: 背景统一为品牌紫 `#7C3AED`（与 regenerateScene 一致）+ `generateTextVideo` 新增 0.5s 淡入 / 0.6s 淡出动画
+- **文件**: `backend/src/modules/viral/viral.service.ts`（行 1055）、`backend/src/utils/ffmpeg.util.ts`（generateTextVideo filter）
+- **生效条件**: 需重启后端（dist 已重新编译）
+
+##### Bug 2 - 原视频下载 404（模板 8 参考视频丢失）✅ 已修复
+- **根因**: `viral_source_1785494547540.mp4` 文件在 19:01 后凭空消失（18:42 持久化成功、19:00 复用成功、19:01:51 仍在，之后无删除日志；cleanupOrphanFrames 有模板引用保护不会误删，原因不可回溯，怀疑磁盘清理类软件）
+- **修复**: 重新下载源视频（yt-dlp 失败 → Playwright API 捕获，7.3MB）→ ffmpeg 压缩持久化为同名文件（4MB）→ 已验证 HTTP 200
+- **注意**: 后端服务 /static/ 是静态文件服务，文件补回后**无需重启即可访问**
+
+##### Bug 3 - 风格混乱（真人视频中插入动漫内容）✅ 已修复（预防性）
+- **根因**: 前端 `TemplateDetail.tsx` 风格 Select **默认值就是 `anime`**（initialValue="anime"），用户创建项目时未改 → 项目 5 style=anime → 全部场景注入动漫描述；但 R2V 场景参考真人源视频生成（接近真人）vs T2I 图片场景纯动漫 → 同一视频真人+动漫混搭
+- **修复**: 前端默认值 `anime` → `realistic`（写实），选项顺序调整，提交兜底值同步修改
+- **文件**: `frontend/src/pages/Viral/TemplateDetail.tsx`
+- **影响范围**: 只影响新建项目；项目 5 保持 anime 不变（用户选择不重生成，如需真人版用模板 8 新建项目选"写实"）
+
+#### Viral Studio 全链路开发（07-30 晚 ~ 07-31，本日提交）✅
+- 模板分析 → 项目创建 → 场景生成（video/image/text）→ 合并 → 下载全链路打通
+- 项目 CRUD（`viral.controller.ts` / `viral.dto.ts` / `viral-project.entity.ts` / 前端 ProjectList/ProjectDetail）
+- 场景生成: video 场景（R2V/I2V/T2V 自动选择，`style` 注入）、image 场景（T2I 文生图 + zoompan 合成）、text 场景（drawtext 动画）
+- 多场景视频合并保留音频（concat a=1 + anullsrc 静音补齐）
+- `mergeVideos` 多文件合并 v=1:a=1 + aresample 归一化；`adjustVideo` 修复 `-an` 丢音轨（→ `-c:a aac`）
+- 智能抽帧 `extractFrames`: 均匀分段 → 段内 scene 检测（阈值 0.1）→ 三点采样兜底 → dHash 去重 → 上限 8 帧
+- `persistSourceVideo`: 同 URL 复用已持久化文件，否则压缩（maxWidth 720）保存
+
+### 模型状态（2026-07-31）
+| 模型 | capability | 状态 | 备注 |
+|------|-----------|------|------|
+| wan2.6-r2v-flash | video (r2v) | ✅ active priority=1 | 唯一活跃 R2V（其他 R2V 额度用尽） |
+| wan2.6-r2v / wan2.7-r2v / wan2.7-r2v-2026-06-12 / happyhorse-1.1-r2v | video | ⛔ inactive | 额度用完 |
+| wan2.1-t2i-plus / wan2.1-t2i-turbo | image | ✅ active | 文生图（image 场景） |
+| wan2.7-i2v 系列 | video | ⛔ inactive | 无额度 |
+
+### Token 用量核算（07-31）
+- 单次模板分析 ≈ 42k tokens（qwen3.5-omni-plus，720p 源视频 8 帧，图片占 ~90%）
+- 07-30 晚至今共 7 次多模态分析全成功 ≈ 29 万 tokens
+- 建议：后续换 qwen3-vl-flash 首选 + 减帧到 4 可省 60%+（待用户确认）
+
+### ⚠️ 待办
+- [ ] 重启后端使黑屏修复生效（`node dist/src/main`）
+- [ ] 验证：模板 8 下载原视频正常 + 新项目文字场景为紫色背景
+- [ ] 项目 5 如需真人风格 → 模板 8 新建项目选"写实"
+- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧）待确认
+- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+
+### 关键文件清单
+| 文件 | 修改内容 |
+|------|---------|
+| `backend/src/modules/viral/viral.service.ts` | 项目 CRUD、场景生成、extractFrames 重构、persistSourceVideo、text 场景背景色 |
+| `backend/src/utils/ffmpeg.util.ts` | generateTextVideo 淡入淡出、mergeVideos 保留音频、adjustVideo -c:a aac |
+| `backend/src/modules/viral/viral.controller.ts` / `viral.dto.ts` / `viral-project.entity.ts` | 项目/模板接口与实体 |
+| `frontend/src/pages/Viral/TemplateDetail.tsx` | 风格默认值 realistic、变量/参考图表单 |
+| `frontend/src/pages/Viral/ProjectDetail.tsx` / `ProjectList.tsx` / `index.tsx` / `CreateTemplate.tsx` | 项目详情/列表/模板集市 |
+
+---
+
 ## 2026-07-30
 
 ### 服务状态（关停前）
