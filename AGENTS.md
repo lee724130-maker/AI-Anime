@@ -1,5 +1,56 @@
 # 修复日志
 
+## 2026-08-03
+
+### 服务状态（关停前）
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| 后端（NestJS，`npm run start:dev` watch 模式） | 3000 | ✅ 运行中（PID 12696） |
+| 前端（Vite） | 5173 | ✅ 运行中 |
+| 管理后台（Vite） | 5174 | ✅ 运行中 |
+| Redis | 6379 | ✅ 运行中 |
+| MySQL | 3306 | ✅ 运行中 |
+
+### 今日完成功能
+
+#### 视频比例自动检测 ✅
+- **需求**: 分析视频时自动识别源视频比例（9:16 / 16:9 等），作为模板/项目的比例默认值，避免每次手动选
+- **后端**: `viral.service.ts` 新增 `detectRatio(width,height)`（宽高比 → 标准比例，容差 15%，极端比例回退横/竖屏）；`analyzeVideo` / `buildBasicTemplate` 返回 `ratio`；`viral_templates` 表新增 `ratio` 列（`synchronize: true` 自动建列）；「刷新源视频」`refreshTemplateSourceVideo` 会重新探测并回填 `ratio`；`viral.dto.ts` Create/Update 模板支持 `ratio`
+- **前端**: `CreateTemplate.tsx` 分析后捕获并保存 `ratio`，编辑页显示"已自动检测视频比例: xxx"；`TemplateDetail.tsx` 创建项目表单默认值取 `template.ratio || '9:16'`，比例选项扩展到 6 种（9:16 / 16:9 / 1:1 / 3:4 / 4:3 / 2:3）
+- **验证**: 前后端编译全绿；接口实测响应带 `ratio` 字段、PUT/GET 正常；真实源视频 720×1280 → 正确识别 9:16；模板 8 已回填 `ratio=9:16`
+- **注意**: 旧模板缺 `ratio` → 点「刷新源视频」自动回填或手动选；改项目比例后 R2V/I2V 镜头按参考图原比例生成再裁切，可能有轻微裁切
+- **文件**: `backend/src/modules/viral/viral.service.ts`、`viral-template.entity.ts`、`viral.dto.ts`、`frontend/src/pages/Viral/CreateTemplate.tsx`、`TemplateDetail.tsx`
+
+#### 视频目标时长对齐 ✅
+- **需求**: 模型合成的视频不能精确匹配用户想要的时长（原固定 8~15s），需要「时长控制」：创建项目时指定目标时长，成片逐段对齐精确到秒
+- **设计决策**（用户确认）: 时长设置位置 = 创建项目时；可选范围 = 自由输入 ≤60s；对齐策略 = **变速优先 + 定格兜底**
+- **后端**:
+  - `viral-projects` 表新增 `target_duration` 列（`type: 'int'` nullable，⚠️ 必须显式 `type: 'int'`，否则 TypeORM 推断 Object 报 `DataTypeNotSupportedError`）
+  - `viral.service.ts` 新增 `computeAssignedDurations(scenes, target)`：均匀分配目标时长到各场景（每段 clamp 1~15s，余数给前段；超过 15s×场景数 上限时告警并按上限分配，不失败）
+  - `startGeneration` / `regenerateScene`：有 target_duration 时用分配时长生成每段（image composite / video generateVideo / text generateTextVideo），生成后调用 `ffmpeg.fitToExactDuration` 对齐到精确秒数，场景结果存 `duration` 供重新生成复用
+  - `viral.dto.ts`：Create/UpdateProjectDto 新增 `@IsInt() @Min(1) @Max(60) target_duration`
+- **前端**: `TemplateDetail.tsx` 创建项目表单新增「目标时长（秒）」InputNumber（1~60，留空=模板默认，带 ⓘ 说明）；`ProjectDetail.tsx` 顶部新增时长 Select（15/30/45/60 + 可清除回默认）+ 详情标签展示目标时长，比例选项同步扩为 6 种
+- **ffmpeg**（`fitToExactDuration`，兼容 2018 老版 ffmpeg）:
+  - 误差 <0.15s → 直接复制
+  - 超长 → `-t` 裁剪（重编码）
+  - 短但 ≤25%（ratio ≤1.25）→ `setpts=ratio*PTS` + `atempo=1/ratio` 轻微慢放
+  - 超 25% → `tpad=stop_mode=clone` 尾帧定格 + `-af apad`（⚠️ 老版 ffmpeg 的 apad 不支持 `pad_dur` 参数，必须用裸 `apad` + `-t` 截断）
+- **验证**: 分配算法 9 组用例全对（30s/3段→[10,10,10]、60s/5段→[12×5]、60s/3段→[15×3] 告警降级、50s/4段→[13,13,12,12] 等）；`fitToExactDuration` 4 种模式实测全过（5s→4s 裁剪 / 5s→6s 慢放 / 5s→9s 定格 / 5→5.05s 复制）；API 实测创建项目带 `target_duration=30` 持久化成功；前后端编译全绿。**用户实测**：时长控制生成验证基本没问题
+- **注意**: 单段最长 15s（模型物理上限）；目标时长超上限时成片会比目标短（后端日志告警）；生成后改目标时长需重新生成整片生效（重新生成单场景也能复用分配时长）
+- **文件**: `backend/src/modules/viral/viral.service.ts`、`viral-project.entity.ts`、`viral.dto.ts`、`backend/src/utils/ffmpeg.util.ts`、`frontend/src/pages/Viral/TemplateDetail.tsx`、`ProjectDetail.tsx`
+
+### 文档更新（未提交）
+- `ViralStudio-完整工作流程.md`：新增"比例自动检测"与"时长对齐（target_duration）"小节、`viral_templates` 表字段补充 `ratio`、阶段三参数表加目标时长、模型/成本章节重写（2026-08-03，按 model_configs 实际 active 记录 R2V/I2V/T2V/文生图/多模态/文本）、已知边界补第 6 条
+- `ViralStudio-简化版流程.md`：比例默认值改自动识别、阶段三表格加目标时长、FAQ 新增"识别比例不满意可改"与"能精确控制视频多长吗"问答（注意：文件名由「通俗版」改名为「简化版」）
+
+### ⚠️ 待办
+- [x] 两份 ViralStudio 文档 + AGENTS.md 变更提交 git（已完成）
+- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [x] 新模板实测：分析 16:9/9:16 视频 → 详情页确认默认比例、生成验证（用户已实测，基本没问题）
+- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+
+---
+
 ## 2026-07-31
 
 ### 服务状态（关停前）

@@ -45,6 +45,9 @@ export class ViralProject {
   @Column({ name: 'media_refs', type: 'text', nullable: true })
   media_refs: string;
 
+  @Column({ name: 'target_duration', type: 'int', nullable: true })
+  target_duration: number | null;
+
   @Column({ length: 10, default: '9:16' })
   ratio: string;
 

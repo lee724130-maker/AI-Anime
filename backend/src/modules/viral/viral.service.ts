@@ -25,6 +25,34 @@ function ratioToRes(ratio?: string): string {
   }
 }
 
+/**
+ * Detect the closest standard aspect ratio from a real video's pixel dimensions.
+ * Returns '' when dims are unavailable. Falls back to horizontal/vertical when
+ * the video uses an exotic ratio (e.g. 21:9).
+ */
+function detectRatio(width?: number, height?: number): string {
+  if (!width || !height) return '';
+  const r = width / height;
+  const standards: Array<[string, number]> = [
+    ['9:16', 9 / 16],
+    ['16:9', 16 / 9],
+    ['1:1', 1],
+    ['3:4', 3 / 4],
+    ['4:3', 4 / 3],
+    ['2:3', 2 / 3],
+  ];
+  let best = '';
+  let bestRel = Infinity;
+  for (const [label, target] of standards) {
+    const rel = Math.abs(r - target) / target;
+    if (rel < bestRel) {
+      bestRel = rel;
+      best = label;
+    }
+  }
+  return bestRel <= 0.15 ? best : (r >= 1 ? '16:9' : '9:16');
+}
+
 /** Language names for translation prompts */
 const LANG_NAMES: Record<string, string> = {
   zh: 'Chinese (Simplified)',
@@ -239,6 +267,13 @@ export class ViralService {
       if (!localVideoUrl) {
         throw new BadRequestException('原视频持久化失败');
       }
+
+      // Re-detect aspect ratio from the freshly downloaded source video, so
+      // legacy templates (created before ratio detection existed) get it filled.
+      try {
+        const info = await this.ffmpeg.getVideoInfo(videoPath);
+        if (info.width && info.height) tpl.ratio = detectRatio(info.width, info.height);
+      } catch { /* ignore */ }
 
       tpl.reference_url = localVideoUrl;
       tpl.source_url = finalUrl;
@@ -472,6 +507,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         reference_url: localVideoUrl || finalUrl,
         source_url: finalUrl,
         reference_frames: frameUrls,
+        ratio: detectRatio(info.width, info.height),
         video_info: info,
       };
       this.logger.log(`========== AI 视频分析结果 ==========`);
@@ -827,6 +863,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       reference_url: localVideoUrl || sourceUrl,
       source_url: sourceUrl,
       reference_frames: frames,
+      ratio: detectRatio(info.width, info.height),
       video_info: info,
     };
   }
@@ -905,6 +942,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       variables: dto.variables,
       scenes: tpl.scenes,
       media_refs: dto.media_refs || undefined,
+      target_duration: dto.target_duration || null,
       ratio: dto.ratio || '9:16',
       resolution: dto.resolution || '720p',
       style: dto.style || 'anime',
@@ -915,6 +953,46 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
 
     await this.incrementUsage(dto.template_id);
     return this.projectRepo.save(project);
+  }
+
+  /**
+   * Distribute a target total duration across scenes (seconds each, 1–15s).
+   * Splits evenly and lets the remainder fill early segments. If the target
+   * exceeds the per-scene cap (15s) × scene count, warns and gives the maximum
+   * achievable total instead of failing.
+   */
+  private computeAssignedDurations(scenes: any[], target: number): number[] {
+    const n = scenes.length;
+    if (n <= 0) return [];
+    const cap = 15 * n;
+    if (target > cap) {
+      this.logger.warn(`目标时长 ${target}s 超过模型上限 15s×${n}段=${cap}s，实际按 ${cap}s 尽力分配`);
+    }
+    const tight = Math.min(target, cap);
+    const base = Math.min(15, Math.max(1, Math.floor(tight / n)));
+    let rem = tight - base * n;
+    const arr: number[] = [];
+    for (let i = 0; i < n; i++) {
+      let seg = base;
+      if (rem > 0) { seg += 1; rem -= 1; }
+      arr.push(Math.max(1, Math.min(15, seg)));
+    }
+    return arr;
+  }
+
+  /**
+   * Per-scene duration for generation: exact assigned value when the project
+   * has a target_duration, otherwise the scene's own default.
+   */
+  private sceneTargetDuration(
+    scenes: any[],
+    assigned: number[] | null,
+    i: number,
+    fallback: number,
+  ): number {
+    if (assigned) return assigned[i];
+    const d = Number(scenes[i]?.duration);
+    return d > 0 ? d : fallback;
   }
 
   async updateProject(id: number, userId: number, dto: UpdateProjectDto) {
@@ -982,6 +1060,16 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       varMap[v.key] = String(v.value || '');
     }
 
+    // Duration alignment: distribute project.target_duration across scenes
+    const targetDuration = project.target_duration ? Number(project.target_duration) : null;
+    const assignedDurations =
+      targetDuration && targetDuration > 0 && scenes.length > 0
+        ? this.computeAssignedDurations(scenes, targetDuration)
+        : null;
+    if (assignedDurations) {
+      this.logger.log(`目标时长 ${targetDuration}s → 各场景分配(秒): ${assignedDurations.join(', ')}`);
+    }
+
     // Parse media_refs (reference images from 大资产库) for I2V/R2V generation
     let mediaRefs: Array<{ type: string; url: string }> = [];
     if (project.media_refs) {
@@ -1042,6 +1130,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           }
 
           let videoPath: string | null = null;
+          const sceneDur = this.sceneTargetDuration(scenes, assignedDurations, i, 3);
 
           if (scene.type === 'image') {
             // Generate image, then convert to short video
@@ -1060,7 +1149,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
                 await this.ffmpeg['composite']({
                   imagePaths: [videoPath],
                   outputPath: imgVideoPath,
-                  duration: scene.duration || 3,
+                  duration: sceneDur,
                   fps: 24,
                   resolution: ratioToRes(project.ratio),
                 });
@@ -1071,7 +1160,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
             // Generate video directly (pass media_refs for I2V/R2V when available)
             const url = await this.aiService.generateVideo({
               prompt: `${description}。电影级运镜，画面流畅自然，细节丰富，光影质感好，适合短视频`,
-              duration: scene.duration || 5,
+              duration: sceneDur,
               resolution: project.resolution || '720p',
               ratio: project.ratio || '9:16',
               style: project.style || 'anime',
@@ -1083,7 +1172,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           } else if (scene.type === 'text') {
             // Generate text animation video
             videoPath = await this.ffmpeg.generateTextVideo(description, {
-              duration: scene.duration || 3,
+              duration: sceneDur,
               resolution: ratioToRes(project.ratio),
               bgColor: '#7C3AED',
               textColor: '#FFFFFF',
@@ -1092,14 +1181,26 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           }
 
           if (videoPath && fs.existsSync(videoPath)) {
+            sceneResult.duration = sceneDur;
+            // Align to the exact per-scene target duration when the project
+            // has a target_duration (speed-change first, freeze-frame fallback)
+            let alignedPath = videoPath;
+            if (assignedDurations) {
+              try {
+                const alignOut = path.join(workDir, `scene_${i}_aligned.mp4`);
+                alignedPath = await this.ffmpeg.fitToExactDuration(videoPath, alignOut, assignedDurations[i]);
+              } catch (alignErr: any) {
+                this.logger.warn(`Scene ${i} duration align failed, keep raw: ${alignErr.message}`);
+              }
+            }
             // Persist scene video outside workDir (workDir gets cleaned in finally,
             // but project.scenes stores videoPath for later re-merge on regenerate)
             const persistedScene = path.join(this.outputDir, `viral_scene_${projectId}_${i}.mp4`);
             try {
-              fs.copyFileSync(videoPath, persistedScene);
+              fs.copyFileSync(alignedPath, persistedScene);
               sceneResult.videoPath = persistedScene;
             } catch {
-              sceneResult.videoPath = videoPath;
+              sceneResult.videoPath = alignedPath;
             }
             sceneResult.status = 'completed';
           } else {
@@ -1197,6 +1298,16 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     const varMap: Record<string, string> = {};
     for (const v of variables) varMap[v.key] = String(v.value || '');
 
+    // Reuse duration alignment (stored per-scene from the initial generation)
+    const targetDuration = project.target_duration ? Number(project.target_duration) : null;
+    const assignedDurations =
+      targetDuration && targetDuration > 0 && scenes.length > 0
+        ? this.computeAssignedDurations(scenes, targetDuration)
+        : null;
+    const sceneDur = assignedDurations
+      ? assignedDurations[sceneIndex]
+      : (scene.duration > 0 ? scene.duration : 3);
+
     let mediaRefs: Array<{ type: string; url: string }> = [];
     if (project.media_refs) {
       try {
@@ -1261,7 +1372,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
             await this.ffmpeg['composite']({
               imagePaths: [imgPath],
               outputPath: imgVidPath,
-              duration: scene.duration || 3,
+              duration: sceneDur,
               fps: 24,
               resolution: ratioToRes(project.ratio),
             });
@@ -1269,23 +1380,33 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           }
         }
       } else if (scene.type === 'video') {
-        const url = await this.aiService.generateVideo({ prompt: `${description}。电影级运镜，画面流畅自然，细节丰富，光影质感好，适合短视频`, duration: scene.duration || 5, resolution: project.resolution || '720p', ratio: project.ratio || '9:16', style: project.style || 'anime', media: mediaRefs.length > 0 ? mediaRefs : undefined });
+        const url = await this.aiService.generateVideo({ prompt: `${description}。电影级运镜，画面流畅自然，细节丰富，光影质感好，适合短视频`, duration: sceneDur, resolution: project.resolution || '720p', ratio: project.ratio || '9:16', style: project.style || 'anime', media: mediaRefs.length > 0 ? mediaRefs : undefined });
         if (url) videoPath = await this.downloadToLocal(url, workDir, `scene_${sceneIndex}_video`);
       } else if (scene.type === 'text') {
         videoPath = await this.ffmpeg.generateTextVideo(description, {
-          duration: scene.duration || 3, resolution: ratioToRes(project.ratio),
+          duration: sceneDur, resolution: ratioToRes(project.ratio),
         });
       }
 
       if (videoPath && fs.existsSync(videoPath)) {
+        let alignedPath = videoPath;
+        if (assignedDurations) {
+          try {
+            const alignOut = path.join(workDir, `scene_${sceneIndex}_aligned.mp4`);
+            alignedPath = await this.ffmpeg.fitToExactDuration(videoPath, alignOut, assignedDurations[sceneIndex]);
+          } catch (alignErr: any) {
+            this.logger.warn(`Scene ${sceneIndex} duration align failed, keep raw: ${alignErr.message}`);
+          }
+        }
         // Persist scene video outside workDir so it survives for later re-merges
         const persistedScene = path.join(this.outputDir, `viral_scene_${projectId}_${sceneIndex}.mp4`);
         try {
-          fs.copyFileSync(videoPath, persistedScene);
+          fs.copyFileSync(alignedPath, persistedScene);
           videoPath = persistedScene;
         } catch { /* keep workDir path as fallback */ }
         scenes[sceneIndex].videoPath = videoPath;
         scenes[sceneIndex].status = 'completed';
+        scenes[sceneIndex].duration = sceneDur;
         scenes[sceneIndex].error = undefined;
       } else {
         throw new Error('生成结果为空');

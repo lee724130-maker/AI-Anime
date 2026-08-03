@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, Form, message, Divider, Image, Select } from 'antd';
+import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, InputNumber, Form, message, Divider, Image, Select, Tooltip } from 'antd';
 import { ArrowLeftOutlined, ThunderboltOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import GlobalAssetPicker from './components/GlobalAssetPicker';
@@ -23,7 +23,7 @@ interface TemplateDetail {
   id: number; name: string; description: string; category: string;
   tags: string[]; scenes: TemplateScene[]; variables: TemplateVariable[];
   reference_url: string; usage_count: number; thumbnail: string;
-  reference_frames?: string[]; cover_url?: string;
+  reference_frames?: string[]; cover_url?: string; ratio?: string;
 }
 
 export default function ViralTemplateDetail() {
@@ -61,7 +61,7 @@ export default function ViralTemplateDetail() {
       setSubmitting(true);
 
       const variables = Object.entries(values)
-        .filter(([key]) => !['project_name', 'project_ratio', 'project_resolution', 'project_style', 'project_language'].includes(key))
+        .filter(([key]) => !['project_name', 'project_ratio', 'project_resolution', 'project_style', 'project_language', 'project_target_duration'].includes(key))
         .map(([key, value]) => ({ key, value }));
 
       const { data } = await api.post('/api/viral/projects', {
@@ -69,6 +69,7 @@ export default function ViralTemplateDetail() {
         name: values.project_name || template?.name || '未命名项目',
         variables: JSON.stringify(variables),
         media_refs: selectedImages.length > 0 ? JSON.stringify(selectedImages) : undefined,
+        target_duration: values.project_target_duration ? Number(values.project_target_duration) : undefined,
         ratio: values.project_ratio || '9:16',
         resolution: values.project_resolution || '720p',
         style: values.project_style || 'realistic',
@@ -177,12 +178,15 @@ export default function ViralTemplateDetail() {
 
               <Row gutter={12}>
                 <Col span={12}>
-                  <Form.Item name="project_ratio" label="视频比例" initialValue="9:16">
+                  <Form.Item name="project_ratio" label="视频比例" initialValue={template.ratio || '9:16'}>
                     <Select
                       options={[
                         { label: '竖屏 9:16', value: '9:16' },
                         { label: '横屏 16:9', value: '16:9' },
                         { label: '方形 1:1', value: '1:1' },
+                        { label: '3:4 竖版', value: '3:4' },
+                        { label: '2:3 竖版', value: '2:3' },
+                        { label: '4:3 横版', value: '4:3' },
                       ]}
                       style={{ borderRadius: 8 }}
                     />
@@ -216,6 +220,14 @@ export default function ViralTemplateDetail() {
                         { label: '日文', value: 'ja' },
                       ]}
                       style={{ borderRadius: 8 }}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item name="project_target_duration"
+                    label={<span>目标时长（秒）<Tooltip title="留空则按模板默认时长（8~15s）。视频模型单段最长 15s，超长时自动在多个场景间平均分配并逐段对齐到精确秒数，成片总时长 = 你填的数值（上限 60s）"><Text type="secondary" style={{ fontSize: 12 }}> ⓘ</Text></Tooltip></span>}>
+                    <InputNumber
+                      min={1} max={60} placeholder="留空 = 模板默认" style={{ width: '100%', borderRadius: 8 }}
                     />
                   </Form.Item>
                 </Col>

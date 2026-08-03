@@ -100,6 +100,16 @@ export default function ViralProjectDetail() {
     }
   };
 
+  const changeDuration = async (duration?: number) => {
+    try {
+      await api.put(`/api/viral/projects/${id}`, { target_duration: duration || undefined });
+      message.success('目标时长已更新，重新生成后生效');
+      fetchProject();
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || '目标时长更新失败');
+    }
+  };
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
   }
@@ -149,8 +159,19 @@ export default function ViralProjectDetail() {
                 { label: '9:16 竖屏', value: '9:16' },
                 { label: '16:9 横屏', value: '16:9' },
                 { label: '1:1 方形', value: '1:1' },
+                { label: '3:4 竖版', value: '3:4' },
+                { label: '2:3 竖版', value: '2:3' },
+                { label: '4:3 横版', value: '4:3' },
               ]}
               style={{ width: 130 }}
+            />
+            <Select
+              value={project.target_duration || undefined}
+              onChange={changeDuration}
+              allowClear
+              placeholder="目标时长"
+              options={[15, 30, 45, 60].map((d) => ({ label: `${d}s`, value: d }))}
+              style={{ width: 110 }}
             />
           </Space>        </div>
 
@@ -214,6 +235,9 @@ export default function ViralProjectDetail() {
           <Descriptions.Item label="进度">{project.progress}%</Descriptions.Item>
           <Descriptions.Item label="视频比例">
             <Tag style={{ borderRadius: 6 }}>{project.ratio || '9:16'}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="目标时长">
+            <Tag style={{ borderRadius: 6 }}>{project.target_duration ? `${project.target_duration}s` : '模板默认'}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="分辨率">
             <Tag style={{ borderRadius: 6 }}>{project.resolution || '720p'}</Tag>

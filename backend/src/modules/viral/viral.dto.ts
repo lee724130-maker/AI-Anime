@@ -35,6 +35,9 @@ export class CreateTemplateDto {
   @IsOptional() @IsString()
   audio?: string;
 
+  @IsOptional() @IsString()
+  ratio?: string;
+
   @IsOptional() @IsBoolean()
   is_system?: boolean;
 }
@@ -72,6 +75,9 @@ export class UpdateTemplateDto {
 
   @IsOptional() @IsString()
   audio?: string;
+
+  @IsOptional() @IsString()
+  ratio?: string;
 
   @IsOptional() @IsString()
   status?: string;
@@ -121,6 +127,9 @@ export class CreateProjectDto {
   @IsOptional() @IsString()
   media_refs?: string;
 
+  @IsOptional() @IsInt() @Min(1) @Max(60)
+  target_duration?: number;
+
   @IsOptional() @IsString()
   ratio?: string;
 
@@ -145,6 +154,9 @@ export class UpdateProjectDto {
 
   @IsOptional() @IsString()
   variables?: string;
+
+  @IsOptional() @IsInt() @Min(1) @Max(60)
+  target_duration?: number;
 
   @IsOptional() @IsString()
   ratio?: string;

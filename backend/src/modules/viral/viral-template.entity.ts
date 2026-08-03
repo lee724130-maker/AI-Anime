@@ -52,6 +52,9 @@ export class ViralTemplate {
   @Column({ name: 'source_url', length: 500, nullable: true })
   source_url: string;
 
+  @Column({ length: 20, nullable: true })
+  ratio: string;
+
   @Column({ length: 20, default: 'active' })
   status: string;
 

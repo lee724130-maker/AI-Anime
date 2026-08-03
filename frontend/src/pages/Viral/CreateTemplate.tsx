@@ -25,6 +25,7 @@ export default function CreateTemplate() {
   const [variables, setVariables] = useState<VariableItem[]>([]);
   const [referenceFrames, setReferenceFrames] = useState<string[]>([]);
   const [sourceUrl, setSourceUrl] = useState('');
+  const [ratio, setRatio] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleAnalyze = async () => {
@@ -46,6 +47,7 @@ export default function CreateTemplate() {
       setScenes(data.scenes || []);
       setVariables(data.variables || []);
       setReferenceFrames(data.reference_frames || []);
+      setRatio(data.ratio || '');
       // Use the clean extracted URL from analysis (strips share-text decorations)
       if (data.reference_url) setVideoUrl(data.reference_url);
       if (data.source_url) setSourceUrl(data.source_url);
@@ -69,6 +71,7 @@ export default function CreateTemplate() {
         reference_url: videoUrl,
         reference_frames: JSON.stringify(referenceFrames),
         source_url: sourceUrl || undefined,
+        ratio: ratio || undefined,
         tags: JSON.stringify([]),
       });
       message.success('模板保存成功！');
@@ -216,6 +219,14 @@ export default function CreateTemplate() {
               <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>描述</Text>
               <Input.TextArea value={description} onChange={e => setDescription(e.target.value)} rows={2} style={{ borderRadius: 8 }} />
             </div>
+            {ratio && (
+              <Alert type="info" showIcon style={{ marginTop: 12, borderRadius: 8 }}
+                message={
+                  <span>
+                    已自动检测视频比例：<b style={{ color: '#7c3aed' }}>{ratio}</b>（创建项目时会默认使用该比例，可在创建页面手动改）
+                  </span>
+                } />
+            )}
           </Card>
 
           <SceneEditor scenes={scenes} onChange={setScenes} />

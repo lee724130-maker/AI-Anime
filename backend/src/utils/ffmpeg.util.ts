@@ -432,6 +432,83 @@ export class FFmpegUtil {
   }
 
   /**
+   * Align a video to an exact target duration.
+   * - Already close (< 0.15s) → copy as-is
+   * - Too long → trim to target
+   * - Too short but within 25% → gentle slow-down (video setpts + audio atempo)
+   * - Too short beyond that → freeze last frame (tpad clone) + pad silent audio
+   * Returns the (newly written) output path.
+   */
+  async fitToExactDuration(
+    inputPath: string,
+    outputPath: string,
+    targetSec: number,
+  ): Promise<string> {
+    const info = await this.getVideoInfo(inputPath);
+    const dur = info.duration || targetSec;
+    const t = targetSec.toFixed(3);
+
+    if (Math.abs(dur - targetSec) <= 0.15) {
+      fs.copyFileSync(inputPath, outputPath);
+      return outputPath;
+    }
+
+    const { stdout } = await execAsync(
+      `"${this.ffprobePath}" -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${inputPath}"`,
+      { timeout: 10000 },
+    ).catch(() => ({ stdout: '' }));
+    const hasAudio = stdout.trim().length > 0;
+    const scale = 'scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1';
+    const vEnc = '-c:v libx264 -preset veryfast -crf 20 -r 24 -g 48 -pix_fmt yuv420p';
+    const aEnc = '-c:a aac -b:a 128k';
+    const timeout = { timeout: 300000 };
+
+    // Too long → trim the tail to hit the exact target
+    if (dur > targetSec) {
+      await this.ff(
+        `-y -i "${inputPath}" -t ${t} -vf "${scale}" ${vEnc} ${hasAudio ? aEnc : '-an'} -movflags +faststart "${outputPath}"`,
+        timeout,
+      );
+      return outputPath;
+    }
+
+    // Too short but within ±25% → gentle slow-down (speed bias, prefer speed)
+    const ratio = targetSec / dur;
+    if (ratio <= 1.25) {
+      if (hasAudio) {
+        const atempo = Math.max(0.5, Math.min(2, 1 / ratio)).toFixed(4);
+        await this.ff(
+          `-y -i "${inputPath}" -filter_complex "[0:v]${scale},setpts=${ratio.toFixed(4)}*PTS[v];[0:a]atempo=${atempo}[a]" ` +
+          `-map "[v]" -map "[a]" -t ${t} ${vEnc} ${aEnc} -movflags +faststart "${outputPath}"`,
+          timeout,
+        );
+      } else {
+        await this.ff(
+          `-y -i "${inputPath}" -vf "${scale},setpts=${ratio.toFixed(4)}*PTS" -t ${t} ${vEnc} -an -movflags +faststart "${outputPath}"`,
+          timeout,
+        );
+      }
+      return outputPath;
+    }
+
+    // Beyond ±25% → freeze the last frame to cover the shortfall
+    const stopDur = (targetSec - dur).toFixed(3);
+    if (hasAudio) {
+      await this.ff(
+        `-y -i "${inputPath}" -vf "${scale},tpad=stop_mode=clone:stop_duration=${stopDur}" ` +
+        `-af "apad" -t ${t} ${vEnc} ${aEnc} -movflags +faststart "${outputPath}"`,
+        timeout,
+      );
+    } else {
+      await this.ff(
+        `-y -i "${inputPath}" -vf "${scale},tpad=stop_mode=clone:stop_duration=${stopDur}" -t ${t} ${vEnc} -an -movflags +faststart "${outputPath}"`,
+        timeout,
+      );
+    }
+    return outputPath;
+  }
+
+  /**
    * Compress a video for persistent storage: keeps the FULL duration, scales
    * to `maxWidth` keeping aspect ratio, keeps audio, re-encodes with high
    * compression (crf 28). Throws on failure.
