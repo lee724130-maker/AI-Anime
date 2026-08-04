@@ -8,6 +8,16 @@ import * as os from 'os';
 const execAsync = promisify(exec);
 
 function findFfmpeg(): string {
+  // Prefer the modern binary in backend/tools/ffmpeg (ffmpeg 6.x, supports
+  // xfade / apad pad_dur etc. that the 2018 @ffmpeg-installer build lacks)
+  const toolCandidates = [
+    path.resolve(process.cwd(), 'tools/ffmpeg/ffmpeg.exe'),
+    path.resolve(__dirname, '../../../tools/ffmpeg/ffmpeg.exe'), // dist/src/utils
+    path.resolve(__dirname, '../../tools/ffmpeg/ffmpeg.exe'),   // src/utils
+  ];
+  for (const c of toolCandidates) {
+    if (fs.existsSync(c)) return c;
+  }
   try {
     const p = require('@ffmpeg-installer/ffmpeg').path;
     if (fs.existsSync(p)) return p;

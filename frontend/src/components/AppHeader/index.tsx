@@ -2,7 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Typography, Space, Avatar } from 'antd';
 import {
   DashboardOutlined, ThunderboltOutlined, VideoCameraOutlined,
-  DatabaseOutlined, WalletOutlined, UserOutlined, LogoutOutlined, FireOutlined,
+  DatabaseOutlined, WalletOutlined, UserOutlined, LogoutOutlined, FireOutlined, LayoutOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { key: '/dashboard', label: '工作台', icon: <DashboardOutlined /> },
   { key: '/generate', label: 'AI 生成', icon: <ThunderboltOutlined /> },
   { key: '/viral', label: '热门创作', icon: <FireOutlined /> },
+  { key: '/canvas', label: '画布', icon: <LayoutOutlined /> },
   { key: '/drama', label: '短剧工作室', icon: <VideoCameraOutlined /> },
   { key: '/global-assets', label: '大资产库', icon: <DatabaseOutlined /> },
 ];

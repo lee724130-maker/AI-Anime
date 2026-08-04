@@ -52,6 +52,9 @@ lerna-debug.log*
 # local database
 /data
 
+# bundled ffmpeg binaries (downloaded, not committed)
+/tools
+
 # Runtime data
 pids
 *.pid

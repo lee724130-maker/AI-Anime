@@ -24,6 +24,8 @@ import { DramaAsset } from './modules/drama/drama-asset.entity';
 import { GlobalAsset } from './modules/global-asset/global-asset.entity';
 import { ViralTemplate } from './modules/viral/viral-template.entity';
 import { ViralProject } from './modules/viral/viral-project.entity';
+import { CanvasProject } from './modules/canvas/canvas-project.entity';
+import { CanvasTemplate } from './modules/canvas/canvas-template.entity';
 import { MediaFile } from './modules/media/media-file.entity';
 import { GenerationTask } from './modules/task/generation-task.entity';
 import { TaskEvent } from './modules/task/task-event.entity';
@@ -41,6 +43,7 @@ import { TaskModule } from './modules/task/task.module';
 import { GenerateModule } from './modules/generate/generate.module';
 import { GlobalAssetModule } from './modules/global-asset/global-asset.module';
 import { ViralModule } from './modules/viral/viral.module';
+import { CanvasModule } from './modules/canvas/canvas.module';
 import { WorkbenchModule } from './modules/workbench/workbench.module';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -84,14 +87,14 @@ const logDir = path.resolve(process.cwd(), 'logs');
             extra: {
               charset: 'utf8mb4',
             },
-entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, MediaFile, GenerationTask, TaskEvent],
+entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, MediaFile, GenerationTask, TaskEvent],
             synchronize: true,
           };
         }
         return {
           type: 'better-sqlite3',
           database: config.get('DB_PATH', './data/dev.db'),
-          entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, MediaFile, GenerationTask, TaskEvent],
+          entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, MediaFile, GenerationTask, TaskEvent],
           synchronize: true,
         };
       },
@@ -110,6 +113,7 @@ entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNo
     GenerateModule,
     GlobalAssetModule,
     ViralModule,
+    CanvasModule,
     WorkbenchModule,
   ],
   providers: [

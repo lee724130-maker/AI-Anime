@@ -1,5 +1,60 @@
 # 修复日志
 
+## 2026-08-04
+
+### 服务状态（关停前）
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| 后端（NestJS，`node dist/src/main`） | 3000 | ✅ 运行中 |
+| 前端（Vite） | 5173 | ✅ 运行中 |
+| 管理后台（Vite） | 5174 | ✅ 运行中 |
+| Redis | 6379 | ✅ 运行中 |
+| MySQL | 3306 | ✅ 运行中 |
+
+### 今日完成功能：视频画布编辑器（Canvas / 可视化剪辑台）
+
+#### 功能概览
+- **定位**: 把 AI 生成的历史产物（AI 视频/图片、大资产库、热门创作成片、短剧片段、本地上传）按需拖入画布，配文字块/转场/BGM，一键导出成片
+- **页面**: 「视频画布」一级导航（位于 热门创作 之后）→ 列表页（项目 + 模板库 Tab）+ 编辑器页（`/canvas/editor/:id`）
+- **设计文档**: `画布-项目设计.md`（顶层新增）
+
+#### 后端（`backend/src/modules/canvas/`）
+- **实体**: `canvas_projects`（name/ratio/resolution/fps/nodes(JSON)/bgm_url/status/progress/result_url/error_msg）、`canvas_templates`（name/category/variables(JSON)/nodes(JSON)）
+- **API**（全部带 user 鉴权）:
+  - 项目: `GET/POST /api/canvas/projects`、`GET/PUT/DELETE /api/canvas/projects/:id`、`GET :id/export`（渲染状态）、`POST :id/render`（开始渲染）
+  - 模板: `GET /api/canvas/templates`（category/keyword 过滤）、`GET :id`、`POST :id/duplicate`（复制为项目）
+- **渲染管线**（`canvas.service.ts` doRender）:
+  1. 项目解析 nodes 顺序排列；变量替换（模板变量 `{{var}}` → 项目变量值，文本块内替换）
+  2. 每块独立渲染到 workDir：video 块（`fitVideoToRatio` 裁到项目比例 → `fitToExactDuration` 精确时长 → **`normalizeToRes`** 统一到项目分辨率 720×1280 等）；image 块（参考图等比放大填满 + zoompan 缓慢放大 + 交叉淡入淡出）；text 块（`generateTextVideo` 紫底白字 + 淡入淡出）
+  3. 相邻块转场：xfade（fade/wipe_left/wipe_right/zoom_in，每转场 0.4~0.5s）→ 最后 `mergeVideos` 合并（保留音频，aac 归一化）
+  4. BGM：`bgm_url` 叠加音频（adelay+amix，BGM 音量 0.3）
+  5. 输出 `output/canvas_result_{id}_{ts}.mp4` → `result_url=/static/...`，更新 status/progress
+- **渲染安全**: 渲染中二次请求 render → 400「正在渲染中」；进度分段上报（分段 0.1→0.5，转场 0.6→0.8，BGM/完成 1.0）
+- **⚠️ 已知坑**: `normalizeToRes` 必须做（video 块 fitVideoToRatio 会缩到 406×720，与 text 块 720×1280 不一致导致 xfade/concat 静默回退成普通拼接、时长失准）——实测 3 段 3s + fade 0.5 + wipe 0.4 = 8.1s 精确
+- **验证**: 模板→变量替换→渲染 API 全通；真实 16:9 视频 + 文字 + 9:16 项目 → 720×1280 / 8.1s / 音频正常
+
+#### ffmpeg 升级
+- `backend/tools/ffmpeg` 升级 **6.1.1**（此前 2018 老版不支持 zoompan 多输出/复杂滤镜），`findFfmpeg()` 优先探测 tools 目录，其次 PATH；`ffmpeg.util.ts` 新增 `zoompanImage` 辅助
+- ⚠️ 回归注意: fitToExactDuration 的 apad/atemp 老参数已适配新版；`getVideoInfo` 兼容
+
+#### 前端（`frontend/src/pages/Canvas/`）
+- **列表页 index.tsx**: 我的画布（封面 CoverThumb + 删除/导出/编辑）+ 模板库 Tab（模板卡片 + 复制为项目）；「新建空白画布」→ `/canvas/editor/new`
+- **编辑器 Editor.tsx**: 顶部（名称/比例 6 选/分辨率/保存/导出渲染 + 保存状态 Tag）；素材面板 5 来源（AI历史/大资产库/热门创作/短剧片段/上传，拖拽或点击添加）；画布区（节点卡片拖拽排序、删除、点击选中编辑——文本内容/背景色/字色/字号/时长 1~15s/转场 fade|wipe_left|wipe_right|zoom_in）；BGM 选择抽屉（从热门创作成片选，渲染时叠加音频）；渲染进度条 + 完成后下载按钮
+- **组件**: `AssetPanel.tsx`（AssetItem 定义 + 分类 Tab + 拖拽）、`NodeCard.tsx`（视频/图片预览 + 文字编辑表单 + 转场 Select）
+- **路由/导航**: App.tsx 加 `/canvas`、`/canvas/editor/:id`；AppHeader 加「视频画布」菜单项
+
+#### 关键 Bug 修复（今日）
+- **绝对路径 file:// 报错**: 旧数据节点 `source.url` 存了 `C:\...\backend\output\x.mp4` 绝对路径，浏览器 video 无法加载 → 前端 `toStaticUrl()`（Editor.tsx）加载项目/添加素材/资产列表时统一转 `/static/` URL；后端 `coverFromNodes` 同样转换绝对路径 → 列表封面不再报 file:// 错误
+- **转场静默失效**: xfade 尺寸不一致时 ffmpeg 报错被吞 → 新增 `normalizeToRes` 统一所有 video 块到项目分辨率后转场/拼接正常
+
+### ⚠️ 待办
+- [ ] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
+- [ ] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
+- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+
+---
+
 ## 2026-08-03
 
 ### 服务状态（关停前）

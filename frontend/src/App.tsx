@@ -22,6 +22,8 @@ import ViralTemplateDetail from './pages/Viral/TemplateDetail';
 import ViralCreateTemplate from './pages/Viral/CreateTemplate';
 import ViralProjectList from './pages/Viral/ProjectList';
 import ViralProjectDetail from './pages/Viral/ProjectDetail';
+import CanvasIndex from './pages/Canvas';
+import CanvasEditor from './pages/Canvas/Editor';
 import GeneratePage from './pages/Generate';
 import DramaListPage from './pages/Drama';
 import DramaCreatePage from './pages/Drama/Create';
@@ -74,6 +76,8 @@ export default function App() {
         <Route path="/viral/templates/:id" element={<ProtectedRoute><UserLayout><ViralTemplateDetail /></UserLayout></ProtectedRoute>} />
         <Route path="/viral/projects" element={<ProtectedRoute><UserLayout><ViralProjectList /></UserLayout></ProtectedRoute>} />
         <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />
+        <Route path="/canvas" element={<ProtectedRoute><UserLayout><CanvasIndex /></UserLayout></ProtectedRoute>} />
+        <Route path="/canvas/editor/:id" element={<ProtectedRoute><UserLayout><CanvasEditor /></UserLayout></ProtectedRoute>} />
       </Routes>
     </BrowserRouter>
   );
