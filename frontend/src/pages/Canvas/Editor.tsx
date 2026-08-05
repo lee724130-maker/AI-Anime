@@ -1,32 +1,59 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Typography, Button, Space, Input, Select, Spin, message, Card, Empty, Tabs, Upload, Progress, Tag, Tooltip, Drawer,
+  Typography, Button, Input, Select, Spin, message, Empty, Tabs, Upload, Progress, Tag, Segmented, Divider,
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, PlayCircleOutlined, DownloadOutlined,
-  FontSizeOutlined, AudioOutlined, ClearOutlined, CheckCircleOutlined,
+  VideoCameraOutlined, PictureOutlined, FontSizeOutlined, AudioOutlined,
+  ThunderboltOutlined, ExportOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 import AssetCard from './components/AssetPanel';
 import type { AssetItem } from './components/AssetPanel';
-import NodeCard from './components/NodeCard';
-import type { CanvasNodeData } from './components/NodeCard';
+import WorkflowCanvas from './components/WorkflowCanvas';
+import type { AssetPayload } from './components/WorkflowCanvas';
+import PropertiesPanel from './components/PropertiesPanel';
+import {
+  NODE_META, type Workflow, type WFNode, type WFNodeType,
+} from './components/WorkflowTypes';
 
 const { Text } = Typography;
 
 interface RenderStatus { status: string; progress: number; result_url?: string | null; error_msg?: string | null; }
 
 let uid = 0;
-const genId = () => `node_${Date.now()}_${uid++}`;
+const genId = (prefix: string) => `${prefix}_${Date.now()}_${uid++}`;
 
-// Convert absolute backend paths (e.g. C:\...\backend\output\x.mp4) into
-// /static/ URLs so the browser can actually load them.
 const toStaticUrl = (u?: string | null): string | undefined => {
   if (!u) return undefined;
   if (/^\/static\//.test(u) || /^https?:/.test(u) || /^data:/.test(u)) return u;
   const m = u.replace(/\\/g, '/').match(/([^/]+\.(mp4|webm|mov|jpg|jpeg|png|webp|gif))$/i);
   return m ? `/static/${m[1]}` : u;
+};
+
+const NODE_PALETTE: { type: WFNodeType; icon: any; label: string; color: string }[] = [
+  { type: 'video', icon: <VideoCameraOutlined />, label: '视频', color: NODE_META.video.color },
+  { type: 'image', icon: <PictureOutlined />, label: '图片', color: NODE_META.image.color },
+  { type: 'text', icon: <FontSizeOutlined />, label: '文字', color: NODE_META.text.color },
+  { type: 'audio', icon: <AudioOutlined />, label: '音频', color: NODE_META.audio.color },
+  { type: 'effect', icon: <ThunderboltOutlined />, label: '转场/滤镜', color: NODE_META.effect.color },
+  { type: 'output', icon: <ExportOutlined />, label: '输出', color: NODE_META.output.color },
+];
+
+const newNode = (type: WFNodeType, pos: { x: number; y: number }): WFNode => {
+  const base: WFNode = {
+    id: genId(type),
+    type,
+    position: pos,
+    source: null,
+    duration: type === 'video' ? 3 : type === 'image' ? 3 : type === 'audio' ? 3 : 1,
+    params: {},
+  };
+  if (type === 'text') base.params = { text: '', start: 0, x: 0.5, y: 0.5, font_size: 48, text_color: '#FFFFFF', animation: 'fade' };
+  if (type === 'audio') base.params = { volume: 0.8, start: 0, fade_in: 0, fade_out: 0 };
+  if (type === 'effect') base.params = { kind: 'transition', transition: 'fade', transition_duration: 0.5 };
+  return base;
 };
 
 export default function CanvasEditor() {
@@ -37,16 +64,16 @@ export default function CanvasEditor() {
   const [name, setName] = useState('未命名画布');
   const [ratio, setRatio] = useState('9:16');
   const [resolution, setResolution] = useState('720p');
-  const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
-  const [bgmUrl, setBgmUrl] = useState<string | null>(null);
+  const [workflow, setWorkflow] = useState<Workflow>({ nodes: [], edges: [] });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [loading, setLoading] = useState(!isNew);
   const [render, setRender] = useState<RenderStatus | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewNode, setPreviewNode] = useState<CanvasNodeData | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [paletteKind, setPaletteKind] = useState<'node' | 'asset'>('node');
+  const [assetTab, setAssetTab] = useState('ai');
 
   // Asset panel data
   const [aiTasks, setAiTasks] = useState<AssetItem[]>([]);
@@ -65,13 +92,41 @@ export default function CanvasEditor() {
         setName(p.name);
         setRatio(p.ratio || '9:16');
         setResolution(p.resolution || '720p');
-        setNodes((p.nodes || []).map((n: any) => {
-          const node = { ...n, order: n.order ?? 0 };
-          if (node.source?.url) node.source = { ...node.source, url: toStaticUrl(node.source.url) };
-          return node;
-        }));
-        setBgmUrl(p.bgm_url || null);
         setProjectId(p.id);
+        const rawNodes: any[] = p.nodes || [];
+        const rawEdges: any[] = p.edges || [];
+        // legacy nodes (no position) → auto layout
+        const nodes: WFNode[] = rawNodes.map((n, i) => {
+          if (n.position && typeof n.position.x === 'number') {
+            return {
+              ...n,
+              source: n.source ? { ...n.source, url: toStaticUrl(n.source.url) } : null,
+            } as WFNode;
+          }
+          return {
+            ...newNode(n.type || 'video', { x: 80 + (i % 3) * 260, y: 60 + Math.floor(i / 3) * 160 }),
+            source: n.source ? { ...n.source, url: toStaticUrl(n.source.url) } : null,
+            duration: n.duration || 3,
+          };
+        });
+        const edges = rawEdges.map((e: any) => ({ id: e.id, from: e.from, to: e.to }));
+        // if workflow empty on legacy list, generate a chain to an output node
+        let finalEdges = edges;
+        if (edges.length === 0 && nodes.length > 0) {
+          const main = nodes.filter((n) => n.type === 'video' || n.type === 'image');
+          const outNode = nodes.find((n) => n.type === 'output');
+          if (main.length > 0) {
+            const chainEdges = main.slice(0, -1).map((n, i) => ({ id: `auto_${i}`, from: n.id, to: main[i + 1].id }));
+            finalEdges = [...chainEdges];
+            if (outNode) {
+              if (main.length > 0) finalEdges.push({ id: 'auto_out_main', from: main[main.length - 1].id, to: outNode.id });
+              nodes.filter((n) => n.type === 'text' || n.type === 'audio').forEach((n) => {
+                finalEdges.push({ id: `auto_out_${n.id}`, from: n.id, to: outNode.id });
+              });
+            }
+          }
+        }
+        setWorkflow({ nodes, edges: finalEdges });
         if (p.status === 'rendering' || p.status === 'completed') {
           setRender({ status: p.status, progress: p.progress, result_url: p.result_url, error_msg: p.error_msg });
         }
@@ -91,7 +146,6 @@ export default function CanvasEditor() {
         const res = await api.get(`/api/canvas/projects/${projectId}/export`);
         setRender(res.data);
         if (res.data.status === 'completed' && res.data.result_url) {
-          setPreviewUrl(res.data.result_url);
           message.success('渲染完成！');
           clearInterval(timer);
         } else if (res.data.status === 'failed') {
@@ -114,7 +168,6 @@ export default function CanvasEditor() {
         api.get('/api/drama', { params: { page: 1, limit: 10 } }),
       ]);
 
-      // AI history
       if (taskRes.status === 'fulfilled') {
         const items = taskRes.value.data?.items || [];
         const assets: AssetItem[] = [];
@@ -135,18 +188,16 @@ export default function CanvasEditor() {
         setAiTasks(assets);
       }
 
-      // Global assets
-          if (gaRes.status === 'fulfilled') {
-            const items = gaRes.value.data?.items || gaRes.value.data || [];
-            const assets: AssetItem[] = [];
-            for (const a of items) {
-              if (a.image_url) assets.push({ kind: 'global_asset', type: 'image', url: a.image_url, title: a.name || '资产', thumbnail: a.image_url, ref_id: a.id });
-              if (a.video_url) assets.push({ kind: 'global_asset', type: 'video', url: a.video_url, title: a.name || '资产', ref_id: a.id });
-            }
-            setGlobalAssets(assets);
-          }
+      if (gaRes.status === 'fulfilled') {
+        const items = gaRes.value.data?.items || gaRes.value.data || [];
+        const assets: AssetItem[] = [];
+        for (const a of items) {
+          if (a.image_url) assets.push({ kind: 'global_asset', type: 'image', url: a.image_url, title: a.name || '资产', thumbnail: a.image_url, ref_id: a.id });
+          if (a.video_url) assets.push({ kind: 'global_asset', type: 'video', url: a.video_url, title: a.name || '资产', ref_id: a.id });
+        }
+        setGlobalAssets(assets);
+      }
 
-      // Viral projects (finished films)
       if (viralRes.status === 'fulfilled') {
         const items = viralRes.value.data || [];
         const assets: AssetItem[] = items
@@ -155,7 +206,6 @@ export default function CanvasEditor() {
         setViralProjects(assets);
       }
 
-      // Drama segments
       if (dramaRes.status === 'fulfilled') {
         const items = dramaRes.value.data?.items || [];
         const assets: AssetItem[] = [];
@@ -181,12 +231,22 @@ export default function CanvasEditor() {
 
   useEffect(() => { loadAssets(); }, [loadAssets]);
 
+  // Properties panel asset options
+  const assetOptions = useMemo<Record<'video' | 'image', AssetPayload[]>>(() => {
+    const dedupe = (arr: AssetPayload[]) => [...new Map(arr.map((a) => [a.url, a])).values()];
+    return {
+      video: dedupe([...viralProjects, ...aiTasks.filter((a) => a.type === 'video'), ...dramaClips, ...globalAssets.filter((a) => a.type === 'video')]
+        .map((a) => ({ kind: a.kind, type: a.type, url: a.url, title: a.title, thumbnail: a.thumbnail, ref_id: a.ref_id }))),
+      image: dedupe([...globalAssets.filter((a) => a.type === 'image'), ...aiTasks.filter((a) => a.type === 'image')]
+        .map((a) => ({ kind: a.kind, type: a.type, url: a.url, title: a.title, thumbnail: a.thumbnail, ref_id: a.ref_id }))),
+    };
+  }, [viralProjects, aiTasks, dramaClips, globalAssets]);
+
   const persist = async (): Promise<number | null> => {
-    const ordered = nodes.map((n, i) => ({ ...n, order: i }));
     const payload = {
       name, ratio, resolution,
-      nodes: JSON.stringify(ordered),
-      bgm_url: bgmUrl,
+      nodes: JSON.stringify(workflow),
+      bgm_url: null,
     };
     if (projectId) {
       await api.put(`/api/canvas/projects/${projectId}`, payload);
@@ -213,8 +273,26 @@ export default function CanvasEditor() {
 
   const handleRender = async () => {
     try {
-      if (nodes.length === 0) { message.warning('请先添加素材块'); return; }
-      if (nodes.some(n => n.type === 'text' && !n.params?.text)) { message.warning('有文字块未填写内容'); return; }
+      const mediaNodes = workflow.nodes.filter((n) => n.type === 'video' || n.type === 'image');
+      const textNodes = workflow.nodes.filter((n) => n.type === 'text');
+      const outputNode = workflow.nodes.find((n) => n.type === 'output');
+      if (mediaNodes.length === 0 && textNodes.length === 0) { message.warning('请先添加视频/图片素材，或文字节点'); return; }
+      if (mediaNodes.length > 0 && !outputNode) { message.warning('请先添加「输出」节点'); return; }
+      if (workflow.nodes.some((n) => n.type === 'text' && !(n.params?.text && String(n.params.text).trim()))) { message.warning('有文字节点未填写内容'); return; }
+      if (workflow.nodes.some((n) => (n.type === 'video' || n.type === 'image' || n.type === 'audio') && !n.source?.url)) { message.warning('有素材节点未选择素材'); return; }
+      const unusedMedia = mediaNodes.filter((n) => !outputNode || !workflow.edges.some((e) => e.to === outputNode.id && (() => {
+        // walk from n through effects to output
+        let cur = n.id;
+        for (let k = 0; k < 20; k++) {
+          const next = workflow.edges.find((e) => e.from === cur);
+          if (!next) return false;
+          if (next.to === outputNode.id) return true;
+          cur = next.to;
+        }
+        return false;
+      })()));
+      if (unusedMedia.length > 0) { message.warning('有视频/图片节点未连接到输出节点'); return; }
+
       setSaving(true);
       const pid = await persist();
       setSaving(false);
@@ -228,67 +306,41 @@ export default function CanvasEditor() {
     }
   };
 
-  const handleAddNode = (item: AssetItem) => {
-    const newNode: CanvasNodeData = {
-      id: genId(),
-      type: item.type,
-      source: { kind: item.kind, ref_id: item.ref_id, url: toStaticUrl(item.url) },
-      duration: item.type === 'image' ? 3 : 5,
-      order: nodes.length,
-      params: {},
-      transition: null,
-    };
-    setNodes([...nodes, newNode]);
-    message.success(`已添加${item.type === 'video' ? '视频' : '图片'}素材`);
+  const addAssetNode = (asset: AssetPayload, pos: { x: number; y: number }) => {
+    const node = newNode(asset.type, pos);
+    node.source = { kind: asset.kind, ref_id: asset.ref_id, url: toStaticUrl(asset.url) };
+    setWorkflow((wf) => ({ ...wf, nodes: [...wf.nodes, node] }));
+    setSelectedId(node.id);
+    message.success(`已添加${asset.type === 'video' ? '视频' : '图片'}节点`);
   };
 
-  const handleAddText = () => {
-    const newNode: CanvasNodeData = {
-      id: genId(),
-      type: 'text',
-      source: null,
-      duration: 3,
-      order: nodes.length,
-      params: { text: '', bg_color: '#7C3AED', text_color: '#FFFFFF', font_size: 48 },
-      transition: null,
-    };
-    setNodes([...nodes, newNode]);
+  const addPaletteNode = (type: WFNodeType) => {
+    if (type === 'output' && workflow.nodes.some((n) => n.type === 'output')) {
+      setSelectedId(workflow.nodes.find((n) => n.type === 'output')!.id);
+      message.info('输出节点已存在');
+      return;
+    }
+    const col = workflow.nodes.length % 2;
+    const row = Math.floor(workflow.nodes.length / 2) % 6;
+    const pos = { x: 60 + col * 280, y: 60 + row * 160 };
+    const node = newNode(type, pos);
+    setWorkflow((wf) => ({ ...wf, nodes: [...wf.nodes, node] }));
+    setSelectedId(node.id);
   };
 
-  const updateNode = (id: string, updated: CanvasNodeData) => {
-    setNodes(prev => prev.map(n => n.id === id ? updated : n));
+  const handleAddFromAssetPanel = (item: AssetItem) => {
+    const pos = { x: 100 + (workflow.nodes.length % 4) * 30, y: 80 + (workflow.nodes.length % 4) * 30 };
+    addAssetNode({ kind: item.kind, type: item.type, url: item.url, title: item.title, thumbnail: item.thumbnail, ref_id: item.ref_id }, pos);
   };
 
-  const removeNode = (id: string) => {
-    setNodes(prev => prev.filter(n => n.id !== id));
-  };
-
-  // Drag & drop reorder (HTML5)
-  const dragIndex = useRef<number | null>(null);
-
-  const handleDropAsset = (e: React.DragEvent) => {
-    e.preventDefault();
-    try {
-      const raw = e.dataTransfer.getData('application/json');
-      if (!raw) return;
-      const item = JSON.parse(raw) as AssetItem;
-      handleAddNode(item);
-    } catch { /* ignore */ }
-  };
-
-  const onBoardDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    handleDropAsset(e);
-  };
-
-  const handleDropUpload = async (file: File): Promise<boolean> => {
+  const handleUpload = async (file: File): Promise<boolean> => {
     setUploading(true);
     const fd = new FormData();
     fd.append('file', file);
     try {
       const res = await api.post('/api/media/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(res.data.url);
-      handleAddNode({ kind: 'upload', type: isVideo ? 'video' : 'image', url: res.data.url, title: res.data.original_name || '上传素材' });
+      handleAddFromAssetPanel({ kind: 'upload', type: isVideo ? 'video' : 'image', url: res.data.url, title: res.data.original_name || '上传素材' });
       message.success('上传成功并已添加');
       return true;
     } catch (err: any) {
@@ -299,41 +351,30 @@ export default function CanvasEditor() {
     }
   };
 
-  // BGM picker modal
-  const [bgmOpen, setBgmOpen] = useState(false);
-  const bgmSources: AssetItem[] = [...viralProjects];
+  const selectedNode = workflow.nodes.find((n) => n.id === selectedId) || null;
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
   }
 
-  const nodeCount = nodes.length;
-  const totalDuration = nodes.reduce((acc, n) => acc + (n.duration || 0), 0);
-
   return (
-    <div style={{ padding: '16px 24px', height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ padding: '12px 16px', height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexShrink: 0 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/canvas')} style={{ borderRadius: 10 }} />
-        <Input
-          value={name} onChange={e => setName(e.target.value)}
-          style={{ width: 220, borderRadius: 10, fontWeight: 600 }}
-          placeholder="画布名称"
-        />
-        <Select value={ratio} onChange={setRatio} style={{ width: 90, borderRadius: 10 }}
+        <Input value={name} onChange={e => setName(e.target.value)} style={{ width: 200, borderRadius: 10, fontWeight: 600 }} placeholder="画布名称" />
+        <Select value={ratio} onChange={setRatio} style={{ width: 80, borderRadius: 10 }}
           options={['9:16', '16:9', '1:1', '3:4', '4:3', '2:3'].map(r => ({ value: r, label: r }))} />
-        <Select value={resolution} onChange={setResolution} style={{ width: 90, borderRadius: 10 }}
+        <Select value={resolution} onChange={setResolution} style={{ width: 84, borderRadius: 10 }}
           options={['480p', '720p', '1080p'].map(r => ({ value: r, label: r }))} />
-        <Text type="secondary" style={{ fontSize: 12 }}>{nodeCount} 块 · 约 {totalDuration}s</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>{workflow.nodes.length} 节点 · {workflow.edges.length} 连线</Text>
 
         <div style={{ flex: 1 }} />
 
         {saved && <Tag color="success" icon={<CheckCircleOutlined />}>已保存</Tag>}
         <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10 }}>保存</Button>
-        <Button
-          type="primary" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
-          onClick={handleRender} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}
-        >
+        <Button type="primary" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
+          onClick={handleRender} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}>
           导出渲染
         </Button>
         {render?.status === 'completed' && render.result_url && (
@@ -345,212 +386,126 @@ export default function CanvasEditor() {
 
       {/* Render progress */}
       {render?.status === 'rendering' && (
-        <div style={{ marginBottom: 12, flexShrink: 0 }}>
+        <div style={{ marginBottom: 10, flexShrink: 0 }}>
           <Progress percent={render.progress || 0} status="active" strokeColor="#7c3aed" size="small" />
         </div>
       )}
       {render?.status === 'failed' && (
-        <div style={{ marginBottom: 12, flexShrink: 0, color: '#f5222d', fontSize: 12 }}>
+        <div style={{ marginBottom: 10, flexShrink: 0, color: '#f5222d', fontSize: 12 }}>
           渲染失败: {render.error_msg}
         </div>
       )}
 
-      {/* Preview */}
-      {(previewUrl || previewNode?.source?.url) && (
-        <div style={{ marginBottom: 12, flexShrink: 0 }}>
-          <Card size="small" style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
-            title={<Text strong style={{ fontSize: 13 }}>{previewNode ? `预览: 素材块` : '成片预览'}</Text>}
-            extra={
-              previewNode ? (
-                <Button type="link" size="small" onClick={() => setPreviewNode(null)}>回到成片</Button>
-              ) : (
-                render?.status === 'completed' && render.result_url && (
-                  <Button type="link" size="small" icon={<DownloadOutlined />} href={render.result_url} download>下载</Button>
-                )
-              )
-            }
-          >
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              {previewNode?.type === 'text' ? (
-                <div style={{ width: 180, height: 320, background: previewNode.params?.bg_color || '#7C3AED', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', color: previewNode.params?.text_color || '#fff', fontWeight: 600, fontSize: 16, textAlign: 'center', padding: 16 }}>
-                  {previewNode.params?.text || '文字块'}
-                </div>
-              ) : (
-                <video
-                  src={previewUrl || previewNode?.source?.url || undefined}
-                  controls style={{ maxHeight: 320, borderRadius: 12, maxWidth: '100%' }}
-                />
-              )}
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Main area: asset panel + canvas */}
-      <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
-        {/* Asset panel */}
-        <div style={{ width: 260, flexShrink: 0, background: '#fafafa', borderRadius: 14, padding: 12, overflow: 'auto', border: '1px solid #f0f0f0' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <Text strong style={{ fontSize: 13 }}>素材面板</Text>
-            <Space size={6}>
-              <Tooltip title="添加文字块">
-                <Button size="small" type="primary" ghost icon={<FontSizeOutlined />} onClick={handleAddText} style={{ borderRadius: 8, color: '#7c3aed', borderColor: '#7c3aed' }} />
-              </Tooltip>
-              <Tooltip title="添加 BGM">
-                <Button size="small" icon={<AudioOutlined />} onClick={() => setBgmOpen(true)} style={{ borderRadius: 8 }} />
-              </Tooltip>
-            </Space>
-          </div>
+      {/* Main area: palette + canvas + properties */}
+      <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
+        {/* Left: palette */}
+        <div style={{ width: 220, flexShrink: 0, background: '#fff', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid #eceef1', display: 'flex', flexDirection: 'column' }}>
+          <Text strong style={{ fontSize: 13, marginBottom: 8 }}>节点 / 素材</Text>
 
           {/* Local upload */}
-          <Upload.Dragger
-            beforeUpload={(file) => { handleDropUpload(file); return false; }}
-            showUploadList={false}
-            style={{ marginBottom: 12, borderRadius: 10 }}
-          >
-            <div style={{ padding: '6px 0' }}>
-              <Text style={{ fontSize: 12, color: '#666' }}>{uploading ? '上传中...' : '上传本地视频/图片'}</Text>
+          <Upload.Dragger beforeUpload={(file) => { handleUpload(file); return false; }} showUploadList={false} style={{ marginBottom: 10, borderRadius: 10 }}>
+            <div style={{ padding: '4px 0' }}>
+              <Text style={{ fontSize: 11, color: '#666' }}>{uploading ? '上传中...' : '上传本地视频/图片'}</Text>
             </div>
           </Upload.Dragger>
 
-          {/* BGM indicator */}
-          {bgmUrl && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, background: '#fff1f2', borderRadius: 8, padding: '6px 10px' }}>
-              <AudioOutlined style={{ color: '#e11d48' }} />
-              <Text style={{ fontSize: 11, flex: 1 }} ellipsis>已设置 BGM</Text>
-              <Button type="text" size="small" danger icon={<ClearOutlined />} onClick={() => { setBgmUrl(null); message.success('已移除 BGM'); }} style={{ fontSize: 11, padding: 2 }} />
-            </div>
-          )}
+          <Segmented block size="small" value={paletteKind} onChange={(v) => setPaletteKind(v as any)} style={{ marginBottom: 10 }}
+            options={[{ value: 'node', label: '节点' }, { value: 'asset', label: '素材' }]} />
 
-          <Tabs
-            size="small"
-            items={[
-              {
-                key: 'ai',
-                label: 'AI历史',
-                children: assetLoading ? <Spin size="small" /> : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {aiTasks.map((it, i) => <AssetCard key={`ai${i}`} item={it} onClick={handleAddNode} />)}
-                    {aiTasks.length === 0 && <Empty description="暂无 AI 素材" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1' }} />}
+          {paletteKind === 'node' ? (
+            <div>
+              <Text type="secondary" style={{ fontSize: 11, marginBottom: 6, display: 'block' }}>点击添加节点，拖到画布上摆放</Text>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {NODE_PALETTE.map((p) => (
+                  <div key={p.type} data-palette={p.type}
+                    draggable
+                    onDragStart={(e) => { e.dataTransfer.setData('application/json', JSON.stringify({ __palette: p.type })); e.dataTransfer.effectAllowed = 'copy'; }}
+                    onClick={() => addPaletteNode(p.type)}
+                    style={{ cursor: 'pointer', border: `1.5px solid ${p.color}55`, background: `${p.color}0d`, borderRadius: 10, padding: '10px 8px', textAlign: 'center', transition: 'all .15s' }}
+                    onMouseEnter={(e) => (e.currentTarget.style.borderColor = p.color)}
+                    onMouseLeave={(e) => (e.currentTarget.style.borderColor = `${p.color}55`)}
+                  >
+                    <div style={{ fontSize: 17, color: p.color }}>{p.icon}</div>
+                    <Text style={{ fontSize: 12, fontWeight: 500, display: 'block', marginTop: 4 }}>{p.label}</Text>
                   </div>
-                ),
-              },
-              {
-                key: 'assets',
-                label: '大资产库',
-                children: (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {globalAssets.map((it, i) => <AssetCard key={`ga${i}`} item={it} onClick={handleAddNode} />)}
-                    {globalAssets.length === 0 && <Empty description="暂无资产" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1' }} />}
-                  </div>
-                ),
-              },
-              {
-                key: 'viral',
-                label: '热门创作',
-                children: (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {viralProjects.map((it, i) => <AssetCard key={`vp${i}`} item={it} onClick={handleAddNode} />)}
-                    {viralProjects.length === 0 && <Empty description="暂无成片" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1' }} />}
-                  </div>
-                ),
-              },
-              {
-                key: 'drama',
-                label: '短剧片段',
-                children: (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {dramaClips.map((it, i) => <AssetCard key={`dc${i}`} item={it} onClick={handleAddNode} />)}
-                    {dramaClips.length === 0 && <Empty description="暂无片段" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1' }} />}
-                  </div>
-                ),
-              },
-            ]}
-          />
-        </div>
-
-        {/* Canvas board */}
-        <div
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={onBoardDrop}
-          style={{ flex: 1, background: '#fafafa', borderRadius: 14, border: '1px dashed #d9d9d9', padding: 16, overflow: 'auto', minWidth: 0 }}
-        >
-          {nodes.length === 0 ? (
-            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-              <FontSizeOutlined style={{ fontSize: 40, color: '#ccc' }} />
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                从左侧拖素材到这里，或点击素材卡片直接添加
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                横向顺序 = 成片播放顺序
+                ))}
+              </div>
+              <Divider plain style={{ margin: '12px 0' }} />
+              <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.6, display: 'block' }}>
+                连线规则：<br />
+                · 视频/图片 → 输出（主链）<br />
+                · 效果节点放两段视频之间 = 转场；直接连视频 = 单段滤镜<br />
+                · 文字 / 音频 → 输出（叠加层 / 音轨）<br />
+                · 点右侧圆点拖到左侧圆点完成连线
               </Text>
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 4px', overflowX: 'auto' }}>
-              {nodes.map((node, i) => (
-                <div key={node.id} style={{ display: 'flex', alignItems: 'flex-start' }}>
-                  {i > 0 && (
-                    <div style={{ width: 40, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <div style={{ width: 14, height: 14, border: '2px solid #b7b7b7', borderStyle: 'dashed', transform: 'rotate(45deg)', opacity: 0.5 }} />
-                    </div>
-                  )}
-                  <NodeCard
-                    node={node}
-                    index={i}
-                    lastNode={i === nodes.length - 1}
-                    onUpdate={(u) => updateNode(node.id, u)}
-                    onRemove={() => removeNode(node.id)}
-                    onDragStart={() => { dragIndex.current = i; }}
-                    onDragOver={(e) => { e.preventDefault(); }}
-                    onDrop={() => {
-                      const from = dragIndex.current;
-                      if (from === null || from === i) { dragIndex.current = null; return; }
-                      setNodes(prev => {
-                        const next = [...prev];
-                        const [moved] = next.splice(from, 1);
-                        next.splice(i, 0, moved);
-                        return next;
-                      });
-                      dragIndex.current = null;
-                    }}
-                    onPreview={() => {
-                      setPreviewNode(node);
-                      if (node.source?.url) setPreviewUrl(node.source.url);
-                    }}
-                  />
-                </div>
-              ))}
-            </div>
+            <Tabs size="small" tabBarStyle={{ marginBottom: 4 }} activeKey={assetTab} onChange={setAssetTab}
+              items={[
+                { key: 'ai', label: 'AI历史', children: assetLoading ? <Spin size="small" /> : (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {aiTasks.map((it, i) => <AssetCard key={`ai${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+                    {aiTasks.length === 0 && <Empty description="暂无 AI 素材" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
+                  </div>
+                ) },
+                { key: 'assets', label: '大资产库', children: (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {globalAssets.map((it, i) => <AssetCard key={`ga${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+                    {globalAssets.length === 0 && <Empty description="暂无资产" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
+                  </div>
+                ) },
+                { key: 'viral', label: '热门创作', children: (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {viralProjects.map((it, i) => <AssetCard key={`vp${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+                    {viralProjects.length === 0 && <Empty description="暂无成片" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
+                  </div>
+                ) },
+                { key: 'drama', label: '短剧片段', children: (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {dramaClips.map((it, i) => <AssetCard key={`dc${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+                    {dramaClips.length === 0 && <Empty description="暂无片段" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
+                  </div>
+                ) },
+              ]}
+            />
           )}
+        </div>
+
+        {/* Center: canvas */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <WorkflowCanvas
+            workflow={workflow}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onChange={setWorkflow}
+            onAddAsset={addAssetNode}
+          />
+        </div>
+
+        {/* Right: properties */}
+        <div style={{ width: 260, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #eceef1', overflow: 'hidden', minHeight: 0 }}>
+          <PropertiesPanel
+            node={selectedNode}
+            assetOptions={assetOptions}
+            onChange={(n) => setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.map((x) => x.id === n.id ? n : x) }))}
+            onRemove={(nid) => {
+              setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.filter((x) => x.id !== nid), edges: wf.edges.filter((e) => e.from !== nid && e.to !== nid) }));
+              setSelectedId(null);
+            }}
+          />
         </div>
       </div>
 
-      {/* BGM drawer */}
-      <Drawer
-        title="选择背景音乐"
-        open={bgmOpen}
-        onClose={() => setBgmOpen(false)}
-        size="default"
-      >        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-          从热门创作成片中选择 BGM（自动使用其音频）。渲染时叠加到整片。
-        </Text>
-        {bgmSources.length === 0 && (
-          <Empty description="暂无可用 BGM 来源" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          {bgmSources.map((it, i) => (
-            <div key={`bgm${i}`} style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 8, cursor: 'pointer', textAlign: 'center' }}
-              onClick={() => {
-                setBgmUrl(it.url);
-                setBgmOpen(false);
-                message.success('BGM 已设置');
-              }}>
-              <video src={it.url} muted playsInline preload="metadata" style={{ width: '100%', height: 60, objectFit: 'cover', borderRadius: 8 }} />
-              <Text style={{ fontSize: 11, display: 'block', marginTop: 6 }} ellipsis>{it.title}</Text>
-            </div>
-          ))}
+      {/* Bottom: result preview */}
+      {render?.status === 'completed' && render.result_url && (
+        <div style={{ marginTop: 10, flexShrink: 0, display: 'flex', gap: 12, background: '#fff', border: '1px solid #eceef1', borderRadius: 12, padding: 8, alignItems: 'center' }}>
+          <Text strong style={{ fontSize: 12, flexShrink: 0 }}>成片预览</Text>
+          <video key={render.result_url || projectId} src={render.result_url || undefined} controls preload="metadata"
+            style={{ width: 120, height: 67, borderRadius: 8, background: '#111', objectFit: 'contain' }} />
+          <Text type="secondary" style={{ fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。</Text>
+          <Button type="primary" size="small" icon={<DownloadOutlined />} href={render.result_url} download style={{ background: '#16a34a', borderColor: '#16a34a' }}>下载成片</Button>
         </div>
-      </Drawer>
+      )}
     </div>
   );
 }

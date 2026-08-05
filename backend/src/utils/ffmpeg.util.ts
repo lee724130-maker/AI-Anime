@@ -804,4 +804,194 @@ export class FFmpegUtil {
     const ms = Math.floor((seconds % 1) * 1000);
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
   }
+
+  /**
+   * Generate a TRANSPARENT background text overlay video (RGBA, PNG codec in
+   * MOV container so alpha survives into the `overlay` filter).
+   * Used for text nodes layered over the main video track.
+   */
+  async generateOverlayTextVideo(
+    text: string,
+    options?: {
+      textColor?: string;
+      fontSize?: number;
+      resolution?: string;
+      duration?: number;
+      fps?: number;
+      x?: number; // 0..1 horizontal position (0.5 = center)
+      y?: number; // 0..1 vertical position (0.5 = center)
+      opacity?: number; // 0..1
+      animation?: string; // none | fade | slide_up | slide_down | zoom_in
+      outputPath?: string;
+    },
+  ): Promise<string> {
+    const {
+      textColor = '#FFFFFF',
+      fontSize = 48,
+      resolution = '1080x1920',
+      duration = 3,
+      fps = 24,
+      x = 0.5,
+      y = 0.5,
+      opacity = 1,
+      animation = 'fade',
+    } = options || {};
+
+    const outPath = options?.outputPath || path.join(this.outputDir, `overlay_text_${Date.now()}.mov`);
+    const [w, h] = resolution.split('x').map(Number);
+
+    const maxCharsPerLine = Math.max(4, Math.floor(w / (fontSize * 0.55)));
+    const lines = this.wrapText(text, maxCharsPerLine);
+    const escapeText = (t: string) =>
+      t.replace(/'/g, "'\\\\\\''").replace(/:/g, '\\\\:').replace(/,/g, '\\\\,');
+    const lineHeight = fontSize * 1.4;
+    const totalTextHeight = lines.length * lineHeight;
+    const startY = y * h - totalTextHeight / 2;
+
+    const drawTextFilters = lines.map((line, i) => {
+      const yy = startY + i * lineHeight;
+      // Slide / zoom animations applied via x/y expressions
+      let xx = `x*${w}-text_w/2`;
+      if (animation === 'slide_up') {
+        xx = `x*${w}-text_w/2, if(lt(t,0.6), y-${h * 0.15}*((0.6-t)/0.6))`;
+        return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x=${xx}:y='${Math.max(yy, 0)}+${h * 0.15}*max(0,(0.6-t)/0.6)':alpha='${opacity}'`;
+      }
+      if (animation === 'zoom_in') {
+        return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize='${fontSize}*(1+max(0,(0.6-t)/0.6)*0.2)':x='${xx}':y='${Math.max(yy, 0)}':alpha='${opacity}'`;
+      }
+      return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x='${xx}':y='${Math.max(yy, 0)}':alpha='${opacity}'`;
+    });
+
+    // Fade in/out over the clip
+    const fadeIn = 0.4;
+    const fadeOut = Math.min(0.5, duration / 3);
+    const alphaFilter =
+      animation === 'none'
+        ? ''
+        : `,fade=t=in:st=0:d=${fadeIn}:alpha=1,fade=t=out:st=${Math.max(duration - fadeOut, 0)}:d=${fadeOut}:alpha=1`;
+
+    try {
+      await this.ff(
+        `-y -f lavfi -i "color=black@0:s=${resolution}:d=${duration}:r=${fps},format=rgba" ` +
+        `-vf "${drawTextFilters.join(',')}${alphaFilter}" ` +
+        `-c:v png -pix_fmt rgba "${outPath}"`,
+        { timeout: 60000 },
+      );
+      this.logger.log(`Overlay text video generated: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`Overlay text video failed: ${err.message}`);
+      throw new Error(`文字叠加渲染失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * Overlay an image (PNG/JPG) on top of a base video at a position with
+   * scale/opacity, active only during [start, end).
+   */
+  async overlayImageOnVideo(
+    baseVideo: string,
+    imagePath: string,
+    options?: {
+      x?: number; // 0..1
+      y?: number; // 0..1
+      width?: number; // target overlay width in px (relative to base width)
+      opacity?: number; // 0..1
+      start?: number;
+      end?: number;
+      outputPath?: string;
+    },
+  ): Promise<string> {
+    const {
+      x = 0.5,
+      y = 0.5,
+      width = 300,
+      opacity = 1,
+      start = 0,
+      end = 5,
+    } = options || {};
+
+    const outPath = options?.outputPath || path.join(this.outputDir, `overlay_img_${Date.now()}.mp4`);
+    const info = await this.getVideoInfo(baseVideo);
+    const W = info.width || 1080;
+    const H = info.height || 1920;
+    const ovX = Math.round((x * W) - width / 2);
+    const ovY = Math.round((y * H) - (width / (W / H)) / 2);
+    const ovH = Math.round(width * (H / W));
+
+    const enable = `enable='between(t,${Math.max(start, 0).toFixed(3)},${Math.max(end, 0).toFixed(3)})'`;
+    try {
+      await this.ff(
+        `-y -i "${baseVideo}" -loop 1 -i "${imagePath}" -t ${end.toFixed(3)} ` +
+        `-filter_complex "[1:v]scale=${width}:${ovH}:force_original_aspect_ratio=decrease,format=rgba,colorchannelmixer=aa=${opacity}[ov];` +
+        `[0:v][ov]overlay=x=${ovX}:y=${ovY}:${enable}[vout]" ` +
+        `-map "[vout]" -map 0:a? -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a aac -b:a 128k "${outPath}"`,
+        { timeout: 180000 },
+      );
+      this.logger.log(`Image overlay done: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`Image overlay failed: ${err.message}`);
+      throw new Error(`图片叠加失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * Mix multiple audio tracks (e.g. per-node audio + BGM) onto a video with
+   * per-track volume, start offset (adelay) and fade in/out.
+   */
+  async mixAudioTracks(
+    videoPath: string,
+    tracks: Array<{
+      audioPath: string;
+      volume?: number;
+      start?: number; // seconds offset
+      fadeIn?: number;
+      fadeOut?: number;
+    }>,
+    outputPath?: string,
+  ): Promise<string> {
+    const valid = (tracks || []).filter((t) => t.audioPath && fs.existsSync(t.audioPath));
+    if (valid.length === 0) return videoPath;
+
+    const outPath = outputPath || path.join(this.outputDir, `audio_mix_${Date.now()}.mp4`);
+    const info = await this.getVideoInfo(videoPath);
+    const totalDur = info.duration || 5;
+
+    // Build per-track filters: volume → adelay → fade in/out → apad to total length
+    const inputArgs = valid.map((t) => `-i "${t.audioPath}"`).join(' ');
+    const parts: string[] = [];
+    const base = `[0:a]aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[am0]`;
+    parts.push(base);
+    valid.forEach((t, i) => {
+      const vol = t.volume ?? 1;
+      const startSec = t.start ?? 0;
+      const startMs = Math.round(startSec * 1000);
+      const fadeIn = t.fadeIn ?? 0;
+      const fadeOut = t.fadeOut ?? 0;
+      const fIn = fadeIn > 0 ? `,afade=t=in:st=${startSec.toFixed(3)}:d=${fadeIn.toFixed(3)}` : '';
+      const fOut = fadeOut > 0
+        ? `,afade=t=out:st=${Math.max(startSec, totalDur - fadeOut).toFixed(3)}:d=${fadeOut.toFixed(3)}`
+        : '';
+      parts.push(
+        `[${i + 1}:a]aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,` +
+        `volume=${vol.toFixed(3)},adelay=${startMs}|${startMs}${fIn}${fOut},apad=whole_dur=${totalDur.toFixed(3)}[am${i + 1}]`,
+      );
+    });
+    const mixInputs = valid.map((_, i) => `[am${i + 1}]`).join('');
+    parts.push(`[am0]${mixInputs}amix=inputs=${valid.length + 1}:duration=first:dropout_transition=0,alimiter=limit=0.95[amout]`);
+
+    try {
+      await this.ff(
+        `-y -i "${videoPath}" ${inputArgs} -filter_complex "${parts.join(';')}" ` +
+        `-map 0:v -map "[amout]" -c:v copy -c:a aac -b:a 192k "${outPath}"`,
+        { timeout: 180000 },
+      );
+      this.logger.log(`Audio mix done: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`Audio mix failed: ${err.message}`);
+      throw new Error(`音频混音失败: ${err.message}`);
+    }
+  }
 }

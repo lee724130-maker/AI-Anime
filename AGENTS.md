@@ -1,17 +1,102 @@
 # 修复日志
 
-## 2026-08-04
+## 2026-08-05（前端 Coze 工作流编辑器实测收尾完成 ✅）
+
+> 承接 2026-08-04 晚间记录：后端多轨工作流渲染管线已完成；今日完成前端编辑器浏览器实测收尾、修 2 个 bug、全链路验证通过，并已 git 提交（提交信息 `feat: 画布 Coze 式节点工作流编辑器 + 多轨渲染管线`）。
+
+### ✅ 今日完成
+- **渲染完成验证通过**：`Temp\opencode\canvas-min-ui.js` 最终确认「下载成片」按钮出现（此前测试脚本用 `button:` 选择器误判失败——antd Button 带 href 渲染为 `<a>` 标签，功能一直正常）
+- **Bug 修复 1（React key 重复警告）**：`Editor.tsx` 属性面板素材 options 由多来源（viral+AI历史+短剧+大资产库）拼接，同一 URL 重复导致 duplicate key 警告 → `assetOptions` useMemo 增加 `dedupe`（Map by url）→ 实测警告 0 条
+- **Bug 修复 2（第 3 列节点被画布裁剪/遮挡）**：`addPaletteNode` 排布 3 列（`60+col*280, 60+row*180`），第 3 列节点（x=620）超出画布可视区被 overflow 裁剪+右侧属性面板遮挡，端口无法命中 → 改 **2 列**（`60+col*280, 60+row*160`）→ 6 节点全部可见、连线全通
+- **全链路 UI 实测**（`canvas-full-ui.js`，1600×900 视口）：6 节点添加（video×2+effect+text+audio+output）/ 素材选择 / **5 条连线**（v1→effect→v2→output + text→output + audio→output）/ 保存持久化 nodes=6 edges=5 / 渲染完成出现下载按钮 / 成片 **720×1280 / 5.5s（3+3−0.5 转场）/ 含音频** —— 全绿
+- **滤镜链路实测**（`canvas-filter-ui.js` + `debug-effsel3.js` + `render-28.js`）：effect 节点属性面板切「滤镜」+ 选「复古棕褐」→ 保存 params `{kind:'filter', filter:'sepia'}` → 重新渲染成功 720×1280/3s
+- **文档**：`画布-项目设计.md` 顶部新增「⚠️ 设计变更（Coze 式节点流程图）」章节（新数据模型/连线语义/渲染引擎/前端架构/实测结论，旧横向卡片设计保留作历史参考）
+
+### 测试脚本经验（防下次踩坑）
+- 「下载成片」按钮是 `<a>` 不是 `<button>`（antd Button href）→ `a:has-text("下载成片")`
+- `[data-node]` 会命中端口圆点（端口 div 也带 data-node 属性）→ 节点用 `[data-node]:not([data-port])`
+- 端口定位用端口自身 boundingBox 中心（`[data-port="out"]` / `[data-port="in"]`），不要用节点偏移估算（viewport zoom=0.9 会偏 8px 导致连不上）
+- antd Select 点当前值选项不触发 onChange（选"黑白"时无效果，选其他值正常）
+- 后端 GET 项目 `nodes` 已解析为对象（非字符串）；ffprobe 在 `backend/tools/ffmpeg/ffprobe.exe`（不是 bin/）
+- 内联 `node -e` 中文/引号在 PowerShell 下易挂 → 写脚本文件跑
 
 ### 服务状态（关停前）
 | 服务 | 端口 | 状态 |
 |------|------|------|
-| 后端（NestJS，`node dist/src/main`） | 3000 | ✅ 运行中 |
+| 后端（NestJS，`node dist/src/main`） | 3000 | ✅ 运行中（今日重编译重启动） |
+| 前端（Vite） | 5173 | ✅ 运行中 |
+| 管理后台（Vite） | 5174 | ⚠️ 未启动 |
+| Redis | 6379 | ✅ 运行中 |
+| MySQL | 3306 | ✅ 运行中 |
+
+### ⚠️ 待办（收尾后剩余）
+- [ ] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
+- [ ] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
+- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+
+---
+
+## 2026-08-04（晚间追加：画布重构为 Coze 式工作流，后端完成/前端未完成）
+
+> 本节是当日「视频画布编辑器」之后追加的工作。用户反馈旧编辑器（横向卡片顺序）不符合预期，
+> 要求按**扣子 Coze 式节点流程图**重做：中央自由画布拖拽摆放节点 + 连线，支持多素材类型/音频轨/属性面板/效果库/多轨叠加。
+> **当前进度：后端渲染管线全部完成并验证通过；前端编辑器已重写但浏览器实测未完全跑通，明日继续。**
+
+### ✅ 已完成：后端多轨工作流渲染管线（未提交，git 工作区待 commit）
+- **数据模型**: 项目 nodes 字段存 `{nodes:[], edges:[]}` 完整 JSON（不再拆成数组）
+  - node: `{id, type: video|image|text|audio|effect|output, position:{x,y}, source:{kind,url}, duration, params}`
+  - edge: `{id, from, to}`
+  - effect 节点 params: `kind:'transition'`（transition: fade/fade_black/fade_white/wipe_left/wipe_right/slide_left/slide_right/circle，transition_duration）或 `kind:'filter'`（grayscale/sepia/warm/cool/vintage/bright/dark/contrast/soft/vivid）
+  - text 节点 params: `text/start/x/y/font_size/text_color/opacity/animation('none'|'fade'|'slide_up'|'zoom_in')`
+  - audio 节点 params: `volume/start/fade_in/fade_out`
+- **连线语义**（`canvas.service.ts`）:
+  - 主链 = video/image 节点按边顺序（`buildMainChain`，从无媒体入边的节点出发沿 out 边走；成环则按 position.x 排序兜底）
+  - 效果节点在两段媒体之间 = 转场（`findBridgeEffect`）；效果节点直接连单个视频 = 滤镜（`applyClipFilter`）
+  - text/audio 节点 → 输出节点（叠加层 / 音轨）；输出节点是渲染目标
+- **渲染引擎**（`renderWorkflow`）:
+  1. 主链每段渲染（video: fitVideoToRatio→fitToExactDuration→**normalizeToRes**；image: composite）→ 相邻段用桥接效果节点的转场 xfade 合并（`mergeWithTransitions2`，伪节点必须包成 `{transition:{...}}` 否则 afterTransitions=[0,0] 转场失效）
+  2. 文字叠加: `ffmpeg.generateOverlayTextVideo`（透明 RGBA MOV 文字视频）→ `overlayClipOnVideo`（setpts 偏移 + enable=between(t,start,end)）
+  3. 音频轨: `ffmpeg.mixAudioTracks`（多轨 volume+adelay+淡入淡出+amix）；项目 bgm_url 仍兼容（音量 0.3）
+- **ffmpeg.util.ts 新增**: `generateOverlayTextVideo` / `overlayImageOnVideo` / `mixAudioTracks`
+- **兼容**: 旧数组格式走 `renderLegacy` 原逻辑（`parseWorkflow` 自动识别 `{nodes,edges}` vs 数组）；createProject/saveAsTemplate 保留原始 JSON
+- **验证（e2e 脚本 `Temp\opencode\canvas-wf-e2e.js`）**: 2 视频 + fade 0.5 转场 + 文字叠加 + 音频节点 → 项目 14 → `canvas_result_14_1785838813416.mp4` **720×1280 / 5.5s 精确**（3+3−0.5，日志 afterTransitions=[0.50,0.00]）；文字叠加用红像素窗口法验证通过（t=1.0/1.5 有红像素、t=2.5 窗口结束消失）；ffprobe 确认音频流存在
+
+### ⚠️ 未完成：前端 Coze 式工作流编辑器（代码已写、实测未通，明日继续）
+- **已写**（`frontend/src/pages/Canvas/`，tsc 编译全绿）:
+  - `components/WorkflowTypes.ts`: 类型 + NODE_META 配色 + 转场/滤镜/动画选项常量
+  - `components/WorkflowCanvas.tsx`: 自由画布（滚轮缩放/拖空白平移/节点拖拽/端口连线：节点右侧圆点拖到左侧圆点，SVG 虚线贝塞尔边）、素材拖拽放置、删除节点连带删边
+  - `components/PropertiesPanel.tsx`: 右侧属性面板（按类型：时长/选素材/文字内容/字号/动画/颜色/X-Y 位置滑块/音频音量淡入淡出/效果类型切换转场或滤镜/输出说明）
+  - `Editor.tsx` 重写: 顶部工具栏（名称/比例/分辨率/节点连线计数/保存/导出渲染/下载）+ 左侧「节点 / 素材」面板（Segmented 切换：6 种节点点击添加 + 素材 4 Tab 点击添加，带连线规则说明）+ 中央画布 + 右侧属性面板 + 底部成片预览；渲染校验（无素材/文字未填/素材未连输出/未选素材均拦截提示）
+- **浏览器实测已通过的部分**（`Temp\opencode\canvas-min-ui.js`）: 页面加载/添加节点/属性面板选素材/**连线成功**/保存后进入项目页/**后端持久化 nodes=2 edges=1**/渲染启动（"开始渲染..." 消息出现）
+- **❌ 未跑通**: 渲染完成出现「下载成片」按钮（测试中途手动中断，未等到渲染完成；渲染接口本身后端已验证过，应无问题）
+- **已知问题**:
+  - ⚠️ 测试脚本 `canvas-flow-ui.js` 里 `.ant-select` 误点顶部工具栏比例选择器（已改用 nth(2) 规避）——用户真实操作无此问题
+  - ⚠️ console 有 React key 重复警告（`/static/vid_4_1785140340944.mp4`，来自属性面板素材 Select 的 options 重复 value 或 AssetPanel 列表），需定位修复
+  - 节点/连线 data-* 属性已修（`data-node` 而非 `data-node-id`，dataset.node）；节点 overflow:hidden 裁剪端口已修复（改 header/body 独立圆角）
+- **明日步骤**: ① 跑 `canvas-min-ui.js` 等到渲染完成；② 修 React key 警告；③ 浏览器全链路复核（含 text/audio/effect 节点 + 滤镜）；④ 更新 `画布-项目设计.md` + git 提交（当前未提交：canvas.service.ts / ffmpeg.util.ts / Editor.tsx / 3 个新组件文件）
+
+### 服务状态（关停前）
+| 服务 | 端口 | 状态 |
+|------|------|------|
+| 后端（NestJS，`node dist/src/main`） | 3000 | ✅ 运行中（今日多次重启，最新代码 dist 已编译） |
 | 前端（Vite） | 5173 | ✅ 运行中 |
 | 管理后台（Vite） | 5174 | ✅ 运行中 |
 | Redis | 6379 | ✅ 运行中 |
 | MySQL | 3306 | ✅ 运行中 |
 
-### 今日完成功能：视频画布编辑器（Canvas / 可视化剪辑台）
+### ⚠️ 待办
+- [ ] 前端 Coze 工作流编辑器实测收尾（见上节明日步骤）
+- [ ] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
+- [ ] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
+- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+
+---
+
+## 2026-08-04（上午：视频画布编辑器初版）
+
+### 服务状态（关停前）
 
 #### 功能概览
 - **定位**: 把 AI 生成的历史产物（AI 视频/图片、大资产库、热门创作成片、短剧片段、本地上传）按需拖入画布，配文字块/转场/BGM，一键导出成片
