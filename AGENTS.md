@@ -7,6 +7,7 @@
 ### ✅ 已完成
 - **`WorkflowCanvas.tsx` 重写**：选中模型 `selectedId` → `selectedIds`（多选）；左键空白 = marquee 框选（`{x,y,w,h}`，onUp 时 `|w|>=6|||h|>=6` 才算框选否则视为空白点击清空选择；`marqueeHitIds` 先归一化负向框再 overlap 命中）；左键节点 = 单选或整体拖动选中组（`mode:'multi'`，按下时快照 selectedIds 各节点位置，onMove 用 `base + dx/zoom` 统一位移）；右键 = `mode:'pan'` 平移（任意位置、`onContextMenu` preventDefault 禁菜单）；保留滚轮缩放（Ctrl 加倍）、素材拖放、端口连线；快捷键 Delete/Backspace 批量删（含连线）、Esc 取消、Ctrl+A 全选（均跳过输入框焦点）；底部 hint 条 + 多选时底部「已选 N 个节点/全部删除/取消选择」操作条
 - **`Editor.tsx`**：`selectedIds` 化，多选时右侧面板显示批量操作（Empty + 删除选中 + 取消选择），单个选中走 PropertiesPanel；工具栏新增「使用教程」按钮 → Modal（width 640，五节：鼠标操作表/快捷键表/节点素材面板/顶部工具栏/右侧属性面板）；Ctrl+S 快速保存
+- **Bug 修复（拖拽 palette 节点全部变成 video）**：`WorkflowCanvas.tsx` onDrop 的 palette 分支硬编码 `type:'video'` + 位置 `(0,0)` → 改为读拖拽数据 `parsed.__palette` 类型 + 鼠标落点（screenToWorld）；`Editor.tsx` `addAssetNode` 对 `kind==='palette'` 转走 `addPaletteNode`（带可选位置参数，默认自动排布），顺带获得 output 节点唯一检查、source 不被污染。实测（`test-palette-drop.js`）：拖 text/audio/effect/output 全部正确建对应类型节点、落点位置精确（world = 落点减半宽）、重复 output 被拦截、JS 错误 0
 - **多选拖动 bug 修复（关键）**：node/multi 拖拽的 `onChange` 从对象式改为**函数式更新** `onChange((prev) => ...)`（Props 类型改为 `Dispatch<SetStateAction<Workflow>>`，Editor 直接传 `setWorkflow`），快速连续 pointermove 下位置不再丢步
 - **实测全绿**（`Temp\opencode\test-multiselect-ui.js`，项目 29）：①左键空拖不平移 ②marquee 框选 v1/fx1/t1 ③组拖动精确 (111.1,66.7)（100px 屏幕 ÷ zoom 0.9）④右键平移精确 (120,80) ⑤Delete 批量删 3 剩 2 ⑥教程 Modal 内容 ⑦单点选中 out——JS 错误 0；tsc 全绿
 

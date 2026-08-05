@@ -308,6 +308,10 @@ export default function CanvasEditor() {
   };
 
   const addAssetNode = (asset: AssetPayload, pos: { x: number; y: number }) => {
+    if (asset.kind === 'palette') {
+      addPaletteNode(asset.type as WFNodeType, pos);
+      return;
+    }
     const node = newNode(asset.type, pos);
     node.source = { kind: asset.kind, ref_id: asset.ref_id, url: toStaticUrl(asset.url) };
     setWorkflow((wf) => ({ ...wf, nodes: [...wf.nodes, node] }));
@@ -315,7 +319,7 @@ export default function CanvasEditor() {
     message.success(`已添加${asset.type === 'video' ? '视频' : '图片'}节点`);
   };
 
-  const addPaletteNode = (type: WFNodeType) => {
+  const addPaletteNode = (type: WFNodeType, pos?: { x: number; y: number }) => {
     if (type === 'output' && workflow.nodes.some((n) => n.type === 'output')) {
       setSelectedIds([workflow.nodes.find((n) => n.type === 'output')!.id]);
       message.info('输出节点已存在');
@@ -323,8 +327,7 @@ export default function CanvasEditor() {
     }
     const col = workflow.nodes.length % 2;
     const row = Math.floor(workflow.nodes.length / 2) % 6;
-    const pos = { x: 60 + col * 280, y: 60 + row * 160 };
-    const node = newNode(type, pos);
+    const node = newNode(type, pos ?? { x: 60 + col * 280, y: 60 + row * 160 });
     setWorkflow((wf) => ({ ...wf, nodes: [...wf.nodes, node] }));
     setSelectedIds([node.id]);
   };

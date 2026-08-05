@@ -259,14 +259,17 @@ export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChan
       const raw = e.dataTransfer.getData('application/json');
       if (!raw) return;
       const parsed = JSON.parse(raw);
+      const rect = containerRef.current!.getBoundingClientRect();
+      const pos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       if (parsed.__palette) {
-        // palette node dragged
-        onAddAsset({ kind: 'palette', type: 'video', url: '', title: '' }, { x: 0, y: 0 });
+        // palette node dragged → create node of the dragged palette type at drop position
+        onAddAsset(
+          { kind: 'palette', type: parsed.__palette, url: '', title: '' },
+          { x: Math.max(0, pos.x - NODE_WIDTH / 2), y: Math.max(0, pos.y - 40) }
+        );
         return;
       }
       const asset = parsed as AssetPayload;
-      const rect = containerRef.current!.getBoundingClientRect();
-      const pos = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
       onAddAsset(asset, { x: Math.max(0, pos.x - NODE_WIDTH / 2), y: Math.max(0, pos.y - 40) });
     } catch { /* ignore */ }
   };
