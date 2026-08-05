@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import { Typography } from 'antd';
 import {
   VideoCameraOutlined, PictureOutlined, FontSizeOutlined, AudioOutlined,
   ThunderboltOutlined, ExportOutlined, DeleteOutlined,
@@ -7,6 +9,8 @@ import {
   NODE_WIDTH, NODE_HEADER_H, NODE_BODY_H, NODE_META,
   type WFNode, type WFEdge, type Workflow, type WFNodeType,
 } from './WorkflowTypes';
+
+const { Text } = Typography;
 
 export interface AssetPayload {
   kind: string;
@@ -19,9 +23,9 @@ export interface AssetPayload {
 
 interface Props {
   workflow: Workflow;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  onChange: (wf: Workflow) => void;
+  selectedIds: string[];
+  onSelect: (ids: string[]) => void;
+  onChange: Dispatch<SetStateAction<Workflow>>;
   onAddAsset: (asset: AssetPayload, pos: { x: number; y: number }) => void;
 }
 
@@ -53,16 +57,19 @@ const TRANSITION_LABEL: Record<string, string> = {
   wipe_left: '擦除(左)', wipe_right: '擦除(右)', slide_left: '滑动(左)', slide_right: '滑动(右)', circle: '圆形扩展',
 };
 
-export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChange, onAddAsset }: Props) {
+type DragState =
+  | { mode: 'pan'; startX: number; startY: number; base: { x: number; y: number; zoom: number } }
+  | { mode: 'node'; startX: number; startY: number; base: { x: number; y: number; zoom: number }; nodeId: string; nodeBase: { x: number; y: number } }
+  | { mode: 'multi'; startX: number; startY: number; base: { x: number; y: number; zoom: number }; nodes: Array<{ id: string; x: number; y: number }> }
+  | null;
+
+interface Rect { x: number; y: number; w: number; h: number; }
+
+export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChange, onAddAsset }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ x: 120, y: 80, zoom: 0.9 });
-  const [dragging, setDragging] = useState<null | {
-    mode: 'pan' | 'node';
-    startX: number; startY: number;
-    base: { x: number; y: number; zoom: number };
-    nodeId?: string;
-    nodeBase?: { x: number; y: number };
-  }>(null);
+  const [dragging, setDragging] = useState<DragState>(null);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
   const [connecting, setConnecting] = useState<null | { fromId: string; x: number; y: number }>(null);
   const [hoverPort, setHoverPort] = useState<null | { nodeId: string; dir: 'in' | 'out' }>(null);
   const [draggingAsset, setDraggingAsset] = useState<AssetPayload | null>(null);
@@ -70,12 +77,29 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
   workflowRef.current = workflow;
   const viewportRef = useRef(viewport);
   viewportRef.current = viewport;
+  const selectedRef = useRef<string[]>(selectedIds);
+  selectedRef.current = selectedIds;
 
   // ── coordinate transforms ──
   const screenToWorld = useCallback((sx: number, sy: number) => {
     const vp = viewportRef.current;
     return { x: (sx - vp.x) / vp.zoom, y: (sy - vp.y) / vp.zoom };
   }, []);
+
+  const nodeScreenRect = useCallback((n: WFNode, vp: { x: number; y: number; zoom: number }): Rect => ({
+    x: vp.x + n.position.x * vp.zoom,
+    y: vp.y + n.position.y * vp.zoom,
+    w: NODE_WIDTH * vp.zoom,
+    h: (NODE_HEADER_H + NODE_BODY_H) * vp.zoom,
+  }), []);
+
+  const overlap = (a: Rect, b: Rect) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+  const marqueeHitIds = useCallback((m: Rect, vp: { x: number; y: number; zoom: number }, nodes: WFNode[]): string[] => {
+    const rect: Rect = { x: m.w >= 0 ? m.x : m.x + m.w, y: m.h >= 0 ? m.y : m.y + m.h, w: Math.abs(m.w), h: Math.abs(m.h) };
+    return nodes.filter((n) => overlap(rect, nodeScreenRect(n, vp))).map((n) => n.id);
+  }, [nodeScreenRect]);
 
   const edgesByNode = useMemo(() => {
     const out = new Map<string, WFEdge[]>();
@@ -117,9 +141,36 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // ── global pointer move/up while dragging or connecting ──
+  // ── keyboard shortcuts: Delete / Backspace / Esc / Ctrl+A ──
   useEffect(() => {
-    if (!dragging && !connecting) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const ids = selectedRef.current;
+        if (ids.length === 0) return;
+        e.preventDefault();
+        const wf = workflowRef.current;
+        const idSet = new Set(ids);
+        onChange({
+          nodes: wf.nodes.filter((n) => !idSet.has(n.id)),
+          edges: wf.edges.filter((ed) => !idSet.has(ed.from) && !idSet.has(ed.to)),
+        });
+        onSelect([]);
+      } else if (e.key === 'Escape') {
+        onSelect([]);
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        onSelect(workflowRef.current.nodes.map((n) => n.id));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onChange, onSelect]);
+
+  // ── global pointer move/up while dragging, connecting or marquee ──
+  useEffect(() => {
+    if (!dragging && !connecting && !marquee) return;
     const onMove = (e: PointerEvent) => {
       const rect = containerRef.current!.getBoundingClientRect();
       const sx = e.clientX - rect.left;
@@ -129,16 +180,30 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
         const dy = sy - dragging.startY;
         if (dragging.mode === 'pan') {
           setViewport((vp) => ({ ...vp, x: dragging.base.x + dx, y: dragging.base.y + dy }));
-        } else {
+        } else if (dragging.mode === 'node') {
           const node = workflowRef.current.nodes.find((n) => n.id === dragging.nodeId);
           if (!node) return;
           const base = dragging.nodeBase!;
           const newPos = { x: base.x + dx / dragging.base.zoom, y: base.y + dy / dragging.base.zoom };
-          onChange({
-            ...workflowRef.current,
-            nodes: workflowRef.current.nodes.map((n) => n.id === node.id ? { ...n, position: newPos } : n),
-          });
+          onChange((prev) => ({
+            ...prev,
+            nodes: prev.nodes.map((n) => n.id === node.id ? { ...n, position: newPos } : n),
+          }));
+        } else {
+          // multi-node drag: move every selected node by the same world delta
+          const delta = { x: dx / dragging.base.zoom, y: dy / dragging.base.zoom };
+          onChange((prev) => ({
+            ...prev,
+            nodes: prev.nodes.map((n) => {
+              const b = dragging.nodes.find((x) => x.id === n.id);
+              return b ? { ...n, position: { x: b.x + delta.x, y: b.y + delta.y } } : n;
+            }),
+          }));
         }
+        return;
+      }
+      if (marquee) {
+        setMarquee((m) => m ? { ...m, w: sx - m.x, h: sy - m.y } : m);
         return;
       }
       if (connecting) {
@@ -153,6 +218,12 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
       }
     };
     const onUp = (e: PointerEvent) => {
+      if (marquee) {
+        const hit = marqueeHitIds(marquee, viewportRef.current, workflowRef.current.nodes);
+        // tiny drag (<6px) counts as a plain click on empty space → keep cleared
+        onSelect(Math.abs(marquee.w) >= 6 || Math.abs(marquee.h) >= 6 ? hit : []);
+        setMarquee(null);
+      }
       if (connecting) {
         const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
         const portEl = el?.closest('[data-port]') as HTMLElement | null;
@@ -179,7 +250,7 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [dragging, connecting, onChange]);
+  }, [dragging, connecting, marquee, onChange, onSelect, marqueeHitIds]);
 
   // ── drop asset from left panel onto canvas ──
   const onDrop = (e: React.DragEvent) => {
@@ -200,14 +271,15 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
     } catch { /* ignore */ }
   };
 
-  // ── delete node + its edges ──
-  const removeNode = (id: string) => {
+  // ── delete node(s) + their edges ──
+  const removeNodes = (ids: string[]) => {
     const wf = workflowRef.current;
+    const idSet = new Set(ids);
     onChange({
-      nodes: wf.nodes.filter((n) => n.id !== id),
-      edges: wf.edges.filter((e) => e.from !== id && e.to !== id),
+      nodes: wf.nodes.filter((n) => !idSet.has(n.id)),
+      edges: wf.edges.filter((e) => !idSet.has(e.from) && !idSet.has(e.to)),
     });
-    if (selectedId === id) onSelect(null);
+    onSelect(selectedRef.current.filter((id) => !idSet.has(id)));
   };
 
   // ── edge path ──
@@ -244,10 +316,20 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
     return meta.label;
   };
 
+  // marquee rect normalized for rendering / hit-testing
+  const marqueeRect = marquee ? {
+    x: marquee.w >= 0 ? marquee.x : marquee.x + marquee.w,
+    y: marquee.h >= 0 ? marquee.y : marquee.y + marquee.h,
+    w: Math.abs(marquee.w),
+    h: Math.abs(marquee.h),
+  } : null;
+  const marqueeIds = marqueeRect ? marqueeHitIds(marqueeRect, viewport, workflow.nodes) : [];
+
   return (
     <div
       ref={containerRef}
       style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#f5f6f8', borderRadius: 12, minWidth: 0, cursor: dragging?.mode === 'pan' ? 'grabbing' : 'grab', touchAction: 'none' }}
+      onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (draggingAsset) { setDraggingAsset(null); return; }
         const target = e.target as HTMLElement;
@@ -256,26 +338,43 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
         const rect = containerRef.current!.getBoundingClientRect();
         const sx = e.clientX - rect.left;
         const sy = e.clientY - rect.top;
+        if (e.button === 2) {
+          // right-drag pans the canvas
+          setDragging({ mode: 'pan', startX: sx, startY: sy, base: viewport });
+          return;
+        }
         if (portEl && portEl.dataset.dir === 'out') {
           setConnecting({ fromId: portEl.dataset.node!, x: sx, y: sy });
           return;
         }
         if (nodeEl) {
           const id = nodeEl.dataset.node!;
-          onSelect(id);
           const node = nodeById.get(id);
           if (!node) return;
-          setDragging({
-            mode: 'node',
-            startX: sx, startY: sy,
-            base: viewport,
-            nodeId: id,
-            nodeBase: { x: node.position.x, y: node.position.y },
-          });
+          if (selectedIds.includes(id) && selectedIds.length > 1) {
+            // drag the whole selection
+            setDragging({
+              mode: 'multi',
+              startX: sx, startY: sy, base: viewport,
+              nodes: selectedIds.map((nid) => {
+                const n = nodeById.get(nid);
+                return { id: nid, x: n?.position.x ?? 0, y: n?.position.y ?? 0 };
+              }),
+            });
+          } else {
+            onSelect([id]);
+            setDragging({
+              mode: 'node',
+              startX: sx, startY: sy, base: viewport,
+              nodeId: id,
+              nodeBase: { x: node.position.x, y: node.position.y },
+            });
+          }
           return;
         }
-        onSelect(null);
-        setDragging({ mode: 'pan', startX: sx, startY: sy, base: viewport });
+        // left-drag on empty space → marquee select (and clear current selection)
+        onSelect([]);
+        setMarquee({ x: sx, y: sy, w: 0, h: 0 });
       }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
@@ -317,7 +416,8 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
         {/* nodes */}
         {workflow.nodes.map((n) => {
           const meta = NODE_META[n.type];
-          const selected = selectedId === n.id;
+          const selected = selectedIds.includes(n.id);
+          const inMarquee = marqueeIds.includes(n.id);
           const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(toStaticUrl(n.source?.url) || '');
           return (
             <div
@@ -327,8 +427,8 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
                 position: 'absolute', ...nodePosition(n),
                 width: NODE_WIDTH,
                 background: '#fff', borderRadius: 12,
-                border: selected ? `2px solid ${meta.color}` : '2px solid #e3e6ea',
-                boxShadow: selected ? `0 6px 20px ${meta.color}33` : '0 3px 10px rgba(0,0,0,0.07)',
+                border: selected ? `2px solid ${meta.color}` : inMarquee ? '2px dashed #8b5cf6' : '2px solid #e3e6ea',
+                boxShadow: selected ? `0 6px 20px ${meta.color}33` : inMarquee ? '0 0 0 3px rgba(139,92,246,0.15)' : '0 3px 10px rgba(0,0,0,0.07)',
                 cursor: 'move', userSelect: 'none',
               }}
             >
@@ -340,7 +440,7 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
                   role="button"
                   aria-label="删除节点"
                   style={{ cursor: 'pointer', fontSize: 13, padding: 2 }}
-                  onClick={(e) => { e.stopPropagation(); removeNode(n.id); }}
+                  onClick={(e) => { e.stopPropagation(); removeNodes([n.id]); }}
                 ><DeleteOutlined /></span>
               </div>
               {/* body preview */}
@@ -396,6 +496,25 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
         })}
       </div>
 
+      {/* marquee selection box */}
+      {marqueeRect && (
+        <div style={{
+          position: 'absolute', left: marqueeRect.x, top: marqueeRect.y,
+          width: marqueeRect.w, height: marqueeRect.h,
+          border: '1.5px dashed #8b5cf6', background: 'rgba(139,92,246,0.08)',
+          borderRadius: 4, pointerEvents: 'none', zIndex: 6,
+        }} />
+      )}
+
+      {/* selection action bar */}
+      {selectedIds.length > 1 && (
+        <div style={{ position: 'absolute', bottom: 42, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 20, padding: '6px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.15)', zIndex: 7, fontSize: 12 }}>
+          <Text style={{ color: '#333' }}>已选 <span style={{ color: '#7c3aed', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</Text>
+          <a role="button" style={{ color: '#f5222d', cursor: 'pointer' }} onClick={() => removeNodes(selectedIds)}>全部删除</a>
+          <a role="button" style={{ color: '#666', cursor: 'pointer' }} onClick={() => onSelect([])}>取消选择</a>
+        </div>
+      )}
+
       {/* connecting hint */}
       {connecting && (
         <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', background: 'rgba(139,92,246,0.95)', color: '#fff', fontSize: 12, borderRadius: 20, padding: '5px 16px', pointerEvents: 'none', boxShadow: '0 3px 10px rgba(0,0,0,0.2)' }}>
@@ -405,7 +524,7 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
 
       {/* hint bar */}
       <div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', color: '#8a94a6', fontSize: 11, background: '#fff', borderRadius: 20, padding: '4px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', pointerEvents: 'none' }}>
-        滚轮缩放 · 拖空白平移 · 从节点右侧圆点拖线到左侧圆点建立连接 · 视频/图片 → 效果 → 视频 形成主链 · 文字/音频 → 输出
+        左键点选/拖动节点 · 左键空白拉框多选 · 右键拖空白平移 · 滚轮缩放 · 右侧圆点拖到左侧圆点连线 · Delete 删除
       </div>
     </div>
   );

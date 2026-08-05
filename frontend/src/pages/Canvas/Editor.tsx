@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Typography, Button, Input, Select, Spin, message, Empty, Tabs, Upload, Progress, Tag, Segmented, Divider,
+  Typography, Button, Input, Select, Spin, message, Empty, Tabs, Upload, Progress, Tag, Segmented, Divider, Modal,
 } from 'antd';
 import {
-  ArrowLeftOutlined, SaveOutlined, PlayCircleOutlined, DownloadOutlined,
+  ArrowLeftOutlined, SaveOutlined, PlayCircleOutlined, DownloadOutlined, QuestionCircleOutlined,
   VideoCameraOutlined, PictureOutlined, FontSizeOutlined, AudioOutlined,
-  ThunderboltOutlined, ExportOutlined, CheckCircleOutlined,
+  ThunderboltOutlined, ExportOutlined, CheckCircleOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 import AssetCard from './components/AssetPanel';
@@ -65,7 +65,8 @@ export default function CanvasEditor() {
   const [ratio, setRatio] = useState('9:16');
   const [resolution, setResolution] = useState('720p');
   const [workflow, setWorkflow] = useState<Workflow>({ nodes: [], edges: [] });
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -310,13 +311,13 @@ export default function CanvasEditor() {
     const node = newNode(asset.type, pos);
     node.source = { kind: asset.kind, ref_id: asset.ref_id, url: toStaticUrl(asset.url) };
     setWorkflow((wf) => ({ ...wf, nodes: [...wf.nodes, node] }));
-    setSelectedId(node.id);
+    setSelectedIds([node.id]);
     message.success(`已添加${asset.type === 'video' ? '视频' : '图片'}节点`);
   };
 
   const addPaletteNode = (type: WFNodeType) => {
     if (type === 'output' && workflow.nodes.some((n) => n.type === 'output')) {
-      setSelectedId(workflow.nodes.find((n) => n.type === 'output')!.id);
+      setSelectedIds([workflow.nodes.find((n) => n.type === 'output')!.id]);
       message.info('输出节点已存在');
       return;
     }
@@ -325,7 +326,7 @@ export default function CanvasEditor() {
     const pos = { x: 60 + col * 280, y: 60 + row * 160 };
     const node = newNode(type, pos);
     setWorkflow((wf) => ({ ...wf, nodes: [...wf.nodes, node] }));
-    setSelectedId(node.id);
+    setSelectedIds([node.id]);
   };
 
   const handleAddFromAssetPanel = (item: AssetItem) => {
@@ -351,7 +352,22 @@ export default function CanvasEditor() {
     }
   };
 
-  const selectedNode = workflow.nodes.find((n) => n.id === selectedId) || null;
+  const selectedNode = workflow.nodes.find((n) => n.id === selectedIds[selectedIds.length - 1]) || null;
+
+  // Ctrl+S quick save (skip when typing in inputs)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflow, name, ratio, resolution, projectId]);
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
@@ -372,6 +388,7 @@ export default function CanvasEditor() {
         <div style={{ flex: 1 }} />
 
         {saved && <Tag color="success" icon={<CheckCircleOutlined />}>已保存</Tag>}
+        <Button icon={<QuestionCircleOutlined />} onClick={() => setHelpOpen(true)} style={{ borderRadius: 10 }}>使用教程</Button>
         <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10 }}>保存</Button>
         <Button type="primary" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
           onClick={handleRender} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}>
@@ -475,8 +492,8 @@ export default function CanvasEditor() {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
           <WorkflowCanvas
             workflow={workflow}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
+            selectedIds={selectedIds}
+            onSelect={setSelectedIds}
             onChange={setWorkflow}
             onAddAsset={addAssetNode}
           />
@@ -484,15 +501,30 @@ export default function CanvasEditor() {
 
         {/* Right: properties */}
         <div style={{ width: 260, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #eceef1', overflow: 'hidden', minHeight: 0 }}>
-          <PropertiesPanel
-            node={selectedNode}
-            assetOptions={assetOptions}
-            onChange={(n) => setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.map((x) => x.id === n.id ? n : x) }))}
-            onRemove={(nid) => {
-              setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.filter((x) => x.id !== nid), edges: wf.edges.filter((e) => e.from !== nid && e.to !== nid) }));
-              setSelectedId(null);
-            }}
-          />
+          {selectedIds.length > 1 ? (
+            <div style={{ padding: 16, textAlign: 'center' }}>
+              <Empty description={<span>已选中 <span style={{ color: '#7c3aed', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', margin: '10px 0 14px' }}>
+                拖动任意选中节点可整体移动，Delete 键可批量删除
+              </Text>
+              <Button danger block icon={<DeleteOutlined />} onClick={() => {
+                const idSet = new Set(selectedIds);
+                setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.filter((x) => !idSet.has(x.id)), edges: wf.edges.filter((e) => !idSet.has(e.from) && !idSet.has(e.to)) }));
+                setSelectedIds([]);
+              }}>删除选中节点</Button>
+              <Button block style={{ marginTop: 8 }} onClick={() => setSelectedIds([])}>取消选择</Button>
+            </div>
+          ) : (
+            <PropertiesPanel
+              node={selectedNode}
+              assetOptions={assetOptions}
+              onChange={(n) => setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.map((x) => x.id === n.id ? n : x) }))}
+              onRemove={(nid) => {
+                setWorkflow((wf) => ({ ...wf, nodes: wf.nodes.filter((x) => x.id !== nid), edges: wf.edges.filter((e) => e.from !== nid && e.to !== nid) }));
+                setSelectedIds([]);
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -506,6 +538,66 @@ export default function CanvasEditor() {
           <Button type="primary" size="small" icon={<DownloadOutlined />} href={render.result_url} download style={{ background: '#16a34a', borderColor: '#16a34a' }}>下载成片</Button>
         </div>
       )}
+
+      {/* Help / tutorial modal */}
+      <Modal title="画布使用教程" open={helpOpen} onCancel={() => setHelpOpen(false)} footer={null} width={640}>
+        <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>一、鼠标操作</Text>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14 }}>
+            <tbody>
+              {[
+                ['左键 点击节点', '选中节点，右侧属性面板显示其可编辑属性'],
+                ['左键 拖动节点', '移动节点位置；拖动已选中的节点可整体移动多个节点'],
+                ['左键 在空白处拖动', '拉出紫色选框，框选多个节点（可整体拖动 / 批量删除）'],
+                ['右键 拖动', '平移画布视角（任意位置）'],
+                ['滚轮', '缩放画布（按住 Ctrl + 滚轮缩放幅度更大）'],
+                ['节点右侧圆点 → 拖到左侧圆点', '建立节点之间的连线'],
+                ['节点右上角 ×', '删除该节点（及其连线）'],
+              ].map(([k, v]) => (
+                <tr key={k} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ padding: '4px 10px 4px 0', whiteSpace: 'nowrap', fontWeight: 600, width: 210 }}>{k}</td>
+                  <td style={{ padding: '4px 0', color: '#555' }}>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>二、快捷键</Text>
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14 }}>
+            <tbody>
+              {[
+                ['Delete / Backspace', '删除所有选中的节点（含连线）'],
+                ['Esc', '取消选中'],
+                ['Ctrl + A', '全选所有节点'],
+                ['Ctrl + S', '保存项目'],
+              ].map(([k, v]) => (
+                <tr key={k} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ padding: '4px 10px 4px 0', whiteSpace: 'nowrap', fontWeight: 600, width: 210 }}>{k}</td>
+                  <td style={{ padding: '4px 0', color: '#555' }}>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>三、左侧「节点 / 素材」面板</Text>
+          <div style={{ color: '#555', marginBottom: 14 }}>
+            · <b>节点</b>：6 种节点（视频 / 图片 / 文字 / 音频 / 转场滤镜 / 输出），点击即添加到画布，也可拖拽摆放。<br />
+            · <b>素材</b>：从「AI 历史 / 大资产库 / 热门创作 / 短剧片段」四个来源选择素材，点击或拖拽添加到画布；上方还可上传本地视频/图片。<br />
+            · <b>连线规则</b>：视频/图片 → 输出（主链）；效果节点放两段视频之间 = 转场，直接连单个视频 = 滤镜；文字/音频 → 输出（叠加层/音轨）。
+          </div>
+
+          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>四、顶部工具栏按钮</Text>
+          <div style={{ color: '#555', marginBottom: 14 }}>
+            · <b>名称</b>：项目名称。<b>比例 / 分辨率</b>：成片输出规格（如 9:16 竖屏 720p）。<br />
+            · <b>保存</b>：保存画布（或 Ctrl+S）。<b>导出渲染</b>：按画布生成成片（需节点齐全并连接到输出）。<b>下载成片</b>：渲染完成后下载视频。
+          </div>
+
+          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>五、右侧属性面板</Text>
+          <div style={{ color: '#555' }}>
+            选中节点后可编辑：素材时长、替换素材、文字内容 / 字号 / 动画 / 颜色 / 位置、音频音量 / 淡入淡出、转场样式与时长、滤镜效果等；多选节点时显示批量操作（整体移动 / 删除）。
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

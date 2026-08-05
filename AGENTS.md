@@ -1,5 +1,31 @@
 # 修复日志
 
+## 2026-08-05（晚：画布交互升级——框选多选/右键平移/使用教程 ✅ 已提交）
+
+> 承接下午记录。按用户需求改造画布编辑器交互：**左键**=选中/拖节点/空白拉框多选（可整体拖动、批量删除、Ctrl+A 全选），**右键**=平移画布，并新增编辑器内「使用教程」帮助弹窗（鼠标操作表+快捷键+面板/工具栏/属性说明）。已 git 提交（`feat: 画布多选框选 + 右键平移 + 使用教程弹窗`）。
+
+### ✅ 已完成
+- **`WorkflowCanvas.tsx` 重写**：选中模型 `selectedId` → `selectedIds`（多选）；左键空白 = marquee 框选（`{x,y,w,h}`，onUp 时 `|w|>=6|||h|>=6` 才算框选否则视为空白点击清空选择；`marqueeHitIds` 先归一化负向框再 overlap 命中）；左键节点 = 单选或整体拖动选中组（`mode:'multi'`，按下时快照 selectedIds 各节点位置，onMove 用 `base + dx/zoom` 统一位移）；右键 = `mode:'pan'` 平移（任意位置、`onContextMenu` preventDefault 禁菜单）；保留滚轮缩放（Ctrl 加倍）、素材拖放、端口连线；快捷键 Delete/Backspace 批量删（含连线）、Esc 取消、Ctrl+A 全选（均跳过输入框焦点）；底部 hint 条 + 多选时底部「已选 N 个节点/全部删除/取消选择」操作条
+- **`Editor.tsx`**：`selectedIds` 化，多选时右侧面板显示批量操作（Empty + 删除选中 + 取消选择），单个选中走 PropertiesPanel；工具栏新增「使用教程」按钮 → Modal（width 640，五节：鼠标操作表/快捷键表/节点素材面板/顶部工具栏/右侧属性面板）；Ctrl+S 快速保存
+- **多选拖动 bug 修复（关键）**：node/multi 拖拽的 `onChange` 从对象式改为**函数式更新** `onChange((prev) => ...)`（Props 类型改为 `Dispatch<SetStateAction<Workflow>>`，Editor 直接传 `setWorkflow`），快速连续 pointermove 下位置不再丢步
+- **实测全绿**（`Temp\opencode\test-multiselect-ui.js`，项目 29）：①左键空拖不平移 ②marquee 框选 v1/fx1/t1 ③组拖动精确 (111.1,66.7)（100px 屏幕 ÷ zoom 0.9）④右键平移精确 (120,80) ⑤Delete 批量删 3 剩 2 ⑥教程 Modal 内容 ⑦单点选中 out——JS 错误 0；tsc 全绿
+
+### ⚠️ 本轮血泪经验（测试脚本）
+- **Playwright `page.mouse` 在 headless 下会丢移动事件**：多选（≥2 节点选中）后的连续 `mouse.move` 循环只派发第一个事件（原生 window 监听也收不到，与 React 无关；CDP `Input.dispatchMouseEvent` 派发则全部到达、React 处理正确）→ **拖动类测试用 CDP 原生派发**：`Input.dispatchMouseEvent`（mouseMoved 定位 + mousePressed{button:'left',buttons:1} + 循环 mouseMoved{buttons:1} + mouseReleased{buttons:0}）；单击类用 `page.click('[data-node="out"]', {position})` 更可靠
+- **antd v6（^6.4.3）Modal 关闭后 root 元素保留在 DOM**（wrap `display:none`）→ 检测关闭用 `getComputedStyle(wrap).display === 'none'`，不要用 `.ant-modal-root` 是否存在；modal 内 Esc 关闭需要焦点在 modal 内（portal 事件冒泡路径不含 modal 容器）
+- **React 内联 style 的 hex 色渲染后是 rgb() 字符串**：判定选中态用 `el.style.borderColor !== 'rgb(227, 230, 234)'`（未选中 #e3e6ea），不要用 `/#e3e6ea/` 正则
+- 测试期间 Delete 会真删节点并影响后续步骤 → 每轮测试前用 `restore-project29.js`（GET 模板 5 → 变量替换 → PUT 项目 29 恢复 5 节点 4 连线）
+
+### ⚠️ 待办（剩余仅产品级）
+- [ ] C 类（AI-Video.md）：支付对接（微信/支付宝+算力充值）、安全加固（限流/上传白名单/日志持久化）、antd 按需加载、output/ 清理策略——均属上线前事项，排后
+- [ ] 源视频若再 404：先查磁盘清理软件（cleanup 有引用保护不会误删，已确认 4 文件全在）
+
+### 测试脚本经验（新增）
+- `system_configs` 表（config_key/config_value）不是 `app_configs`；`llm_provider` 为空 = auto
+- PowerShell 不支持 `<` 输入重定向 → 用 `cmd /c "mysql ... < file.sql"` 执行 SQL 种子文件
+- `mysql -uroot -p123456 -e "SELECT ..." ai_anime` 查询时注意列名（drama_episodes 是 episode_no 非 episode_number，无 status 列）
+
+---
 ## 2026-08-05（下午：待办 A+B 全部收尾 ✅）
 
 > 承接当日早间记录（Coze 编辑器收尾完成）。用户确认执行剩余待办 A 类（画布/视觉模型）+ B 类（历史遗留验证），全部完成并已 git 提交（`feat: 内置画布模板 + 视觉模型省钱方案 + 遗留项验证`）。
