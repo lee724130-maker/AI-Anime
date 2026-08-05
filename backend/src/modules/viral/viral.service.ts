@@ -774,8 +774,13 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       if (picked) framePaths.push(picked);
     }
 
-    // Cap at 8 frames for the multimodal analysis call
-    const kept = framePaths.slice(0, 8);
+    // Cap at 4 frames for the multimodal analysis call (cost-saving: fewer
+    // frames = fewer image tokens; sample evenly to keep full-video coverage)
+    const maxFrames = 4;
+    const kept = framePaths.length <= maxFrames
+      ? framePaths
+      : Array.from({ length: maxFrames }, (_, i) =>
+          framePaths[Math.floor((i * (framePaths.length - 1)) / (maxFrames - 1))]);
     // Convert local paths to base64 for API call
     const base64Frames: string[] = [];
     const frameUrls: string[] = [];

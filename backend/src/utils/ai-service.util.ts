@@ -1627,13 +1627,13 @@ export class AIServiceUtil {
       const key = await this.getApiKey('tongyi_api_key');
       if (key) {
         const visionModels = [
+          'qwen3-vl-flash',
           'qwen3.5-omni-plus-2026-03-15',
           'qwen3-omni-flash-realtime-2025-09-15',
           'qwen3-omni-flash-realtime',
           'qwen3-vl-plus',
           'qwen-vl-max',
           'qwen-vl-plus',
-          'qwen3-vl-flash',
         ];
         for (const model of visionModels) {
           try {
@@ -1716,13 +1716,13 @@ export class AIServiceUtil {
       const key = await this.getApiKey('tongyi_api_key');
       if (key) {
         const visionModels = [
+          'qwen3-vl-flash',
           'qwen3.5-omni-plus-2026-03-15',
           'qwen3-omni-flash-realtime-2025-09-15',
           'qwen3-omni-flash-realtime',
           'qwen3-vl-plus',
           'qwen-vl-max',
           'qwen-vl-plus',
-          'qwen3-vl-flash',
         ];
         for (const model of visionModels) {
           try {

@@ -1,5 +1,36 @@
 # 修复日志
 
+## 2026-08-05（下午：待办 A+B 全部收尾 ✅）
+
+> 承接当日早间记录（Coze 编辑器收尾完成）。用户确认执行剩余待办 A 类（画布/视觉模型）+ B 类（历史遗留验证），全部完成并已 git 提交（`feat: 内置画布模板 + 视觉模型省钱方案 + 遗留项验证`）。
+
+### ✅ 今日完成（A 类）
+- **A3 视觉模型省钱方案落地**：
+  - 模型首选改为 `qwen3-vl-flash`（`ai-service.util.ts` 两处 visionModels：`generateSmartDescription` + `analyzeFrames`，omni-plus 降为第 2 兜底）
+  - 抽帧减为 **4 张**（`viral.service.ts` extractFrames：`slice(0,8)` → 均匀采样 4 张，按 `framePaths` 等距取索引，覆盖全程不丢信息；分段抽帧仍 8 段保证采样质量）
+  - **实测验证**：`Temp\opencode\test-vl-flash.js` 直接调 DashScope 成功——单张 720p 图仅 **2042 image tokens**（对比 omni-plus 单次分析 ≈42k tokens，省 ~60%+）；后端重编译重启动生效
+- **A1 内置画布模板 2 个**（`is_system=1`，user_id=NULL，全用户可见，直接 SQL 种子 `Temp\opencode\seed_canvas_templates.sql`）：
+  - id=4「品牌宣传片 · 视频+口号」：video（复用 `/static/canvas_result_27_*.mp4` 素材）+ text(`{{slogan}}`) + output
+  - id=5「多段展示 · 双视频转场」：video + effect(fade 0.5s) + video + text + output，5 节点 4 连线
+  - **全链路验证**：模板 5 → 创建项目 29（变量 `{{slogan}}` 正确替换、nodes=5/edges=4 保留）→ 渲染 **720×1280 / 5.5s**（3+3−0.5 转场）→ ffprobe 确认
+- **A4 源视频 404 排查**：4 个 `viral_source_*.mp4` 全部存在且 `/static/` HEAD 全 200；模板 6/7/8/10 引用全部有效；cleanup 引用保护确认覆盖（reference_url 匹配 `/static/viral_source_*.mp4` → 不删；模板 4 是抖音短链无本地文件属正常）
+
+### ✅ 今日完成（B 类验证，均无需改代码）
+- **B5 短剧比例不生效**：DB 8 个分集 ratio 已全部非空（49-52=9:16、53-56=16:9，07-24 的 null 已被用户保存修复）；代码链路完整（`executeSegmentGeneration` epRatio 兜底 9:16 + 传 `generateVideo` ratio + ffmpeg ratio correction 兜底）→ 结案
+- **B6 media_refs + R2V 降级**：`startGeneration`/`regenerateScene` 均把 `media_refs` 解析拼接为 `media` 参数（`viral.service.ts:1172`）；多图→R2V 优先（`ai-service.util.ts:607`）、单图→I2V、R2V 全败→I2V(第一张)→T2V 降级链完整；参考图上限处理（wan2.6 截 4、其他 5）→ 结案
+- **A2 短剧片段来源**：`GET /api/drama/22/episodes`（空项目）→ 200 + 空数组（前端空态属正常）；项目 16 → 5 个片段（video_url 为空属分集未生成成片，正常）→ 结案
+
+### ⚠️ 待办（剩余仅产品级）
+- [ ] C 类（AI-Video.md）：支付对接（微信/支付宝+算力充值）、安全加固（限流/上传白名单/日志持久化）、antd 按需加载、output/ 清理策略——均属上线前事项，排后
+- [ ] 源视频若再 404：先查磁盘清理软件（cleanup 有引用保护不会误删，本轮已确认 4 文件全在）
+
+### 测试脚本经验（新增）
+- `system_configs` 表（config_key/config_value）不是 `app_configs`；`llm_provider` 为空 = auto
+- PowerShell 不支持 `<` 输入重定向 → 用 `cmd /c "mysql ... < file.sql"` 执行 SQL 种子文件
+- `mysql -uroot -p123456 -e "SELECT ..." ai_anime` 查询时注意列名（drama_episodes 是 episode_no 非 episode_number，无 status 列）
+
+---
+
 ## 2026-08-05（前端 Coze 工作流编辑器实测收尾完成 ✅）
 
 > 承接 2026-08-04 晚间记录：后端多轨工作流渲染管线已完成；今日完成前端编辑器浏览器实测收尾、修 2 个 bug、全链路验证通过，并已 git 提交（提交信息 `feat: 画布 Coze 式节点工作流编辑器 + 多轨渲染管线`）。
