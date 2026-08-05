@@ -66,6 +66,12 @@
 - [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
 - [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
 
+### 🔧 Bug 修复（画布拖拽视角跳变，已提交）
+- **症状**：点击画布空白处不能直接拖动，视角瞬间跳走，之后才能拖
+- **根因**：`WorkflowCanvas.tsx` onPointerDown 里 pan/node 拖拽的 `startX/startY` 记录的是**窗口坐标**（`e.clientX`），而 onMove 计算位移用的是**容器坐标**（`clientX - rect.left`），两者差一个 `rect.left`（左侧素材面板宽约 260px）→ 按下瞬间 dx 恒偏 -260px，视角跳变
+- **修复**：onPointerDown 统一先用 `rect` 换算容器坐标 `sx/sy`，再写入 startX/startY（连线分支原本就正确，一并统一）
+- **实测**（`Temp\opencode\test-pan-fix.js`，项目 29）：按下空白处视角零跳变 ✅；平移拖动 (120,80) 精确跟随 ✅；节点拖拽 100px 屏幕位移 → 世界坐标 111.1px（÷zoom 0.9）✅ 全绿
+
 ---
 
 ## 2026-08-04（晚间追加：画布重构为 Coze 式工作流，后端完成/前端未完成）

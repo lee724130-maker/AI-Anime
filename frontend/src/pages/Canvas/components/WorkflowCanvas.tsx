@@ -253,9 +253,11 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
         const target = e.target as HTMLElement;
         const nodeEl = target.closest('[data-node]') as HTMLElement | null;
         const portEl = target.closest('[data-port]') as HTMLElement | null;
+        const rect = containerRef.current!.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
         if (portEl && portEl.dataset.dir === 'out') {
-          const rect = containerRef.current!.getBoundingClientRect();
-          setConnecting({ fromId: portEl.dataset.node!, x: e.clientX - rect.left, y: e.clientY - rect.top });
+          setConnecting({ fromId: portEl.dataset.node!, x: sx, y: sy });
           return;
         }
         if (nodeEl) {
@@ -265,7 +267,7 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
           if (!node) return;
           setDragging({
             mode: 'node',
-            startX: e.clientX, startY: e.clientY,
+            startX: sx, startY: sy,
             base: viewport,
             nodeId: id,
             nodeBase: { x: node.position.x, y: node.position.y },
@@ -273,7 +275,7 @@ export default function WorkflowCanvas({ workflow, selectedId, onSelect, onChang
           return;
         }
         onSelect(null);
-        setDragging({ mode: 'pan', startX: e.clientX, startY: e.clientY, base: viewport });
+        setDragging({ mode: 'pan', startX: sx, startY: sy, base: viewport });
       }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
