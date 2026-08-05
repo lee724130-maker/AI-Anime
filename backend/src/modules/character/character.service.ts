@@ -3,9 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
-import axios from 'axios';
 import { Character } from './character.entity';
 import { AIServiceUtil } from '../../utils/ai-service.util';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 
 @Injectable()
 export class CharacterService {
@@ -54,8 +54,7 @@ export class CharacterService {
     const localPath = path.join(outputDir, filename);
     if (fs.existsSync(localPath)) return `/static/${filename}`;
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 30000 });
       return `/static/${filename}`;
     } catch {
       return url;

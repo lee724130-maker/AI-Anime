@@ -79,6 +79,9 @@ export class UpdateTemplateDto {
   @IsOptional() @IsString()
   ratio?: string;
 
+  @IsOptional() @IsBoolean()
+  is_system?: boolean;
+
   @IsOptional() @IsString()
   status?: string;
 }

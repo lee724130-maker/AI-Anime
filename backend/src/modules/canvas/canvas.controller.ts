@@ -71,17 +71,17 @@ export class CanvasController {
 
   @Post('templates')
   createTemplate(@Req() req, @Body() dto: CreateCanvasTemplateDto) {
-    return this.service.createTemplate(req.user.id, dto);
+    return this.service.createTemplate(req.user, dto);
   }
 
   @Put('templates/:id')
-  updateTemplate(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCanvasTemplateDto) {
-    return this.service.updateTemplate(id, dto);
+  updateTemplate(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateCanvasTemplateDto) {
+    return this.service.updateTemplate(id, dto, req.user);
   }
 
   @Delete('templates/:id')
-  deleteTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.service.deleteTemplate(id);
+  deleteTemplate(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.deleteTemplate(id, req.user);
   }
 
   @Post('templates/:id/duplicate')

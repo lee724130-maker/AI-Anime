@@ -5,6 +5,7 @@ import axios, { AxiosInstance } from 'axios';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { assertSafeRemoteUrl } from '../common/utils/safe-download.util';
 
 export interface ImageGenerationOptions {
   prompt: string;
@@ -1933,8 +1934,16 @@ export class AIServiceUtil {
           filePath = path.join(process.cwd(), 'output', filePath.replace('/static/', ''));
         }
         
-        // 如果是其他相对路径，尝试从 output 目录查找
-        if (!path.isAbsolute(filePath) && !fs.existsSync(filePath)) {
+        // 绝对路径只允许输出目录内的文件（防任意文件读取）
+        if (path.isAbsolute(filePath)) {
+          const resolved = path.resolve(filePath);
+          const outputDir = path.resolve(process.cwd(), 'output');
+          if (!resolved.startsWith(outputDir + path.sep)) {
+            throw new Error(`不允许读取输出目录外的本地文件: ${imagePath}`);
+          }
+          filePath = resolved;
+        } else if (!fs.existsSync(filePath)) {
+          // 其他相对路径，尝试从 output 目录查找
           const altPath = path.join(process.cwd(), 'output', path.basename(filePath));
           if (fs.existsSync(altPath)) {
             filePath = altPath;
@@ -1954,7 +1963,8 @@ export class AIServiceUtil {
         return data.toString('base64');
       }
       
-      // 处理远程 URL
+      // 处理远程 URL（SSRF 防护：拒绝非 http/https 与内网地址）
+      await assertSafeRemoteUrl(imagePath);
       const response = await axios.get(imagePath, { 
         responseType: 'arraybuffer',
         timeout: 15000,

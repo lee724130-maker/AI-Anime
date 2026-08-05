@@ -12,6 +12,8 @@ import { ViralProject } from './viral-project.entity';
 import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, AnalyzeVideoDto } from './viral.dto';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { assertTemplateWritable, assertCanSetSystemFlag } from '../../common/utils/template-permission.util';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 
 const execAsync = promisify(exec);
 
@@ -64,7 +66,6 @@ const LANG_NAMES: Record<string, string> = {
 export class ViralService {
   private readonly logger = new Logger(ViralService.name);
   private readonly outputDir: string;
-  private cleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(
     @InjectRepository(ViralTemplate)
@@ -76,73 +77,6 @@ export class ViralService {
   ) {
     this.outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(this.outputDir)) fs.mkdirSync(this.outputDir, { recursive: true });
-
-    // Periodic orphan frames cleanup (every 6 hours), runs in background
-    this.cleanupOrphanFrames().catch(() => {});
-    this.cleanupTimer = setInterval(() => {
-      this.cleanupOrphanFrames().catch(() => {});
-    }, 6 * 60 * 60 * 1000);
-  }
-
-  onModuleDestroy() {
-    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
-  }
-
-  /**
-   * Remove `viral_frames_*` / `viral_analyze_*` directories and
-   * `viral_source_*.mp4` files that are not referenced by any template.
-   * Only deletes entries older than 2h (protects in-progress analysis).
-   * Referenced entries are NEVER deleted.
-   */
-  private async cleanupOrphanFrames() {
-    try {
-      // Collect all frame dirs / source videos referenced by templates
-      const templates = await this.templateRepo.find();
-      const referencedDirs = new Set<string>();
-      const referencedFiles = new Set<string>();
-      for (const t of templates) {
-        if (t.reference_frames) {
-          try {
-            const frames = JSON.parse(t.reference_frames);
-            for (const f of frames || []) {
-              const m = String(f).match(/\/static\/(viral_frames_[^/]+)\//);
-              if (m) referencedDirs.add(m[1]);
-            }
-          } catch { /* ignore */ }
-        }
-        if (t.reference_url) {
-          const m = String(t.reference_url).match(/\/static\/(viral_source_[^/]+\.mp4)$/);
-          if (m) referencedFiles.add(m[1]);
-        }
-      }
-
-      const now = Date.now();
-      let removed = 0;
-      const entries = fs.readdirSync(this.outputDir, { withFileTypes: true });
-      for (const e of entries) {
-        const fullPath = path.join(this.outputDir, e.name);
-        let relevant = false;
-        if (e.isDirectory()) {
-          if (!e.name.startsWith('viral_frames_') && !e.name.startsWith('viral_analyze_')) continue;
-          if (referencedDirs.has(e.name)) continue;
-          relevant = true;
-        } else if (e.isFile() && e.name.startsWith('viral_source_') && e.name.endsWith('.mp4')) {
-          if (referencedFiles.has(e.name)) continue;
-          relevant = true;
-        }
-        if (!relevant) continue;
-        try {
-          const stat = fs.statSync(fullPath);
-          // Skip entries created within the last 2 hours (possibly in-progress analysis)
-          if (now - stat.mtimeMs < 2 * 60 * 60 * 1000) continue;
-        } catch { continue; }
-        fs.rmSync(fullPath, { recursive: true, force: true });
-        removed++;
-      }
-      if (removed > 0) this.logger.log(`清理孤儿帧图/原视频/临时目录 ${removed} 个`);
-    } catch (err: any) {
-      this.logger.warn(`清理孤儿帧图目录失败: ${err.message}`);
-    }
   }
 
   // ───── Templates ─────
@@ -211,11 +145,15 @@ export class ViralService {
     return match ? match[0] : input.trim();
   }
 
-  async createTemplate(dto: CreateTemplateDto) {
+  async createTemplate(dto: CreateTemplateDto, user: any) {
     if (!dto.name) throw new BadRequestException('模板名称不能为空');
+    const isSystem = !!dto.is_system;
+    assertCanSetSystemFlag(isSystem, user, '模板');
     const referenceUrl = dto.reference_url ? this.cleanShareUrl(dto.reference_url) : undefined;
     const tpl = this.templateRepo.create({
       ...dto,
+      is_system: isSystem,
+      user_id: isSystem ? null : user.id,
       reference_url: referenceUrl,
       tags: dto.tags || '[]',
       scenes: dto.scenes || '[]',
@@ -224,12 +162,18 @@ export class ViralService {
     return this.templateRepo.save(tpl);
   }
 
-  async updateTemplate(id: number, dto: UpdateTemplateDto) {
+  async updateTemplate(id: number, dto: UpdateTemplateDto, user: any) {
     const tpl = await this.templateRepo.findOne({ where: { id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    assertTemplateWritable(tpl, user, '模板');
+    if (dto.is_system !== undefined) {
+      assertCanSetSystemFlag(!!dto.is_system, user, '模板');
+    }
     const clean: any = { ...dto };
     if (clean.reference_url) clean.reference_url = this.cleanShareUrl(clean.reference_url);
+    if (clean.user_id !== undefined) delete clean.user_id;
     Object.assign(tpl, clean);
+    if (tpl.is_system) (tpl as any).user_id = null;
     return this.templateRepo.save(tpl);
   }
 
@@ -238,9 +182,10 @@ export class ViralService {
    * local persistence existed), download the source video, compress it into
    * output/ and update the template to point at the local copy.
    */
-  async refreshTemplateSourceVideo(id: number) {
+  async refreshTemplateSourceVideo(id: number, user: any) {
     const tpl = await this.templateRepo.findOne({ where: { id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    assertTemplateWritable(tpl, user, '模板');
 
     // Already local
     if (tpl.reference_url?.startsWith('/static/')) {
@@ -285,9 +230,10 @@ export class ViralService {
     }
   }
 
-  async deleteTemplate(id: number) {
+  async deleteTemplate(id: number, user: any) {
     const tpl = await this.templateRepo.findOne({ where: { id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    assertTemplateWritable(tpl, user, '模板');
 
     // Clean up associated frame image directories and persisted source video
     try {
@@ -1476,15 +1422,26 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
 
   private async downloadToLocal(url: string, workDir: string, prefix: string): Promise<string | null> {
     try {
+      if (!url) return null;
       if (url.startsWith('data:')) return null; // base64, skip
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      const ext = '.mp4';
-      const filename = `${prefix}_${Date.now()}${ext}`;
+      // Local static path → map to output dir (reject traversal outside it)
+      const staticMatch = url.match(/^\/static\/([^?]+)$/);
+      if (staticMatch) {
+        const local = path.resolve(this.outputDir, staticMatch[1]);
+        if (!local.startsWith(this.outputDir + path.sep)) {
+          this.logger.warn(`Static path escapes output dir: ${staticMatch[1]}`);
+          return null;
+        }
+        if (fs.existsSync(local)) return local;
+        this.logger.warn(`Static file missing: ${staticMatch[1]}`);
+        return null;
+      }
+      const filename = `${prefix}_${Date.now()}.mp4`;
       const localPath = path.join(workDir, filename);
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 60000 });
       return localPath;
     } catch (err: any) {
-      this.logger.warn(`Download failed: ${url.substring(0, 80)} - ${err.message}`);
+      this.logger.warn(`Download failed: ${String(url).substring(0, 80)} - ${err.message}`);
       return null;
     }
   }

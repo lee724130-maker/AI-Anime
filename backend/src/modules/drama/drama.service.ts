@@ -11,6 +11,7 @@ import { GlobalAsset } from '../global-asset/global-asset.entity';
 import { PromptTemplateService } from '../admin/prompt-template.service';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 import type { Queue } from 'bull';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -301,19 +302,21 @@ export class DramaService {
   private async downloadToLocal(url: string, prefix: string): Promise<string> {
     const outputDir = path.resolve(process.cwd(), 'output');
     if (!url.startsWith('http')) {
-      // Already a local path: if it's in outputDir, convert to /static/ relative path
-      const basename = path.basename(url);
-      const localPath = path.join(outputDir, basename);
-      if (fs.existsSync(localPath)) return `/static/${basename}`;
-      // File doesn't exist in output dir — try copying it there
-      try {
-        if (fs.existsSync(url)) {
-          const ext = path.extname(url) || '.mp4';
-          const filename = `${prefix}_${Date.now()}${ext}`;
-          fs.copyFileSync(url, path.join(outputDir, filename));
-          return `/static/${filename}`;
+      if (url.startsWith('data:')) return url;
+      // /static/ path → map into output dir (reject traversal)
+      const staticMatch = url.match(/^\/static\/([^?]+)$/);
+      if (staticMatch) {
+        const local = path.resolve(outputDir, staticMatch[1]);
+        if (local.startsWith(outputDir + path.sep) && fs.existsSync(local)) {
+          return `/static/${staticMatch[1].replace(/\\/g, '/')}`;
         }
-      } catch { /* ignore */ }
+        return url;
+      }
+      // Absolute path → only reuse files that already live inside output dir
+      const resolved = path.resolve(url);
+      if (resolved.startsWith(outputDir + path.sep) && fs.existsSync(resolved)) {
+        return `/static/${path.basename(resolved)}`;
+      }
       return url;
     }
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
@@ -321,8 +324,7 @@ export class DramaService {
     const filename = `${prefix}_${Date.now()}${ext}`;
     const localPath = path.join(outputDir, filename);
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 60000 });
       return `/static/${filename}`;
     } catch {
       return url;
@@ -475,6 +477,9 @@ export class DramaService {
     if (!asset) throw new NotFoundException('资产不存在');
     await this.getById(userId, asset.project_id);
     if (!imageUrl) throw new BadRequestException('图片 URL 不能为空');
+    if (!/^(data:image\/|https?:\/\/|\/static\/)/.test(imageUrl)) {
+      throw new BadRequestException('图片 URL 仅允许 data URI / http(s) 外链 / 本站静态路径');
+    }
 
     if (asset.image_url) {
       const candidates = asset.candidates ? JSON.parse(asset.candidates) : [];

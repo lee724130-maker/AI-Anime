@@ -3,6 +3,7 @@ import { InjectRepository, InjectEntityManager } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { ModelConfigService } from '../admin/model-config.service';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 import { MediaFile } from '../media/media-file.entity';
 import { GenerationTask } from '../task/generation-task.entity';
 import * as fs from 'fs';
@@ -637,8 +638,7 @@ export class GenerateService {
     const filename = `${prefix}_${Date.now()}${ext}`;
     const localPath = path.join(outputDir, filename);
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 60000 });
       this.logger.log(`Downloaded to local: ${filename}`);
       return `/static/${filename}`;
     } catch (err: any) {

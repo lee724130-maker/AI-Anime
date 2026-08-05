@@ -3,9 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { GlobalAsset } from './global-asset.entity';
 import { AIServiceUtil } from '../../utils/ai-service.util';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as fs from 'fs';
 import * as path from 'path';
-import axios from 'axios';
 
 @Injectable()
 export class GlobalAssetService {
@@ -71,8 +71,7 @@ export class GlobalAssetService {
     const filename = `${prefix}_${Date.now()}${ext}`;
     const localPath = path.join(outputDir, filename);
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 60000 });
       return `/static/${filename}`;
     } catch {
       return url;

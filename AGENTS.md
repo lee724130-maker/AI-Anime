@@ -1,5 +1,29 @@
 # 修复日志
 
+## 2026-08-05（收尾：安全加固 5 项 + 清理服务误删事故处置 ✅ 已提交）
+
+> 承接画布体检记录。用户要求盘点项目文档剩余待办并收尾，范围选定「安全加固」：**模板权限 / 上传白名单 / 登录限流 / SSRF+路径加固 / 产物清理** 5 项全部实现。**但清理服务首次运行因 SQL 引用收集失败（viral_projects 无 bgm_url 列）删掉了 5 个被模板引用的帧目录 + 4 个源视频——已修复服务并全部恢复数据**。实测全绿，已 git 提交（`feat: 安全加固（模板权限/上传白名单/登录限流/SSRF/产物清理）`）。
+
+### ✅ 安全加固 5 项
+1. **模板权限**（`common/utils/template-permission.util.ts` 新增）：is_system=true 或 user_id=NULL 的模板仅管理员可改删；私有模板仅创建者可改删（**管理员也不能动私有模板**）；仅管理员可创建系统模板/置 is_system=true。接入 canvas + viral 的 create/update/delete + refreshTemplateSourceVideo。
+2. **上传白名单**（`media.controller.ts`）：multer diskStorage（**服务端生成文件名防穿越**）+ 扩展名/MIME 双校验 + 300MB 上限；`drama.service.ts` uploadAssetImage 的 image_url 仅放行 data URI / http(s) / `/static/`。
+3. **登录限流**：login/register 各 `@Throttle(10/分)`（测试连错 12 次触发 429）。
+4. **SSRF/路径加固**（`common/utils/safe-download.util.ts` 新增）：`assertSafeRemoteUrl` 拒内网 IP 段（127/10/172.16-31/192.168/169.254/100.64/::1）与 file/ftp 协议；`downloadToFile` 流式落盘 + 500MB 上限；替换 canvas/viral/generate/character/global-asset/drama/video 7 处下载 + `ai-service.util.ts` imageToBase64；本地路径分支仅放行 output 目录内。
+5. **产物清理**（`modules/cleanup/` 新增，每 6h + 启动时）：临时目录（viral_frames_/viral_analyze_/viral_gen_/viral_reg_/canvas_gen_）超 2h 删、无引用 viral_source_ 超 2h 删、无引用成片超 30 天删；**引用收集覆盖 13 张表**，被引用的文件/目录永不删；canvas deleteProject 补清 canvas_gen_ 临时目录；渲染孤儿清理（renderWorkflow 返回 finalPath）。
+
+### ⚠️ 清理服务误删事故（血泪教训，重要）
+- **经过**：CleanupService 启动时 SQL 引用了不存在的 `viral_projects.bgm_url` → 引用收集抛错被 catch 吞掉（返回空集合）→ 继续删除 → **5 个被引用的 viral_frames_* 目录 + 4 个 viral_source_*.mp4 全被删**（模板 4/6/7/8/10 全部受影响）。
+- **修复**（两道防线）：①SQL 的 bgm_url 改 media_refs；②**引用收集失败 → 本轮清理整体中止**（不删任何东西）；③**目录级引用保护**（viral_frames_xxx 目录名也从 reference_frames 收集进 dirs 集合）。
+- **数据恢复**：模板 6/7/8/10 用 source_url 外链重新 Playwright 下载 + ffmpeg 压缩（720p）+ 抽 4 帧 → 更新 reference_url/reference_frames/ratio；模板 4 只补帧图（reference_url 保持外链）。脚本 `Temp\opencode\restore-viral-sources.js` / `restore-tpl4-frames.js`（**require 需 `$env:NODE_PATH=backend\node_modules`，playwright 在 backend 依赖里**）。
+- **验证**：造未引用假目录/假文件（mtime 改 3h 前）→ 重启后端 → junk 被删、5 个被引用帧目录 + 4 个 source 完好；API 安全 14/14 + SSRF 10/10 回归通过。
+
+### 🔧 本次沉淀
+- **清理服务第一铁律：引用收集失败必须中止清理**（空集合 = 全删，等同自杀）。所有「先收集白名单再删」的服务同理。
+- TypeORM/Node 环境 `viral_projects` **没有 bgm_url 列**（canvas_projects 有）；viral 模板源视频恢复靠 `source_url` 外链 + Playwright API 捕获（yt-dlp 需 Cookie 不可用）。
+- 测试脚本内 require 后端 TS 源文件会挂 → 用 `node --experimental-strip-types` 跑 .ts 单测（见 test-ssrf.ts），或直接测编译产物/HTTP。
+
+---
+
 ## 2026-08-05（深夜：画布全面体检修复 12 项 ✅ 已提交）
 
 > 承接晚节。用户反馈「画布功能基本没问题，帮我再检查检查有没有 bug」→ 双 agent 只读审查（前端 7 文件 + 后端 canvas 模块）→ 修复 12 项（其中新发现 2 个隐藏 bug：模板 API 不返回 edges、短剧素材 Tab 数据源字段不存在）。实测后端 9/9 + 前端 7/7 + legacy 迁移 5/5 全绿，tsc 双端全绿，已 git 提交（`fix: 画布体检修复（多选删除/短剧素材/变量注入/无声混音等 12 项）`）。

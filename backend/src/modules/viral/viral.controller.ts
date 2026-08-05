@@ -21,8 +21,8 @@ export class ViralController {
   }
 
   @Post('templates')
-  createTemplate(@Body() dto: CreateTemplateDto) {
-    return this.service.createTemplate(dto);
+  createTemplate(@Req() req, @Body() dto: CreateTemplateDto) {
+    return this.service.createTemplate(dto, req.user);
   }
 
   @Post('templates/analyze')
@@ -36,18 +36,18 @@ export class ViralController {
   }
 
   @Post('templates/:id/refresh-source')
-  refreshTemplateSource(@Param('id', ParseIntPipe) id: number) {
-    return this.service.refreshTemplateSourceVideo(id);
+  refreshTemplateSource(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.refreshTemplateSourceVideo(id, req.user);
   }
 
   @Put('templates/:id')
-  updateTemplate(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTemplateDto) {
-    return this.service.updateTemplate(id, dto);
+  updateTemplate(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateTemplateDto) {
+    return this.service.updateTemplate(id, dto, req.user);
   }
 
   @Delete('templates/:id')
-  deleteTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.service.deleteTemplate(id);
+  deleteTemplate(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.deleteTemplate(id, req.user);
   }
 
   @Get('categories')

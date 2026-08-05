@@ -10,10 +10,10 @@ import { Script } from '../script/script.entity';
 import { Character } from '../character/character.entity';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as archiver from 'archiver';
-import axios from 'axios';
 import type { Response } from 'express';
 
 @Injectable()
@@ -47,8 +47,7 @@ export class VideoService {
     const filename = `${prefix}_${Date.now()}${ext}`;
     const localPath = path.join(outputDir, filename);
     try {
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 30000 });
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 30000 });
       return `/static/${filename}`;
     } catch {
       return url;

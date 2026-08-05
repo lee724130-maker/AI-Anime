@@ -1,9 +1,34 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { MediaService } from './media.service';
 import * as fs from 'fs';
 import * as path from 'path';
+
+const ALLOWED_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|mp4|mov|webm|mkv|avi|m4v)$/i;
+const ALLOWED_MIME = /^(image|video)\//;
+
+function uploadInterceptor() {
+  const dir = path.resolve(process.cwd(), 'output');
+  return FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (_req, _file, cb) => {
+        fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      },
+      filename: (_req, file, cb) => {
+        // Generate a server-controlled name; user input never lands in the filename
+        cb(null, `upload_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname).toLowerCase()}`);
+      },
+    }),
+    limits: { fileSize: 300 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (ALLOWED_EXT.test(file.originalname) && ALLOWED_MIME.test(file.mimetype)) cb(null, true);
+      else cb(new BadRequestException('不支持的文件类型，仅允许图片/视频（jpg/png/gif/webp/mp4/mov/webm/mkv/avi/m4v）'), false);
+    },
+  });
+}
 
 @Controller('api/media')
 @UseGuards(JwtAuthGuard)
@@ -21,21 +46,18 @@ export class MediaController {
   }
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(uploadInterceptor())
   async upload(@Req() req, @UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new Error('请上传文件');
-    const outputDir = path.resolve(process.cwd(), 'output');
-    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-    const filename = `upload_${Date.now()}_${file.originalname}`;
-    fs.writeFileSync(path.join(outputDir, filename), file.buffer);
+    if (!file) throw new BadRequestException('请上传文件');
+    const originalName = path.basename(file.originalname);
     const record = await this.mediaService.create(req.user.id, {
       type: file.mimetype.startsWith('video') ? 'video' : 'image',
-      url: `/static/${filename}`,
-      original_name: file.originalname,
+      url: `/static/${file.filename}`,
+      original_name: originalName,
       mime_type: file.mimetype,
       file_size: file.size,
     });
-    return { id: record.id, url: `/static/${filename}`, original_name: file.originalname };
+    return { id: record.id, url: `/static/${file.filename}`, original_name: originalName };
   }
 
   @Post()

@@ -45,6 +45,7 @@ import { GlobalAssetModule } from './modules/global-asset/global-asset.module';
 import { ViralModule } from './modules/viral/viral.module';
 import { CanvasModule } from './modules/canvas/canvas.module';
 import { WorkbenchModule } from './modules/workbench/workbench.module';
+import { CleanupModule } from './modules/cleanup/cleanup.module';
 import { RolesGuard } from './common/guards/roles.guard';
 
 const logDir = path.resolve(process.cwd(), 'logs');
@@ -115,6 +116,7 @@ entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNo
     ViralModule,
     CanvasModule,
     WorkbenchModule,
+    CleanupModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

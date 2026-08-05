@@ -4,9 +4,10 @@ import { Repository, Like } from 'typeorm';
 import { CanvasProject } from './canvas-project.entity';
 import { CanvasTemplate } from './canvas-template.entity';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { assertTemplateWritable, assertCanSetSystemFlag } from '../../common/utils/template-permission.util';
+import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as fs from 'fs';
 import * as path from 'path';
-import axios from 'axios';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -145,6 +146,15 @@ export class CanvasService {
         try { fs.rmSync(path.join(this.outputDir, m[1]), { force: true }); } catch { /* ignore */ }
       }
     }
+    // Clean leftover render temp dirs for this project
+    try {
+      const entries = fs.readdirSync(this.outputDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.isDirectory() && e.name.startsWith(`canvas_gen_${id}_`)) {
+          fs.rmSync(path.join(this.outputDir, e.name), { recursive: true, force: true });
+        }
+      }
+    } catch { /* ignore */ }
     await this.projectRepo.remove(p);
     return { success: true };
   }
@@ -178,9 +188,11 @@ export class CanvasService {
     return { ...t, nodes: this.parseNodes(t.nodes), edges: this.parseEdges(t.nodes), variables: this.parseJson(t.variables) };
   }
 
-  async createTemplate(userId: number, dto: any) {
+  async createTemplate(user: any, dto: any) {
+    const isSystem = !!dto.is_system;
+    assertCanSetSystemFlag(isSystem, user, '画布模板');
     const tpl = this.templateRepo.create({
-      user_id: dto.is_system ? null : userId,
+      user_id: isSystem ? null : user.id,
       name: dto.name,
       description: dto.description || null,
       category: dto.category || '通用',
@@ -189,16 +201,22 @@ export class CanvasService {
       nodes: typeof dto.nodes === 'string' ? dto.nodes : JSON.stringify(dto.nodes),
       variables: typeof dto.variables === 'string' ? dto.variables : JSON.stringify(dto.variables || []),
       usage_count: 0,
-      is_system: !!dto.is_system,
+      is_system: isSystem,
       status: 'active',
     });
     await this.templateRepo.save(tpl);
     return this.getTemplateById(tpl.id);
   }
 
-  async updateTemplate(id: number, dto: any) {
+  async updateTemplate(id: number, dto: any, user: any) {
     const t = await this.templateRepo.findOne({ where: { id } });
     if (!t) throw new NotFoundException('画布模板不存在');
+    assertTemplateWritable(t, user, '画布模板');
+    if (dto.is_system !== undefined) {
+      assertCanSetSystemFlag(!!dto.is_system, user, '画布模板');
+      t.is_system = !!dto.is_system;
+      if (t.is_system) t.user_id = null;
+    }
     if (dto.name !== undefined) t.name = dto.name;
     if (dto.description !== undefined) t.description = dto.description;
     if (dto.category !== undefined) t.category = dto.category;
@@ -211,9 +229,10 @@ export class CanvasService {
     return this.getTemplateById(id);
   }
 
-  async deleteTemplate(id: number) {
+  async deleteTemplate(id: number, user: any) {
     const t = await this.templateRepo.findOne({ where: { id } });
     if (!t) throw new NotFoundException('画布模板不存在');
+    assertTemplateWritable(t, user, '画布模板');
     await this.templateRepo.remove(t);
     return { success: true };
   }
@@ -301,10 +320,17 @@ export class CanvasService {
 
     try {
       const parsed = this.parseWorkflow(project.nodes);
+      let finalPath: string | null = null;
       if (parsed.isWorkflow) {
-        await this.renderWorkflow(project, parsed, workDir, update);
+        finalPath = await this.renderWorkflow(project, parsed, workDir, update);
       } else {
-        await this.renderLegacy(project, parsed.legacyNodes, workDir, update);
+        finalPath = await this.renderLegacy(project, parsed.legacyNodes, workDir, update);
+      }
+      // Project deleted mid-render → remove the orphaned result file
+      const stillExists = await this.projectRepo.findOne({ where: { id: projectId } });
+      if (!stillExists && finalPath && fs.existsSync(finalPath)) {
+        fs.rmSync(finalPath, { force: true });
+        this.logger.log(`渲染期间项目 #${projectId} 已删除，清理孤儿成片: ${path.basename(finalPath)}`);
       }
     } catch (err: any) {
       await update({ status: 'failed', error_msg: err.message.substring(0, 500), result_url: null });
@@ -408,7 +434,7 @@ export class CanvasService {
     wf: { nodes: any[]; edges: any[] },
     workDir: string,
     update: (patch: Partial<CanvasProject>) => Promise<void>,
-  ) {
+  ): Promise<string | null> {
     const { nodes: wfNodes, edges: wfEdges } = wf;
     const ratio = project.ratio || '9:16';
     const res = resFromResolution(project.resolution || '720p', ratio);
@@ -561,6 +587,7 @@ export class CanvasService {
     fs.copyFileSync(base, finalPath);
     await update({ status: 'completed', progress: 100, result_url: `/static/${finalName}` });
     this.logger.log(`Workflow render #${project.id} completed: ${finalName}`);
+    return finalPath;
   }
 
   private clampNumber(v: any, min: number, max: number): number {
@@ -636,7 +663,7 @@ export class CanvasService {
     nodes: any[],
     workDir: string,
     update: (patch: Partial<CanvasProject>) => Promise<void>,
-  ) {
+  ): Promise<string | null> {
     const sorted = [...nodes].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
     const ratio = project.ratio || '9:16';
     const res = resFromResolution(project.resolution || '720p', ratio);
@@ -727,6 +754,7 @@ export class CanvasService {
       result_url: `/static/${finalName}`,
     });
     this.logger.log(`Canvas render #${project.id} completed: ${finalName}`);
+    return finalPath;
   }
 
   /**
@@ -920,15 +948,17 @@ export class CanvasService {
         this.logger.warn(`Static file missing: ${staticMatch[1]}`);
         return null;
       }
-      // Absolute local file path (Windows/Linux) → use directly if it exists
-      if ((/^[A-Za-z]:[\\/]/.test(url) || url.startsWith('/')) && fs.existsSync(url)) {
-        return url;
+      // Absolute local file path → only allow files inside output dir (legacy data)
+      if (/^[A-Za-z]:[\\/]/.test(url) || url.startsWith('/')) {
+        const resolved = path.resolve(url);
+        if (resolved.startsWith(this.outputDir + path.sep) && fs.existsSync(resolved)) return resolved;
+        this.logger.warn(`Local path outside output dir or missing: ${url}`);
+        return null;
       }
       if (url.startsWith('data:')) return null; // base64, skip
-      const response = await axios.get(url, { responseType: 'arraybuffer', timeout: 60000 });
       const ext = /\.(jpe?g|png|webp|gif)(\?|$)/i.test(url) ? '.jpg' : '.mp4';
       const localPath = path.join(workDir, `${prefix}_${Date.now()}${ext}`);
-      fs.writeFileSync(localPath, Buffer.from(response.data));
+      await downloadToFile(url, localPath, { timeoutMs: 60000 });
       return localPath;
     } catch (err: any) {
       this.logger.warn(`Canvas download failed: ${String(url).substring(0, 80)} - ${err.message}`);
