@@ -37,8 +37,8 @@ export class CanvasProject {
   @Column({ default: 0 })
   progress: number;
 
-  @Column({ name: 'result_url', length: 500, nullable: true })
-  result_url: string;
+  @Column({ name: 'result_url', type: 'varchar', length: 500, nullable: true })
+  result_url: string | null;
 
   @Column({ name: 'error_msg', type: 'text', nullable: true })
   error_msg: string;

@@ -38,6 +38,8 @@ const NODE_ICONS: Record<WFNodeType, any> = {
   output: <ExportOutlined />,
 };
 
+let edgeSeq = 0;
+
 const nodePosition = (n: WFNode) => ({ left: n.position.x, top: n.position.y });
 
 function toStaticUrl(u?: string | null): string | undefined {
@@ -235,7 +237,7 @@ export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChan
           if (!dup) {
             onChange({
               ...wf,
-              edges: [...wf.edges, { id: `edge_${Date.now()}`, from: connecting.fromId, to: toId }],
+              edges: [...wf.edges, { id: `edge_${Date.now()}_${edgeSeq++}`, from: connecting.fromId, to: toId }],
             });
           }
         }
@@ -511,7 +513,10 @@ export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChan
 
       {/* selection action bar */}
       {selectedIds.length > 1 && (
-        <div style={{ position: 'absolute', bottom: 42, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 20, padding: '6px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.15)', zIndex: 7, fontSize: 12 }}>
+        <div
+          style={{ position: 'absolute', bottom: 42, left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 10, background: '#fff', borderRadius: 20, padding: '6px 16px', boxShadow: '0 4px 14px rgba(0,0,0,0.15)', zIndex: 7, fontSize: 12 }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <Text style={{ color: '#333' }}>已选 <span style={{ color: '#7c3aed', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</Text>
           <a role="button" style={{ color: '#f5222d', cursor: 'pointer' }} onClick={() => removeNodes(selectedIds)}>全部删除</a>
           <a role="button" style={{ color: '#666', cursor: 'pointer' }} onClick={() => onSelect([])}>取消选择</a>

@@ -336,7 +336,7 @@ export class FFmpegUtil {
       validPaths.map(async (p) => {
         try {
           const { stdout } = await execAsync(
-            `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${p}"`,
+            `"${this.ffprobePath}" -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${p}"`,
             { timeout: 10000 },
           );
           return stdout.trim().length > 0;
@@ -395,6 +395,21 @@ export class FFmpegUtil {
   }
 
   /**
+   * Check whether a media file carries an audio stream
+   */
+  async hasAudioTrack(mediaPath: string): Promise<boolean> {
+    try {
+      const { stdout } = await execAsync(
+        `"${this.ffprobePath}" -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${mediaPath}"`,
+        { timeout: 10000 },
+      );
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Extract audio duration (in seconds)
    */
   async getAudioDuration(audioPath: string): Promise<number> {
@@ -415,7 +430,7 @@ export class FFmpegUtil {
   async getVideoInfo(videoPath: string): Promise<{ width: number; height: number; duration: number }> {
     try {
       const { stdout: probeOut } = await execAsync(
-        `ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+        `"${this.ffprobePath}" -v error -select_streams v:0 -show_entries stream=width,height,duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
         { timeout: 10000 },
       );
       const parts = probeOut.trim().split('\n').map(s => s.trim()).filter(Boolean);
@@ -429,7 +444,7 @@ export class FFmpegUtil {
       // Sanity check: if duration > 5min, stream metadata is likely wrong
       if (duration >= 300 || duration <= 0) {
         const { stdout: fmtOut } = await execAsync(
-          `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
+          `"${this.ffprobePath}" -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
           { timeout: 10000 },
         ).catch(() => ({ stdout: '' }));
         const fmtDur = parseFloat(fmtOut.trim());
@@ -958,10 +973,18 @@ export class FFmpegUtil {
     const info = await this.getVideoInfo(videoPath);
     const totalDur = info.duration || 5;
 
+    // A video with no audio track (e.g. text-only canvas base) cannot feed
+    // [0:a] into amix → synthesize a silent track when missing
+    const hasVideoAudio = await this.hasAudioTrack(videoPath);
+    const silentIdx = valid.length + 1;
+
     // Build per-track filters: volume → adelay → fade in/out → apad to total length
-    const inputArgs = valid.map((t) => `-i "${t.audioPath}"`).join(' ');
+    const inputArgs = valid.map((t) => `-i "${t.audioPath}"`).join(' ')
+      + (hasVideoAudio ? '' : ` -f lavfi -i "anullsrc=r=44100:cl=stereo"`);
     const parts: string[] = [];
-    const base = `[0:a]aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[am0]`;
+    const base = hasVideoAudio
+      ? `[0:a]aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[am0]`
+      : `[${silentIdx}:a]atrim=duration=${totalDur.toFixed(3)},asetpts=PTS-STARTPTS,aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,volume=1.0[am0]`;
     parts.push(base);
     valid.forEach((t, i) => {
       const vol = t.volume ?? 1;

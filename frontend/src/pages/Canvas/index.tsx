@@ -74,11 +74,12 @@ export default function CanvasIndex() {
       let changed = false;
       const next = [...projects];
       updated.forEach((u, i) => {
-        if (u && u.progress !== rendering[i].progress) changed = true;
-        if (u && u.status !== 'rendering') {
+        if (u && (u.progress !== rendering[i].progress || u.status !== rendering[i].status)) {
           const idx = next.findIndex(x => x.id === u.id);
-          if (idx >= 0) next[idx] = { ...next[idx], ...u };
-          changed = true;
+          if (idx >= 0) {
+            next[idx] = { ...next[idx], ...u };
+            changed = true;
+          }
         }
       });
       if (changed) {

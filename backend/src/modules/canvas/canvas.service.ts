@@ -85,11 +85,22 @@ export class CanvasService {
       if (!tpl) throw new NotFoundException('画布模板不存在');
       const varMap: Record<string, string> = dto.variable_values || {};
       // substitute {{var}} over the full raw JSON (covers nodes + edges + params)
+      // JSON-escape values so quotes/backslashes cannot break the nodes JSON
       nodesJson = tpl.nodes.replace(/\{\{(\w+)\}\}/g, (m, key) => {
-        return varMap[key] !== undefined ? varMap[key] : m;
+        if (varMap[key] === undefined) return m;
+        return JSON.stringify(String(varMap[key])).slice(1, -1);
       });
-      ratio = ratio === '9:16' ? tpl.ratio || ratio : ratio;
-      resolution = resolution === '720p' ? tpl.resolution || resolution : resolution;
+      const leftover = nodesJson.match(/\{\{(\w+)\}\}/);
+      if (leftover) {
+        throw new BadRequestException(`模板变量未填写：{{${leftover[1]}}}，请返回画布列表重新创建`);
+      }
+      try {
+        JSON.parse(nodesJson);
+      } catch {
+        throw new BadRequestException('模板变量值包含非法字符，无法生成项目');
+      }
+      ratio = dto.ratio ? dto.ratio : (tpl.ratio || ratio);
+      resolution = dto.resolution ? dto.resolution : (tpl.resolution || resolution);
       await this.templateRepo.increment({ id: tpl.id }, 'usage_count', 1);
     } else if (dto.nodes) {
       nodesJson = typeof dto.nodes === 'string' ? dto.nodes : JSON.stringify(dto.nodes);
@@ -158,13 +169,13 @@ export class CanvasService {
     if (category && category !== 'all') where.category = category;
     if (keyword) where.name = Like(`%${keyword}%`);
     const items = await this.templateRepo.find({ where, order: { created_at: 'DESC' } });
-    return items.map((t) => ({ ...t, nodes: this.parseNodes(t.nodes), variables: this.parseJson(t.variables) }));
+    return items.map((t) => ({ ...t, nodes: this.parseNodes(t.nodes), edges: this.parseEdges(t.nodes), variables: this.parseJson(t.variables) }));
   }
 
   async getTemplateById(id: number) {
     const t = await this.templateRepo.findOne({ where: { id } });
     if (!t) throw new NotFoundException('画布模板不存在');
-    return { ...t, nodes: this.parseNodes(t.nodes), variables: this.parseJson(t.variables) };
+    return { ...t, nodes: this.parseNodes(t.nodes), edges: this.parseEdges(t.nodes), variables: this.parseJson(t.variables) };
   }
 
   async createTemplate(userId: number, dto: any) {
@@ -254,19 +265,22 @@ export class CanvasService {
    * The request returns immediately; the frontend polls getProjectResult.
    */
   async startRender(projectId: number, userId: number) {
-    const p = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
-    if (!p) throw new NotFoundException('画布项目不存在');
-    if (p.status === 'rendering') {
+    // Atomic claim: only transitions from non-rendering states to rendering,
+    // so two concurrent render requests cannot start two pipelines
+    const upd = await this.projectRepo.createQueryBuilder()
+      .update(CanvasProject)
+      .set({ status: 'rendering', progress: 0, error_msg: '' })
+      .where('id = :id AND user_id = :uid AND status <> :st', { id: projectId, uid: userId, st: 'rendering' })
+      .execute();
+    if (!upd.affected) {
+      const p = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
+      if (!p) throw new NotFoundException('画布项目不存在');
       throw new BadRequestException('项目正在渲染中，请稍候');
     }
-    p.status = 'rendering';
-    p.progress = 0;
-    p.error_msg = '';
-    await this.projectRepo.save(p);
 
     // Fire-and-forget render in background
-    this.doRender(p.id).catch((err) => {
-      this.logger.error(`Canvas render #${p.id} failed: ${err.message}`);
+    this.doRender(projectId).catch((err) => {
+      this.logger.error(`Canvas render #${projectId} failed: ${err.message}`);
     });
     return { status: 'rendering', progress: 0 };
   }
@@ -293,7 +307,7 @@ export class CanvasService {
         await this.renderLegacy(project, parsed.legacyNodes, workDir, update);
       }
     } catch (err: any) {
-      await update({ status: 'failed', error_msg: err.message.substring(0, 500) });
+      await update({ status: 'failed', error_msg: err.message.substring(0, 500), result_url: null });
       this.logger.error(`Canvas render #${projectId} failed: ${err.message}`);
     } finally {
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -459,10 +473,15 @@ export class CanvasService {
     await update({ progress: 60 });
     let merged: string;
     if (clips.length === 0) {
-      // text-only workflow: build a base canvas
+      // text-only workflow: build a base canvas long enough for all overlays
       merged = path.join(workDir, 'base_blank.mp4');
+      const baseDur = textOverlays.reduce((mx, t) => {
+        const start = this.clampNumber(t.params?.start, 0, 60);
+        const dur = this.clampDuration(t.params?.duration || t.duration);
+        return Math.max(mx, start + dur);
+      }, 1);
       await execAsync(
-        `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -f lavfi -i "color=c=black:s=${res}:d=1:r=24" -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p "${merged}"`,
+        `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -f lavfi -i "color=c=black:s=${res}:d=${Math.min(baseDur, 60).toFixed(2)}:r=24" -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p "${merged}"`,
         { timeout: 60000 },
       );
     } else if (clips.length === 1) {
@@ -779,11 +798,7 @@ export class CanvasService {
     const hasAudio = await Promise.all(
       clips.map(async (p) => {
         try {
-          const { stdout } = await execAsync(
-            `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${p}"`,
-            { timeout: 10000 },
-          );
-          return stdout.trim().length > 0;
+          return await this.ffmpeg.hasAudioTrack(p);
         } catch {
           return false;
         }
@@ -893,10 +908,14 @@ export class CanvasService {
   private async downloadToLocal(url: string, workDir: string, prefix: string): Promise<string | null> {
     try {
       if (!url) return null;
-      // Local static path → map to output dir
+      // Local static path → map to output dir (reject traversal outside it)
       const staticMatch = url.match(/^\/static\/([^?]+)$/);
       if (staticMatch) {
-        const local = path.join(this.outputDir, staticMatch[1]);
+        const local = path.resolve(this.outputDir, staticMatch[1]);
+        if (!local.startsWith(this.outputDir + path.sep)) {
+          this.logger.warn(`Static path escapes output dir: ${staticMatch[1]}`);
+          return null;
+        }
         if (fs.existsSync(local)) return local;
         this.logger.warn(`Static file missing: ${staticMatch[1]}`);
         return null;

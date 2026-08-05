@@ -71,6 +71,7 @@ export default function CanvasEditor() {
   const [saved, setSaved] = useState(false);
   const [projectId, setProjectId] = useState<number | null>(null);
   const [loading, setLoading] = useState(!isNew);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [render, setRender] = useState<RenderStatus | null>(null);
   const [uploading, setUploading] = useState(false);
   const [paletteKind, setPaletteKind] = useState<'node' | 'asset'>('node');
@@ -87,6 +88,9 @@ export default function CanvasEditor() {
   useEffect(() => {
     if (isNew) return;
     const load = async () => {
+      // reset render state so a previous project's result cannot leak in
+      setRender(null);
+      setLoadError(null);
       try {
         const res = await api.get(`/api/canvas/projects/${id}`);
         const p = res.data;
@@ -96,7 +100,7 @@ export default function CanvasEditor() {
         setProjectId(p.id);
         const rawNodes: any[] = p.nodes || [];
         const rawEdges: any[] = p.edges || [];
-        // legacy nodes (no position) → auto layout
+        // legacy nodes (no position) → auto layout + migrate old fields into params
         const nodes: WFNode[] = rawNodes.map((n, i) => {
           if (n.position && typeof n.position.x === 'number') {
             return {
@@ -104,10 +108,21 @@ export default function CanvasEditor() {
               source: n.source ? { ...n.source, url: toStaticUrl(n.source.url) } : null,
             } as WFNode;
           }
+          const base = newNode(n.type || 'video', { x: 80 + (i % 3) * 260, y: 60 + Math.floor(i / 3) * 160 });
+          const legacyParams: any = {
+            ...(n.params || {}),
+          };
+          // legacy top-level fields → new params (backend workflow render reads params)
+          if (n.text !== undefined && legacyParams.text === undefined) legacyParams.text = n.text;
+          if (n.bg_color !== undefined && legacyParams.bg_color === undefined) legacyParams.bg_color = n.bg_color;
+          if (n.text_color !== undefined && legacyParams.text_color === undefined) legacyParams.text_color = n.text_color;
+          if (n.font_size !== undefined && legacyParams.font_size === undefined) legacyParams.font_size = n.font_size;
           return {
-            ...newNode(n.type || 'video', { x: 80 + (i % 3) * 260, y: 60 + Math.floor(i / 3) * 160 }),
+            ...base,
+            params: { ...base.params, ...legacyParams },
             source: n.source ? { ...n.source, url: toStaticUrl(n.source.url) } : null,
             duration: n.duration || 3,
+            transition: n.transition, // preserved so workflow render can use it
           };
         });
         const edges = rawEdges.map((e: any) => ({ id: e.id, from: e.from, to: e.to }));
@@ -128,11 +143,12 @@ export default function CanvasEditor() {
           }
         }
         setWorkflow({ nodes, edges: finalEdges });
-        if (p.status === 'rendering' || p.status === 'completed') {
+        if (p.status === 'rendering' || p.status === 'completed' || p.status === 'failed') {
           setRender({ status: p.status, progress: p.progress, result_url: p.result_url, error_msg: p.error_msg });
         }
       } catch (err: any) {
-        message.error('加载项目失败: ' + (err?.response?.data?.message || err.message));
+        // do not leave a blank editor over the real project (save would overwrite it)
+        setLoadError(err?.response?.data?.message || err.message || '未知错误');
       }
       setLoading(false);
     };
@@ -142,9 +158,11 @@ export default function CanvasEditor() {
   // Poll render progress
   useEffect(() => {
     if (!render || render.status !== 'rendering' || !projectId) return;
+    let failCount = 0;
     const timer = setInterval(async () => {
       try {
         const res = await api.get(`/api/canvas/projects/${projectId}/export`);
+        failCount = 0;
         setRender(res.data);
         if (res.data.status === 'completed' && res.data.result_url) {
           message.success('渲染完成！');
@@ -153,7 +171,13 @@ export default function CanvasEditor() {
           message.error('渲染失败: ' + (res.data.error_msg || '未知错误'));
           clearInterval(timer);
         }
-      } catch { clearInterval(timer); }
+      } catch {
+        failCount += 1;
+        if (failCount >= 3) {
+          message.error('渲染状态获取失败，请稍后手动刷新');
+          clearInterval(timer);
+        }
+      }
     }, 2500);
     return () => clearInterval(timer);
   }, [render?.status, projectId]);
@@ -210,19 +234,26 @@ export default function CanvasEditor() {
       if (dramaRes.status === 'fulfilled') {
         const items = dramaRes.value.data?.items || [];
         const assets: AssetItem[] = [];
-        for (const proj of items) {
+        // fetch episodes of all drama projects in parallel
+        const epLists = await Promise.all(items.map(async (proj: any) => {
           try {
             const epRes = await api.get(`/api/drama/${proj.id}/episodes`);
-            const eps = epRes.data || [];
-            for (const ep of eps) {
-              const segs = ep.segments || [];
-              for (const s of segs) {
-                if (s.video_url) {
-                  assets.push({ kind: 'drama', type: 'video', url: toStaticUrl(s.video_url) || '', title: `${proj.name} - ${ep.name || ''} ${s.segment_no}`, ref_id: s.id });
-                }
-              }
+            return { proj, eps: epRes.data || [] };
+          } catch { return { proj, eps: [] }; }
+        }));
+        for (const { proj, eps } of epLists) {
+          for (const ep of eps) {
+            // episodes expose the stitched full video; segment-level urls live in
+            // a separate detail endpoint, so surface the episode video here
+            if (ep.video_url) {
+              assets.push({
+                kind: 'drama', type: 'video',
+                url: toStaticUrl(ep.video_url) || '',
+                title: `${proj.title || proj.name || '短剧'} - ${ep.title || `第${ep.episode_no}集`}`,
+                ref_id: ep.id,
+              });
             }
-          } catch { /* ignore */ }
+          }
         }
         setDramaClips(assets);
       }
@@ -281,17 +312,22 @@ export default function CanvasEditor() {
       if (mediaNodes.length > 0 && !outputNode) { message.warning('请先添加「输出」节点'); return; }
       if (workflow.nodes.some((n) => n.type === 'text' && !(n.params?.text && String(n.params.text).trim()))) { message.warning('有文字节点未填写内容'); return; }
       if (workflow.nodes.some((n) => (n.type === 'video' || n.type === 'image' || n.type === 'audio') && !n.source?.url)) { message.warning('有素材节点未选择素材'); return; }
-      const unusedMedia = mediaNodes.filter((n) => !outputNode || !workflow.edges.some((e) => e.to === outputNode.id && (() => {
-        // walk from n through effects to output
-        let cur = n.id;
-        for (let k = 0; k < 20; k++) {
-          const next = workflow.edges.find((e) => e.from === cur);
-          if (!next) return false;
-          if (next.to === outputNode.id) return true;
-          cur = next.to;
+      const canReachOutput = (startId: string, outputId: string): boolean => {
+        const seen = new Set<string>();
+        const frontier = [startId];
+        while (frontier.length > 0) {
+          const cur = frontier.shift()!;
+          if (seen.has(cur)) continue;
+          seen.add(cur);
+          for (const e of workflow.edges) {
+            if (e.from !== cur) continue;
+            if (e.to === outputId) return true;
+            frontier.push(e.to);
+          }
         }
         return false;
-      })()));
+      };
+      const unusedMedia = mediaNodes.filter((n) => !outputNode || !canReachOutput(n.id, outputNode.id));
       if (unusedMedia.length > 0) { message.warning('有视频/图片节点未连接到输出节点'); return; }
 
       setSaving(true);
@@ -374,6 +410,17 @@ export default function CanvasEditor() {
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ textAlign: 'center', padding: '100px 0' }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+        <Text strong style={{ fontSize: 15 }}>项目加载失败</Text>
+        <div style={{ color: '#f5222d', margin: '10px 0 20px', fontSize: 13 }}>{loadError}</div>
+        <Button onClick={() => navigate('/canvas')} style={{ borderRadius: 10 }}>返回画布列表</Button>
+      </div>
+    );
   }
 
   return (

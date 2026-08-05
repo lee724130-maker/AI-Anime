@@ -1,5 +1,54 @@
 # 修复日志
 
+## 2026-08-05（深夜：画布全面体检修复 12 项 ✅ 已提交）
+
+> 承接晚节。用户反馈「画布功能基本没问题，帮我再检查检查有没有 bug」→ 双 agent 只读审查（前端 7 文件 + 后端 canvas 模块）→ 修复 12 项（其中新发现 2 个隐藏 bug：模板 API 不返回 edges、短剧素材 Tab 数据源字段不存在）。实测后端 9/9 + 前端 7/7 + legacy 迁移 5/5 全绿，tsc 双端全绿，已 git 提交（`fix: 画布体检修复（多选删除/短剧素材/变量注入/无声混音等 12 项）`）。
+
+### ✅ 修复清单（按用户可感知度排序）
+- **前端 `WorkflowCanvas.tsx`**：
+  1. **多选操作条「全部删除」失效**——点击操作条时 pointerdown 先冒泡到画布空白分支清空选中 → 操作条容器加 `onPointerDown={e.stopPropagation()}`
+  2. 边 id 碰撞：`edge_${Date.now()}` → `edge_${Date.now()}_${edgeSeq++}`（同毫秒两次连线 React key 重复 + 后端歧义）
+- **前端 `Editor.tsx`**：
+  3. **短剧片段素材 Tab 永远为空**——原读 `ep.segments[].video_url`，但 `getEpisodes` 返回裸分集实体（无 segments 字段）→ 改读分集成片 `ep.video_url`（stitched 整集），标题 `${proj.title||proj.name} - ${ep.title||第N集}`；串行 N 次请求改 `Promise.all` 并行
+  4. **加载失败后空态可保存覆盖原数据**——loadError state，失败显示错误页（返回按钮），不进编辑器
+  5. 渲染轮询遇一次网络错误即永久停 → 连续失败 3 次才停并提示
+  6. **legacy 旧格式迁移丢字段**——newNode 分支回填 `params.text/bg_color/text_color/font_size`（top-level → params），保留 top-level `transition`（后端 workflow 渲染有 `chain[i+1]?.transition` 兜底读法）
+  7. 跨项目残留渲染状态（后退/前进换项目仍显示上个项目成片）+ failed 状态不展示 → load 开头 `setRender(null)`，failed 也写入 render
+  8. `unusedMedia` 可达性校验：`edges.find` 只沿第一条出边 → BFS 遍历所有出边（防多出边误拦截）
+- **前端 `index.tsx`**：9. 渲染进度冻结——轮询时 status 仍为 rendering 的 progress 不写入 next → 无条件合并 + 状态变化才触发
+- **后端 `canvas.service.ts`**：
+  10. **模板变量替换 JSON 注入**——变量值原样拼进 nodes JSON，含 `"`/`\` 直接破坏 JSON → `JSON.stringify(value).slice(1,-1)` 转义；残留 `{{var}}` → 400「模板变量未填写」；替换后 JSON.parse 校验
+  11. **文本-only 画布 + 音频节点静默丢失**——`mixAudioTracks` 硬编码 `[0:a]`（ffmpeg.util.ts:964），base_blank 无音轨 → filter 解析失败被 catch 吞掉 → **ffmpeg.util.ts 内动态补静音轨**（`hasAudioTrack` 探测，无音轨时追加 `-f lavfi -i anullsrc` + atrim 到 totalDur）
+  12. **文本-only 画布固定 1 秒**——base_blank `d=1` → 按 textOverlays 的 max(start+duration) 计算（上限 60s）
+  13. **ratio 显式 9:16 被模板默认值覆盖**——`ratio==='9:16' ? tpl.ratio||ratio : ratio` → `dto.ratio ? dto.ratio : tpl.ratio||'9:16'`
+  14. **渲染失败保留旧 result_url**——catch 里 `result_url: null`（实体类型 `string → string | null`，⚠️ 必须显式 `type:'varchar'`，否则 TypeORM 反射 union 类型报 DataTypeNotSupportedError）
+  15. **startRender 并发竞态**（双渲染互相覆盖）——「先查后写」改**原子 UPDATE**：`createQueryBuilder().update().where('id=? AND user_id=? AND status<>"rendering"')`，affected=0 再查原因
+  16. `/static/` 路径穿越——`path.join(outputDir, m[1])` → `path.resolve` + `startsWith(outputDir+sep)` 校验
+  17. **模板 API 不返回 edges（新发现隐藏 bug）**——`listTemplates/getTemplateById` 只返回 nodes+variables，模板 5 的 4 条边丢失 → 补 `edges: parseEdges(t.nodes)`（restore-project29.js 因此恢复出 0 边）
+  18. `mergeWithTransitions` 裸 `ffprobe` → `ffmpeg.hasAudioTrack`；**ffmpeg.util.ts 三处裸 `ffprobe`（mergeVideos/getVideoInfo×2）统一 `this.ffprobePath`**（部署机 PATH 无 ffprobe 时 getVideoInfo 静默返回 duration=5、hasAudio 全 false 丢音轨）
+
+### ✅ 实测（全绿）
+- 后端 API（`test-canvas-fixes-api.js`）9/9：变量含引号 `他说"你好"\世界'x` 创建成功且 text 内容原样保留 / 缺变量 400 / 显式 16:9 不被模板覆盖 / 纯文字+音频节点渲染 completed / **成片含音轨**（ffprobe codec_type=audio）/ 时长 3s 精确
+- 前端 UI（`test-canvas-fixes-ui.js`）7/7：项目 29 加载 5 节点 / 框选操作条出现 / **「全部删除」5→2 生效** / 操作条消失 / 短剧 Tab 显示「轮回仙尊重临青云 - 仙帝一剑凌霄」/ 不存在项目显示错误页 + 返回按钮 / 无 pageerror（ERR_ABORTED 是 headless 切页中止 video 请求的噪音，文件 HEAD 全 200 已验证）
+- legacy 迁移（`test-canvas-legacy-ui.js`）5/5：3 节点迁移 / 文字内容保留 / 属性面板回填 / 自动生成连线 / 无 JS 错误
+- tsc：backend + frontend 双端全绿
+
+### ⚠️ 审查发现但未修（C 类上线前）
+- 模板 update/delete/create 无归属校验（任意登录用户可改系统模板）、`is_system` 任意用户可置 true
+- `downloadToLocal` 绝对路径分支/外链 URL 无白名单（SSRF 向量）、大文件全量进内存
+- 渲染中 delete 项目 → 孤儿产物；历史成片无清理策略（归入 output/ 清理策略）
+- 渲染中 PUT 修改项目不提示（doRender 用开头快照，静默过期）
+- 变量名正则 `\w+` 不支持中文变量 key；`coverFromNodes` 外链直接透传
+- `PropertiesPanel` 颜色输入 `<input type=color>` 对非 `#rrggbb` 历史值（'white'/'#fff'）会报格式警告
+
+### 本轮血泪经验（新增）
+- **TypeORM 实体字段改联合类型必须显式 `type`**：`result_url: string | null` 编译后 design:type 反射成 Object → `DataTypeNotSupportedError`，需 `@Column({ type:'varchar', ... })`
+- **模板 API 与项目 API 返回字段不一致**：项目返回 `{nodes, edges}`，模板原只返回 `{nodes, variables}` → restore 类脚本若读 `t.edges` 会静默得到 undefined（0 边）
+- **drama 项目名字段是 `title` 不是 `name`**；分集成片在 `ep.video_url`（stitched），片段级 URL 在 detail 端点
+- headless 下切页导致的 `ERR_ABORTED` 视频流请求中止是噪音——用 `page.on('response')` 收集 4xx 状态 + HEAD 验证文件存在，别误判为 404 bug
+
+---
+
 ## 2026-08-05（晚：画布交互升级——框选多选/右键平移/使用教程 ✅ 已提交）
 
 > 承接下午记录。按用户需求改造画布编辑器交互：**左键**=选中/拖节点/空白拉框多选（可整体拖动、批量删除、Ctrl+A 全选），**右键**=平移画布，并新增编辑器内「使用教程」帮助弹窗（鼠标操作表+快捷键+面板/工具栏/属性说明）。已 git 提交（`feat: 画布多选框选 + 右键平移 + 使用教程弹窗`）。
