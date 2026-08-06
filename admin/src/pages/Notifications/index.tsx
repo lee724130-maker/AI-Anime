@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Typography, Space, Tag, Button, List, Empty, Spin } from 'antd';
+import { Typography, Space, Tag, Button, List, Empty, Spin } from 'antd';
 import { CheckOutlined, BellOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';

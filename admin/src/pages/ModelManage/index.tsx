@@ -3,7 +3,7 @@ import { Table, Button, Card, Typography, Tag, Space, Modal, Form, Input, Select
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const CAPABILITIES = ['video', 'image', 'text', 'audio', 'avatar'];
 const PROVIDERS = ['volcengine', 'aliyun', 'openai', 'deepseek', 'runway', 'heygen', 'zhipu'];

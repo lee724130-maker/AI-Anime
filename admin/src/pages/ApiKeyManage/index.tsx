@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, Form, Input, Button, Typography, Space, message, Spin, Tag, Collapse, Alert, Row, Col, Tooltip } from 'antd';
+import { Card, Form, Input, Button, Typography, Space, message, Spin, Tag, Alert, Row, Col } from 'antd';
 import {
   KeyOutlined, SaveOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  VideoCameraOutlined, PictureOutlined, AudioOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
