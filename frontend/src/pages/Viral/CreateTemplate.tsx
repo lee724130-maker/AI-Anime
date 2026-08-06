@@ -161,7 +161,7 @@ export default function CreateTemplate() {
         <Card style={cardStyle}>
           <Title level={4} style={{ marginBottom: 20 }}>创建新模板</Title>
           <Alert
-            message="支持抖音、B站等平台的视频链接或 MP4 直链；也可以上传本地视频"
+            message="支持抖音、B站视频链接；也可以上传本地视频"
             type="info" showIcon style={{ borderRadius: 10, marginBottom: 20 }}
           />
 
@@ -169,7 +169,7 @@ export default function CreateTemplate() {
             <Text strong style={{ display: 'block', marginBottom: 6 }}>视频链接</Text>
             <Input
               size="large"
-              placeholder="粘贴视频链接（抖音/B站/MP4直链）"
+              placeholder="粘贴抖音/B站视频链接"
               prefix={<LinkOutlined />}
               value={videoUrl}
               onChange={e => setVideoUrl(e.target.value)}

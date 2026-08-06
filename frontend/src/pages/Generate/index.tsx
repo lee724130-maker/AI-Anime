@@ -112,26 +112,26 @@ export default function GeneratePage() {
   const promptTextToVideo = Form.useWatch('prompt', formTextToVideo) || '';
   const promptImageToVideo = Form.useWatch('prompt', formImageToVideo) || '';
 
-  const fetchHistory = useCallback(async (page = 1) => {
-    setHistoryLoading(true);
+  const fetchHistory = useCallback(async (page = 1, silent = false) => {
+    if (!silent) setHistoryLoading(true);
     try {
       const { data } = await api.get('/api/generate/tasks', { params: { page, limit: 20 } });
       setHistory(data.items || []);
     } catch { /* ignore */ }
-    setHistoryLoading(false);
+    if (!silent) setHistoryLoading(false);
   }, []);
 
   useEffect(() => {
     fetchHistory();
   }, []);
 
-  // 自动轮询：当有 pending/processing 任务时，每 5 秒刷新一次历史
+  // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新
   const hasActiveTask = history.some(r => r.status === 'pending' || r.status === 'processing');
   useEffect(() => {
-    if (!hasActiveTask) return;
-    const timer = setInterval(() => fetchHistory(), 5000);
+    if (!hasActiveTask && !loading) return;
+    const timer = setInterval(() => fetchHistory(1, true), 3000);
     return () => clearInterval(timer);
-  }, [hasActiveTask, fetchHistory]);
+  }, [hasActiveTask, loading, fetchHistory]);
 
   const fetchGlobalAssets = useCallback(async (type: string) => {
     setAssetsLoading(true);
@@ -218,15 +218,19 @@ export default function GeneratePage() {
 
   const doGenerate = async (url: string, body: any, form: any) => {
     setLoading(true);
+    // Refresh immediately so the new task shows as "processing" right away;
+    // the 3s polling (started by loading=true) keeps it updated until done.
+    fetchHistory(1, true);
     try {
       await api.post(url, body);
       message.success('生成任务已提交');
       form.resetFields();
       setUploadFileList([]);
       setSelectedLibraryAssets([]);
-      fetchHistory();
+      fetchHistory(1, true);
     } catch (err: any) {
       message.error(err.response?.data?.message || '生成失败');
+      fetchHistory(1, true);
     }
     setLoading(false);
   };

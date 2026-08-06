@@ -321,9 +321,10 @@ export class ViralService {
       this.logger.log(`从粘贴文本中提取 URL: ${finalUrl}`);
     }
 
-    // YouTube is temporarily not supported (unstable without cookies / geo-restrictions)
-    if (/^https?:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//i.test(finalUrl)) {
-      throw new BadRequestException('暂不支持 YouTube 链接，请使用抖音/B站等平台链接，或直接上传本地视频');
+    // Only Douyin & Bilibili links are allowed (local MP4 links / other
+    // platforms rejected for now; upload the local file instead)
+    if (!/^https?:\/\/([a-z0-9-]+\.)?(douyin\.com|iesdouyin\.com|bilibili\.com|b23\.tv)(\/|$)/i.test(finalUrl)) {
+      throw new BadRequestException('暂不支持该链接，仅支持抖音、B站视频链接；也可以直接上传本地视频');
     }
 
     const taskId = Date.now();
