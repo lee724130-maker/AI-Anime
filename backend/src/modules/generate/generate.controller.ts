@@ -65,6 +65,11 @@ export class GenerateController {
     return this.generateService.listTasks(req.user.id, page || 1, limit || 20);
   }
 
+  @Get('credit-rules')
+  creditRules() {
+    return this.generateService.getCreditRules();
+  }
+
   @Post('tasks/:id/retry')
   retryTask(@Req() req, @Param('id') id: number) {
     return this.generateService.retryTask(req.user.id, id);

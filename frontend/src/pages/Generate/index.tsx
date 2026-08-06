@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Tabs, Form, Select, Input, Button, Card, Table, Tag,
-  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip,
+  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert,
 } from 'antd';
 import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, PlayCircleFilled, UserOutlined, EnvironmentOutlined, AppstoreOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined } from '@ant-design/icons';
 import api from '../../services/api';
@@ -95,6 +95,7 @@ export default function GeneratePage() {
   const [saveModal, setSaveModal] = useState<{ visible: boolean; record: any; name: string; type: string; description: string; promptCn: string }>({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' });
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
   const [previewVideoVisible, setPreviewVideoVisible] = useState(false);
+  const [creditRules, setCreditRules] = useState<any>(null);
 
   const [assetTab, setAssetTab] = useState<'character' | 'scene' | 'prop'>('character');
   const [assetSource, setAssetSource] = useState<'upload' | 'library'>('library');
@@ -123,6 +124,7 @@ export default function GeneratePage() {
 
   useEffect(() => {
     fetchHistory();
+    api.get('/api/generate/credit-rules').then(({ data }) => setCreditRules(data)).catch(() => setCreditRules(null));
   }, []);
 
   // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新
@@ -681,6 +683,22 @@ export default function GeneratePage() {
     <div>
       <Title level={3} style={{ marginBottom: 4 }}>AI 生成中心</Title>
       <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>选择生成模式，AI 将自动为您创作</Text>
+
+      {creditRules && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="积分扣费规则"
+          description={
+            <Space direction="vertical" size={2}>
+              <Text>📝 文字生图片：{creditRules.image_per_image} 积分 / 张</Text>
+              <Text>🎬 文字生视频 / 🖼 图片生视频：480p = {creditRules.video_480p_per_5s} 积分、720p = {creditRules.video_720p_per_5s} 积分、1080p = {creditRules.video_1080p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
+              <Text>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣费</Text>
+            </Space>
+          }
+        />
+      )}
 
       <Card style={{ borderRadius: 12, marginBottom: 24 }}>
         <Tabs activeKey={tabKey} onChange={setTabKey} items={[

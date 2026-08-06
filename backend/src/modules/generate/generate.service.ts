@@ -110,6 +110,24 @@ export class GenerateService {
     );
   }
 
+  /** 积分扣费规则（供前端展示，读 system_configs 实时值） */
+  async getCreditRules(): Promise<Record<string, any>> {
+    const [image, r480, r720, r1080] = await Promise.all([
+      this.getConfigInt('credit_cost_image', 5),
+      this.getConfigInt('credit_cost_480p', 10),
+      this.getConfigInt('credit_cost_720p', 20),
+      this.getConfigInt('credit_cost_1080p', 40),
+    ]);
+    return {
+      image_per_image: image,
+      video_480p_per_5s: r480,
+      video_720p_per_5s: r720,
+      video_1080p_per_5s: r1080,
+      video_unit_seconds: 5,
+      refund_on_failure: true,
+    };
+  }
+
   async textToImage(userId: number, dto: {
     prompt: string;
     style?: string;
