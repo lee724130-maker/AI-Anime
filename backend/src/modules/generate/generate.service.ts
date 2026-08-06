@@ -36,10 +36,45 @@ export class GenerateService {
     width?: number;
     height?: number;
   }) {
-    const { prompt, style, num_images, model } = dto;
+    const { prompt, model } = dto;
     if (!prompt) throw new BadRequestException('请输入描述');
 
+    let modelName = '';
+    if (model) {
+      const models = await this.modelConfigService.findActive('image');
+      const match = models.find((m: any) => m.model_id === model);
+      if (!match) throw new BadRequestException(`模型 ${model} 不存在或未启用`);
+      modelName = match.model_name;
+    }
+
+    const task = await this.taskRepo.save({
+      user_id: userId,
+      type: 'image',
+      status: 'processing',
+      model_name: modelName,
+      input_data: JSON.stringify(dto),
+    });
+
+    void this.runTextToImage(userId, task.id, dto).catch((err: any) => {
+      this.logger.error(`[后台] 文生图任务 ${task.id} 异常: ${err.message}`);
+    });
+
+    return { taskId: task.id, status: 'processing' };
+  }
+
+  private async runTextToImage(userId: number, taskId: number, dto: {
+    prompt: string;
+    style?: string;
+    num_images?: number;
+    model?: string;
+    width?: number;
+    height?: number;
+  }) {
+    const task = await this.taskRepo.findOne({ where: { id: taskId } });
+    if (!task) return;
+    const { prompt, style, num_images } = dto;
     let expandedPrompt = prompt;
+
     if (prompt.length < 15) {
       try {
         const systemPrompt = `你是一个AI绘图Prompt扩写专家，对各类动漫、游戏、小说角色了如指掌。
@@ -75,24 +110,6 @@ export class GenerateService {
       }
     }
 
-    let modelName = model || '';
-    if (model) {
-      const models = await this.modelConfigService.findActive('image');
-      const match = models.find((m: any) => m.model_id === model);
-      if (!match) throw new BadRequestException(`模型 ${model} 不存在或未启用`);
-      modelName = match.model_name;
-    }
-
-    const task = await this.taskRepo.save({
-      user_id: userId,
-      type: 'image',
-      status: 'processing',
-      model_name: modelName,
-      input_data: JSON.stringify(dto),
-    });
-
-    dto.prompt = expandedPrompt;
-
     const viewConfigs: Array<{ label: string; promptSuffix: string }> = [];
     const count = num_images || 1;
     if (count === 1) {
@@ -113,11 +130,11 @@ export class GenerateService {
         const viewPrompt = expandedPrompt + view.promptSuffix;
         const urls = await this.aiService.generateImage({
           prompt: viewPrompt,
-          style: style || 'anime',
+          style: style || 'realistic',
           numImages: 1,
           width: dto.width || 1080,
           height: dto.height || 1920,
-          model: model || undefined,
+          model: dto.model || undefined,
         });
         for (const url of urls) {
           const localUrl = await this.downloadToLocal(url, `img_${task.id}_${view.label}`);
@@ -137,14 +154,13 @@ export class GenerateService {
       task.output_data = JSON.stringify(results);
       task.completed_at = new Date();
       await this.taskRepo.save(task);
-
-      return { taskId: task.id, images: results };
+      this.logger.log(`任务 ${task.id} 文生图完成`);
     } catch (err: any) {
       task.status = 'failed';
       task.error_msg = err.message;
       task.completed_at = new Date();
       await this.taskRepo.save(task);
-      throw new BadRequestException(`图片生成失败: ${err.message}`);
+      this.logger.warn(`任务 ${task.id} 文生图失败: ${err.message}`);
     }
   }
 
@@ -156,10 +172,10 @@ export class GenerateService {
     duration?: number;
     model?: string;
   }) {
-    const { prompt, style, resolution, ratio, duration, model } = dto;
+    const { prompt, model } = dto;
     if (!prompt) throw new BadRequestException('请输入描述');
 
-    let modelName = model || '';
+    let modelName = '';
     if (model) {
       const models = await this.modelConfigService.findActive('video', 't2v');
       const match = models.find((m: any) => m.model_id === model);
@@ -175,6 +191,25 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
+    void this.runTextToVideo(userId, task.id, dto).catch((err: any) => {
+      this.logger.error(`[后台] 文生视频任务 ${task.id} 异常: ${err.message}`);
+    });
+
+    return { taskId: task.id, status: 'processing' };
+  }
+
+  private async runTextToVideo(userId: number, taskId: number, dto: {
+    prompt: string;
+    style?: string;
+    resolution?: string;
+    ratio?: string;
+    duration?: number;
+    model?: string;
+  }) {
+    const task = await this.taskRepo.findOne({ where: { id: taskId } });
+    if (!task) return;
+    const { prompt, style, resolution, ratio, duration, model } = dto;
+
     try {
       const videoUrl = await this.aiService.generateVideo({
         imageUrl: '',
@@ -184,6 +219,7 @@ export class GenerateService {
         ratio: ratio || '9:16',
         model: model || '',
         videoType: 't2v',
+        style,
       }, prompt);
 
       const localUrl = await this.downloadToLocal(videoUrl, `vid_${task.id}`);
@@ -200,14 +236,13 @@ export class GenerateService {
       task.output_data = JSON.stringify({ id: file.id, url: localUrl });
       task.completed_at = new Date();
       await this.taskRepo.save(task);
-
-      return { taskId: task.id, video: { id: file.id, url: localUrl } };
+      this.logger.log(`任务 ${task.id} 文生视频完成`);
     } catch (err: any) {
       task.status = 'failed';
       task.error_msg = err.message;
       task.completed_at = new Date();
       await this.taskRepo.save(task);
-      throw new BadRequestException(`视频生成失败: ${err.message}`);
+      this.logger.warn(`任务 ${task.id} 文生视频失败: ${err.message}`);
     }
   }
 
@@ -221,10 +256,10 @@ export class GenerateService {
     duration?: number;
     model?: string;
   }) {
-    const { image_url, media, prompt, style, resolution, ratio, duration, model } = dto;
+    const { image_url, media, model } = dto;
     if (!image_url && (!media || media.length === 0)) throw new BadRequestException('请提供参考图片');
 
-    let modelName = model || '';
+    let modelName = '';
     if (model) {
       const models = await this.modelConfigService.findActive('video', 'i2v');
       const match = models.find((m: any) => m.model_id === model);
@@ -241,6 +276,27 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
+    void this.runImageToVideo(userId, task.id, dto).catch((err: any) => {
+      this.logger.error(`[后台] 图生视频任务 ${task.id} 异常: ${err.message}`);
+    });
+
+    return { taskId: task.id, status: 'processing' };
+  }
+
+  private async runImageToVideo(userId: number, taskId: number, dto: {
+    image_url: string;
+    media?: Array<{ type: string; url: string }>;
+    prompt?: string;
+    style?: string;
+    resolution?: string;
+    ratio?: string;
+    duration?: number;
+    model?: string;
+  }) {
+    const task = await this.taskRepo.findOne({ where: { id: taskId } });
+    if (!task) return;
+    const { image_url, media, prompt, style, resolution, ratio, duration, model } = dto;
+
     try {
       // 自动判断使用 I2V 还是 R2V
       const videoType = media && media.length > 1 ? 'r2v' : 'i2v';
@@ -253,6 +309,7 @@ export class GenerateService {
         ratio: ratio || '9:16',
         model: model || '',
         videoType,
+        style,
       }, prompt);
 
       const localUrl = await this.downloadToLocal(videoUrl, `i2v_${task.id}`);
@@ -269,14 +326,13 @@ export class GenerateService {
       task.output_data = JSON.stringify({ id: file.id, url: localUrl });
       task.completed_at = new Date();
       await this.taskRepo.save(task);
-
-      return { taskId: task.id, video: { id: file.id, url: localUrl } };
+      this.logger.log(`任务 ${task.id} 图生视频完成`);
     } catch (err: any) {
       task.status = 'failed';
       task.error_msg = err.message;
       task.completed_at = new Date();
       await this.taskRepo.save(task);
-      throw new BadRequestException(`视频生成失败: ${err.message}`);
+      this.logger.warn(`任务 ${task.id} 图生视频失败: ${err.message}`);
     }
   }
 

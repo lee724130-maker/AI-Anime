@@ -428,7 +428,7 @@ export default function GeneratePage() {
               <TextArea rows={3} placeholder="描述你想要生成的图片内容..." />
             </Form.Item>
             <Space style={{ width: '100%' }} size={12}>
-              <Form.Item name="style" label="风格" initialValue="anime">
+              <Form.Item name="style" label="风格" initialValue="realistic">
                 <Select style={{ width: 140 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
               <Form.Item name="num_images" label="数量" initialValue={1}>
@@ -468,7 +468,7 @@ export default function GeneratePage() {
               <Form.Item name="duration" label="时长" initialValue={5}>
                 <Select style={{ width: 100 }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="anime">
+              <Form.Item name="style" label="风格" initialValue="realistic">
                 <Select style={{ width: 110 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </Space>
@@ -656,7 +656,7 @@ export default function GeneratePage() {
               <Form.Item name="duration" label="时长" initialValue={5}>
                 <Select style={{ width: 100 }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="anime">
+              <Form.Item name="style" label="风格" initialValue="realistic">
                 <Select style={{ width: 110 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </Space>
