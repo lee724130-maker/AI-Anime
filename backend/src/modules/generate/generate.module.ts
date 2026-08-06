@@ -8,10 +8,11 @@ import { MediaModule } from '../media/media.module';
 import { AdminModule } from '../admin/admin.module';
 import { MediaFile } from '../media/media-file.entity';
 import { GenerationTask } from '../task/generation-task.entity';
+import { User } from '../user/user.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MediaFile, GenerationTask]),
+    TypeOrmModule.forFeature([MediaFile, GenerationTask, User]),
     UtilsModule,
     TaskModule,
     MediaModule,

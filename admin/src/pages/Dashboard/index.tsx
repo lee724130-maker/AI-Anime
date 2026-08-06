@@ -13,6 +13,7 @@ import {
   BellOutlined,
   CloudServerOutlined,
   FormOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons';
 import { useAdminAuthStore } from '../../stores/authStore';
 import { useNotificationStore } from '../../stores/notificationStore';
@@ -25,6 +26,7 @@ import SystemConfigPage from '../SystemConfig';
 import NotificationsPage from '../Notifications';
 import ModelManagePage from '../ModelManage';
 import PromptTemplatePage from '../PromptTemplate';
+import AccessStatsPage from '../AccessStats';
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text } = Typography;
@@ -35,6 +37,7 @@ const menuItems = [
   { key: 'models', icon: <CloudServerOutlined />, label: '模型管理' },
   { key: 'prompts', icon: <FormOutlined />, label: '提示词模板' },
   { key: 'users', icon: <UserOutlined />, label: '用户管理' },
+  { key: 'access', icon: <SafetyOutlined />, label: '访问统计' },
   { key: 'logs', icon: <FileTextOutlined />, label: '系统日志' },
   { key: 'config', icon: <SettingOutlined />, label: '系统配置' },
 ];
@@ -114,7 +117,7 @@ function DashboardContent() {
 
 function currentKeyFromPath(pathname: string): string {
   const p = pathname.replace(/^\//, '');
-  const valid = new Set(['dashboard', 'apikeys', 'models', 'prompts', 'users', 'logs', 'config', 'notifications']);
+  const valid = new Set(['dashboard', 'apikeys', 'models', 'prompts', 'users', 'logs', 'config', 'notifications', 'access']);
   return valid.has(p) ? p : 'dashboard';
 }
 
@@ -137,6 +140,7 @@ export default function DashboardPage() {
       case 'dashboard': return <DashboardContent />;
       case 'apikeys': return <ApiKeyManagePage />;
       case 'users': return <UserManagePage />;
+      case 'access': return <AccessStatsPage />;
       case 'logs': return <LogsPage />;
       case 'config': return <SystemConfigPage />;
       case 'models': return <ModelManagePage />;

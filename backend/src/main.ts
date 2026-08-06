@@ -11,6 +11,9 @@ async function bootstrap() {
 
   app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
 
+  // Trust nginx proxy headers so req.ip reflects the real client IP
+  app.set('trust proxy', 1);
+
   const corsOrigins = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176')
     .split(',').map((s) => s.trim()).filter(Boolean);
   app.enableCors({ origin: corsOrigins, credentials: true });

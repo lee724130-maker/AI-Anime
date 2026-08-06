@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -46,6 +46,8 @@ import { ViralModule } from './modules/viral/viral.module';
 import { CanvasModule } from './modules/canvas/canvas.module';
 import { WorkbenchModule } from './modules/workbench/workbench.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
+import { SecurityModule } from './modules/security/security.module';
+import { SecurityMiddleware } from './modules/security/security.middleware';
 import { RolesGuard } from './common/guards/roles.guard';
 
 const logDir = path.resolve(process.cwd(), 'logs');
@@ -117,9 +119,14 @@ entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNo
     CanvasModule,
     WorkbenchModule,
     CleanupModule,
+    SecurityModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(SecurityMiddleware).forRoutes('*');
+  }
+}

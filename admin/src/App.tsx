@@ -18,6 +18,7 @@ export default function App() {
           <Route path="dashboard" element={null} />
           <Route path="apikeys" element={null} />
           <Route path="users" element={null} />
+          <Route path="access" element={null} />
           <Route path="logs" element={null} />
           <Route path="config" element={null} />
           <Route path="models" element={null} />

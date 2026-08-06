@@ -6,6 +6,7 @@ import { ModelConfigService } from '../admin/model-config.service';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import { MediaFile } from '../media/media-file.entity';
 import { GenerationTask } from '../task/generation-task.entity';
+import { User } from '../user/user.entity';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
@@ -24,9 +25,57 @@ export class GenerateService {
     private readonly mediaRepo: Repository<MediaFile>,
     @InjectRepository(GenerationTask)
     private readonly taskRepo: Repository<GenerationTask>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
   ) {}
+
+  /** 估算生成积分成本（system_configs 可配置） */
+  private async getConfigInt(key: string, def: number): Promise<number> {
+    try {
+      const rows: any = await this.entityManager.query(
+        'SELECT config_value FROM system_configs WHERE config_key = ? LIMIT 1', [key],
+      );
+      const val = rows?.[0]?.config_value ?? rows?.config_value;
+      const n = Number(val);
+      return Number.isFinite(n) && n > 0 ? n : def;
+    } catch {
+      return def;
+    }
+  }
+
+  /** 图：5 分/张；视频：480p=10/720p=20/1080p=40 × ceil(时长/5) */
+  private async estimateCreditCost(dto: any): Promise<number> {
+    if (dto.type === 'image') {
+      const per = await this.getConfigInt('credit_cost_image', 5);
+      return per * (dto.num_images || 1);
+    }
+    const res = dto.resolution || '720p';
+    const defaults: Record<string, number> = { '480p': 10, '720p': 20, '1080p': 40 };
+    const base = await this.getConfigInt(`credit_cost_${res}`, defaults[res] ?? 20);
+    const mult = Math.max(1, Math.ceil(Number(dto.duration || 5) / 5));
+    return base * mult;
+  }
+
+  /** 原子预扣积分，余额不足返回 false */
+  private async chargeCredits(userId: number, cost: number): Promise<boolean> {
+    if (cost <= 0) return true;
+    const r: any = await this.entityManager.query(
+      'UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?',
+      [cost, userId, cost],
+    );
+    const affected = r?.affectedRows ?? r?.[0]?.affectedRows ?? 0;
+    return affected > 0;
+  }
+
+  private async refundCredits(userId: number, cost: number): Promise<void> {
+    if (cost <= 0) return;
+    await this.entityManager.query(
+      'UPDATE users SET credits = credits + ? WHERE id = ?',
+      [cost, userId],
+    );
+  }
 
   async textToImage(userId: number, dto: {
     prompt: string;
@@ -47,11 +96,18 @@ export class GenerateService {
       modelName = match.model_name;
     }
 
+    const creditCost = await this.estimateCreditCost({ type: 'image', num_images: dto.num_images });
+    const charged = await this.chargeCredits(userId, creditCost);
+    if (!charged) {
+      throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
+    }
+
     const task = await this.taskRepo.save({
       user_id: userId,
       type: 'image',
       status: 'processing',
       model_name: modelName,
+      credit_cost: creditCost,
       input_data: JSON.stringify(dto),
     });
 
@@ -152,6 +208,7 @@ export class GenerateService {
 
       task.status = 'completed';
       task.output_data = JSON.stringify(results);
+      task.credits_charged = true;
       task.completed_at = new Date();
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 文生图完成`);
@@ -159,8 +216,12 @@ export class GenerateService {
       task.status = 'failed';
       task.error_msg = err.message;
       task.completed_at = new Date();
+      if (task.credit_cost > 0 && !task.credits_charged) {
+        await this.refundCredits(task.user_id, task.credit_cost);
+        task.credits_charged = true;
+      }
       await this.taskRepo.save(task);
-      this.logger.warn(`任务 ${task.id} 文生图失败: ${err.message}`);
+      this.logger.warn(`任务 ${task.id} 文生图失败，已${task.credit_cost > 0 ? '退款' : '处理'}: ${err.message}`);
     }
   }
 
@@ -183,11 +244,18 @@ export class GenerateService {
       modelName = match.model_name;
     }
 
+    const creditCost = await this.estimateCreditCost({ type: 'video', resolution: dto.resolution, duration: dto.duration });
+    const charged = await this.chargeCredits(userId, creditCost);
+    if (!charged) {
+      throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
+    }
+
     const task = await this.taskRepo.save({
       user_id: userId,
       type: 'video',
       status: 'processing',
       model_name: modelName,
+      credit_cost: creditCost,
       input_data: JSON.stringify(dto),
     });
 
@@ -234,6 +302,7 @@ export class GenerateService {
 
       task.status = 'completed';
       task.output_data = JSON.stringify({ id: file.id, url: localUrl });
+      task.credits_charged = true;
       task.completed_at = new Date();
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 文生视频完成`);
@@ -241,8 +310,12 @@ export class GenerateService {
       task.status = 'failed';
       task.error_msg = err.message;
       task.completed_at = new Date();
+      if (task.credit_cost > 0 && !task.credits_charged) {
+        await this.refundCredits(task.user_id, task.credit_cost);
+        task.credits_charged = true;
+      }
       await this.taskRepo.save(task);
-      this.logger.warn(`任务 ${task.id} 文生视频失败: ${err.message}`);
+      this.logger.warn(`任务 ${task.id} 文生视频失败，已${task.credit_cost > 0 ? '退款' : '处理'}: ${err.message}`);
     }
   }
 
@@ -267,12 +340,19 @@ export class GenerateService {
       modelName = match.model_name;
     }
 
+    const creditCost = await this.estimateCreditCost({ type: 'video', resolution: dto.resolution, duration: dto.duration });
+    const charged = await this.chargeCredits(userId, creditCost);
+    if (!charged) {
+      throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
+    }
+
     const task = await this.taskRepo.save({
       user_id: userId,
       type: 'video',
       source: 'image_to_video',
       status: 'processing',
       model_name: modelName,
+      credit_cost: creditCost,
       input_data: JSON.stringify(dto),
     });
 
@@ -324,6 +404,7 @@ export class GenerateService {
 
       task.status = 'completed';
       task.output_data = JSON.stringify({ id: file.id, url: localUrl });
+      task.credits_charged = true;
       task.completed_at = new Date();
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 图生视频完成`);
@@ -331,8 +412,12 @@ export class GenerateService {
       task.status = 'failed';
       task.error_msg = err.message;
       task.completed_at = new Date();
+      if (task.credit_cost > 0 && !task.credits_charged) {
+        await this.refundCredits(task.user_id, task.credit_cost);
+        task.credits_charged = true;
+      }
       await this.taskRepo.save(task);
-      this.logger.warn(`任务 ${task.id} 图生视频失败: ${err.message}`);
+      this.logger.warn(`任务 ${task.id} 图生视频失败，已${task.credit_cost > 0 ? '退款' : '处理'}: ${err.message}`);
     }
   }
 

@@ -30,7 +30,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, ip?: string) {
+    await this.checkRegisterIpLimit(ip);
     const existing = await this.userRepo.findOne({
       where: [{ username: dto.username }, { email: dto.email }],
     });
@@ -134,6 +135,20 @@ export class AuthService {
     if (!stored || stored.code !== code || Date.now() > stored.expiresAt) return false;
     this.codeStore.codes.delete(email);
     return true;
+  }
+
+  /** 同一 IP 每天最多注册 2 个账号，防止刷积分 */
+  private async checkRegisterIpLimit(ip?: string): Promise<void> {
+    if (!ip || ip === 'unknown' || ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.')) return;
+    const redis = await this.redis();
+    if (!redis) return;
+    const date = new Date().toISOString().slice(0, 10);
+    const key = `reg_ip:${date}:${ip}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, 86400);
+    if (count > 2) {
+      throw new ConflictException('今日该网络注册账号已达上限，请明天再试');
+    }
   }
 
   private async redis(): Promise<any> {

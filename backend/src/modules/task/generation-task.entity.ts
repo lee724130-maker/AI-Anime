@@ -41,6 +41,12 @@ export class GenerationTask {
   @Column({ name: 'error_msg', type: 'text', nullable: true })
   error_msg: string;
 
+  @Column({ name: 'credit_cost', type: 'int', default: 0 })
+  credit_cost: number;
+
+  @Column({ name: 'credits_charged', type: 'boolean', default: false })
+  credits_charged: boolean;
+
   @Column({ name: 'started_at', type: 'datetime', nullable: true })
   started_at: Date;
 
