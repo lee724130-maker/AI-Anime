@@ -1,5 +1,42 @@
 # 修复日志
 
+## 2026-08-06（积分扣费 + 防刷注册限流 + 访问统计/IP 封禁 ✅ 已提交+已部署）
+
+> 承接生成任务异步化。用户确认「积分扣费改造」需求（提交预扣、失败退款、防刷）。本轮完成：**生成任务积分扣费（图 5 分/张，视频 480p=10/720p=20/1080p=40 × ceil(时长/5)）+ 每 IP 每日注册限 2 个 + 访问统计 + admin IP 封禁 + admin 访问统计页**。本地 30/30、生产 24/24 全绿，已部署（commit `feat: 生成任务积分扣费（预扣/失败退款）+ 每IP每日注册限2个 + 访问统计/IP封禁 + admin 访问统计页`）。
+
+### ✅ ① 生成任务积分扣费（generate 模块）
+- **规则**（用户确认，config 可调）：图 = `credit_cost_image`（默认 5）× num_images；视频 = `credit_cost_{resolution}`（480p=10/720p=20/1080p=40）× `ceil(时长/5)`；读 `system_configs`（getConfigInt 兜底默认值）。
+- **预扣+结算**：`textToImage/textToVideo/imageToVideo` 在入库前 `chargeCredits`（原子 `UPDATE users SET credits=credits-? WHERE id=? AND credits>=?`，affectedRows=0 → 400「积分不足，本次生成需要 N 积分，请稍后再试」）→ 任务存 `credit_cost`；**完成**置 `credits_charged=true`（不再重复扣）；**失败** catch 里 `refundCredits` 退全款 + 置 `credits_charged=true`。
+- 实体 `generation_tasks` 新增 `credit_cost int default 0` + `credits_charged boolean default false`（synchronize 自动建列，生产已验证）。
+- **实测**：本地 30/30（预扣 5→余额 95 / 完成结算后仍 95 不重复扣 / i2v 用不存在 media 预扣 20→失败→退 95 / 积分不足 400 / 限流 409 / summary / ban 403 / unban 恢复）；**生产 24/24**（同上 + 真实文生图任务 13 completed 结算 ✓ + 统计到真实公网 IP 47.121.137.131）。
+
+### ✅ ② 防刷：每 IP 每日注册限 2 个
+- `auth.service.register(dto, ip)`（controller 传 XFF 首段）：`SecurityService.checkRegisterLimit` —— Redis `reg_ip:{date}:{ip}` incr，>2 → 409「今日该网络注册账号已达上限，请明天再试」；**local/10./192.168. 豁免**（开发不挡）。生产实测：同 IP 第 3 次注册 409 ✓。
+- **生产 nginx 已确认有 X-Forwarded-For**（80/443 的 /api/、/static/、socket.io 均有 `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`）——真实 IP 提取链路完好，无需改。
+
+### ✅ ③ 访问统计 + IP 封禁（新 SecurityModule）
+- `backend/src/modules/security/`：`SecurityService`（getIp 优先 XFF 首段 → X-Real-IP → socket；isBanned；track：`access_count:{date}` incr + `access_ips:{date}` HINCRBY + `access_last:{date}` HSET，7 天过期，跳过 send-code；getSummary；ban/unban：`banned_ips` set）；`SecurityMiddleware`（isBanned→403「访问受限」→ track → next，try/catch 兜底不断业务）；controller：`GET /api/admin/access/summary`、`POST /api/admin/access/ban|unban`（Roles('admin')）。
+- `app.module.ts`：`implements NestModule` + `configure(consumer.apply(SecurityMiddleware).forRoutes('*'))`；`main.ts`：`app.set('trust proxy', 1)`。
+- **admin 前端**：新 `AccessStats/index.tsx`（今日访问量/活跃 IP/已封禁数卡片 + 手动封禁输入框 + IP 明细表：次数/最后访问/状态/封禁或解封），已接入 Dashboard 菜单与路由。
+- **实测**：summary tv=22/ips=2；ban 8.8.4.4 后带 XFF 请求 403「访问受限」，unban 后 401 恢复 ✓（本地+生产）。
+
+### ⚠️ 本轮血泪教训（debug 过程极曲折，务必记住）
+1. **PowerShell 管道会杀掉 native 进程**：`npx tsc 2>&1 | Select-Object -First 5` 在 tsc 有输出时会被 PS 提前终止（报 `Unknown: ChildProcess.kill`）→ **dist 根本没更新**，重启后跑的是旧代码 → 中间件「不生效」假象。**编译命令一律裸跑 `npx tsc`（不接管道），或管道接 `Out-String`**。
+2. **node-redis v4 的 `sIsMember` 返回数字 1/0 而非 boolean true/false**！`=== true` 永远 false → 封禁永不生效。必须 `raw === true || raw === 1`。同坑：`sRem/sAdd` 返回 number。**凡是 Redis 布尔类命令的返回值，别用严格 ===true 判断**。
+3. **Nest 中间件里 `req.url` 是 `/`（router 内相对路径）**！判断路径前缀要用 `req.originalUrl`（Express 保留完整 URL）→ track 的 `/api/` 过滤曾全部失效，统计为 0。
+4. **SecurityMiddleware 不要重复注册**（AppModule.configure 和 SecurityModule.configure 都 apply 会每请求跑 2 次，第一次 403 后第二次 res.headersSent 报错被吞 → next() → 请求继续到 controller → 401 覆盖 403）。**全局中间件只在 AppModule.configure 注册一处**。
+5. **测试顺序注意注册限流**：同一 IP 注册测试用掉名额后，后续测试用户注册全 409。脚本里先测限流 → 清 `reg_ip:*` 键 → 再注册其他测试用户。
+6. **生产 admin 密码不是 123**（登录 401）。**别擅自改用户密码**——测试 admin 接口用「临时注册用户 + SQL 提权 role='admin'」，测完删用户。
+7. 中间件日志用 `console.error` 会进 stderr 重定向文件，查日志要查 err 文件不是 out 文件。
+
+### ⏳ 待办
+- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [ ] 用户复测「连点多个生成任务排队」效果
+- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
+- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+
+---
+
 ## 2026-08-06（生成任务异步化：可连续提交多个 + 默认写实风格 ✅ 已提交+已部署）
 
 > 承接登录流程加固。用户反馈：① 点击生成后按钮一直禁用，要刷新才能再点——「我用的不是队列生成吗？正常应该能连续点多个视频一起生成」；② /generate 三个 Tab 风格默认都是动漫，应默认写实。全部完成并部署生产（commit `feat: 生成任务异步化…`）。
