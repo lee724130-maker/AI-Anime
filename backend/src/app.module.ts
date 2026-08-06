@@ -52,7 +52,7 @@ const logDir = path.resolve(process.cwd(), 'logs');
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.local', '.env'] }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     WinstonModule.forRoot({
       level: 'info',

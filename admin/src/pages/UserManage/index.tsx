@@ -61,7 +61,8 @@ export default function UserManagePage() {
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
     { title: '用户名', dataIndex: 'username', width: 140 },
-    { title: '手机号', dataIndex: 'phone', width: 140, render: (v: string) => v || '-' },
+    { title: '邮箱', dataIndex: 'email', width: 190, render: (v: string) => v || '-' },
+    { title: '手机号', dataIndex: 'phone', width: 130, render: (v: string) => v || '-' },
     {
       title: '角色', dataIndex: 'role', width: 80,
       render: (v: string) => <Tag color={v === 'admin' ? 'purple' : 'blue'}>{v === 'admin' ? '管理员' : '用户'}</Tag>,

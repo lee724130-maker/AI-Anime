@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, message } from 'antd';
-import { UserOutlined, LockOutlined, PhoneOutlined, SmileOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 
@@ -9,10 +9,41 @@ const { Title, Text } = Typography;
 
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [form] = Form.useForm();
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
-  const onFinish = async (values: { username: string; password: string; phone?: string }) => {
+  const sendCode = async () => {
+    const email = form.getFieldValue('email');
+    if (!email) {
+      message.warning('请先输入邮箱');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      message.warning('邮箱格式不正确');
+      return;
+    }
+    setSending(true);
+    try {
+      const { data } = await api.post('/api/auth/send-code', { email });
+      message.success(data.message || '验证码已发送，请查收邮箱');
+      setCountdown(60);
+      const timer = setInterval(() => {
+        setCountdown((c) => {
+          if (c <= 1) { clearInterval(timer); return 0; }
+          return c - 1;
+        });
+      }, 1000);
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '验证码发送失败');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onFinish = async (values: { username: string; email: string; code: string; password: string }) => {
     setLoading(true);
     try {
       const { data } = await api.post('/api/auth/register', values);
@@ -52,15 +83,28 @@ export default function RegisterPage() {
 
         {/* Form */}
         <div style={{ padding: '32px 36px 36px' }}>
-          <Form onFinish={onFinish} size="large">
-            <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-              <Input prefix={<UserOutlined style={{ color: '#10b981' }} />} placeholder="用户名" />
+          <Form form={form} onFinish={onFinish} size="large">
+            <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3位' }]}>
+              <Input prefix={<UserOutlined style={{ color: '#10b981' }} />} placeholder="用户名（登录使用，3-50位）" />
+            </Form.Item>
+            <Form.Item name="email" rules={[{ required: true, type: 'email', message: '请输入正确的邮箱' }]}>
+              <Input prefix={<MailOutlined style={{ color: '#10b981' }} />} placeholder="邮箱（接收验证码）" />
+            </Form.Item>
+            <Form.Item name="code" rules={[{ required: true, len: 6, message: '请输入6位验证码' }]}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input prefix={<LockOutlined style={{ color: '#10b981' }} />} placeholder="6位验证码" maxLength={6} />
+                <Button
+                  onClick={sendCode}
+                  loading={sending}
+                  disabled={countdown > 0}
+                  style={{ width: 132, borderRadius: 8, flexShrink: 0 }}
+                >
+                  {countdown > 0 ? `${countdown}s 后重发` : '发送验证码'}
+                </Button>
+              </div>
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, min: 6, message: '密码至少6位' }]}>
-              <Input.Password prefix={<LockOutlined style={{ color: '#10b981' }} />} placeholder="密码" />
-            </Form.Item>
-            <Form.Item name="phone">
-              <Input prefix={<PhoneOutlined style={{ color: '#10b981' }} />} placeholder="手机号（选填）" />
+              <Input.Password prefix={<LockOutlined style={{ color: '#10b981' }} />} placeholder="密码（至少6位）" />
             </Form.Item>
             <Form.Item style={{ marginBottom: 12 }}>
               <Button

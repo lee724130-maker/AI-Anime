@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Card, Input, Button, Space, message, Spin, Divider, Row, Col, Select, Alert, Steps } from 'antd';
-import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
+import { Typography, Card, Input, Button, Space, message, Spin, Divider, Row, Col, Select, Alert, Steps, Upload } from 'antd';
+import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined, InboxOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import SceneEditor from './components/SceneEditor';
 import type { SceneItem } from './components/SceneEditor';
 
 const { Title, Text } = Typography;
+const { Dragger } = Upload;
 
 // Category is now dynamically determined by LLM during video analysis
 
@@ -28,6 +29,19 @@ export default function CreateTemplate() {
   const [ratio, setRatio] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const applyResult = (data: any) => {
+    setName(data.name || '');
+    setDescription(data.description || '');
+    setCategory(data.category || '');
+    setScenes(data.scenes || []);
+    setVariables(data.variables || []);
+    setReferenceFrames(data.reference_frames || []);
+    setRatio(data.ratio || '');
+    if (data.reference_url) setVideoUrl(data.reference_url);
+    if (data.source_url) setSourceUrl(data.source_url);
+    setStep('edit');
+  };
+
   const handleAnalyze = async () => {
     if (!videoUrl.trim()) {
       message.warning('请输入视频链接');
@@ -41,22 +55,38 @@ export default function CreateTemplate() {
         category: category || undefined,
         description: description || undefined,
       });
-      setName(data.name || '');
-      setDescription(data.description || '');
-      setCategory(data.category || '');
-      setScenes(data.scenes || []);
-      setVariables(data.variables || []);
-      setReferenceFrames(data.reference_frames || []);
-      setRatio(data.ratio || '');
-      // Use the clean extracted URL from analysis (strips share-text decorations)
-      if (data.reference_url) setVideoUrl(data.reference_url);
-      if (data.source_url) setSourceUrl(data.source_url);
-      setStep('edit');
+      applyResult(data);
       message.success('视频分析完成！可编辑后保存为模板');
     } catch (err: any) {
       message.error('分析失败: ' + (err?.response?.data?.message || err.message));
       setStep('input');
     }
+  };
+
+  const handleUpload = async (file: File) => {
+    if (!/\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(file.name)) {
+      message.error('仅支持 mp4/mov/webm/mkv/avi/m4v 视频文件');
+      return Upload.LIST_IGNORE;
+    }
+    if (file.size > 300 * 1024 * 1024) {
+      message.error('文件不能超过 300MB');
+      return Upload.LIST_IGNORE;
+    }
+    setStep('analyzing');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      if (name) form.append('name', name);
+      if (category) form.append('category', category);
+      if (description) form.append('description', description);
+      const { data } = await api.post('/api/viral/templates/analyze-upload', form);
+      applyResult(data);
+      message.success('视频分析完成！可编辑后保存为模板');
+    } catch (err: any) {
+      message.error('分析失败: ' + (err?.response?.data?.message || err.message));
+      setStep('input');
+    }
+    return false;
   };
 
   const handleSave = async () => {
@@ -131,21 +161,32 @@ export default function CreateTemplate() {
         <Card style={cardStyle}>
           <Title level={4} style={{ marginBottom: 20 }}>创建新模板</Title>
           <Alert
-            message="支持抖音、B站、YouTube 等平台的视频链接，也可以直接粘贴 MP4 直链"
+            message="支持抖音、B站等平台的视频链接或 MP4 直链；也可以上传本地视频"
             type="info" showIcon style={{ borderRadius: 10, marginBottom: 20 }}
           />
 
           <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 6 }}>视频链接 *</Text>
+            <Text strong style={{ display: 'block', marginBottom: 6 }}>视频链接</Text>
             <Input
               size="large"
-              placeholder="粘贴视频链接（抖音/B站/YouTube/MP4直链）"
+              placeholder="粘贴视频链接（抖音/B站/MP4直链）"
               prefix={<LinkOutlined />}
               value={videoUrl}
               onChange={e => setVideoUrl(e.target.value)}
               style={{ borderRadius: 10 }}
             />
           </div>
+
+          <Dragger
+            accept=".mp4,.mov,.webm,.mkv,.avi,.m4v"
+            beforeUpload={handleUpload}
+            showUploadList={false}
+            style={{ borderRadius: 10, marginBottom: 16 }}
+          >
+            <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+            <p className="ant-upload-text">点击或拖拽本地视频到此处</p>
+            <p className="ant-upload-hint">支持 mp4/mov/webm/mkv/avi/m4v，最大 300MB</p>
+          </Dragger>
 
           <Row gutter={16}>
             <Col span={12}>

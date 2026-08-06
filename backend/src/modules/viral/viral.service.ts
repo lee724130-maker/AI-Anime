@@ -321,11 +321,14 @@ export class ViralService {
       this.logger.log(`从粘贴文本中提取 URL: ${finalUrl}`);
     }
 
+    // YouTube is temporarily not supported (unstable without cookies / geo-restrictions)
+    if (/^https?:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//i.test(finalUrl)) {
+      throw new BadRequestException('暂不支持 YouTube 链接，请使用抖音/B站等平台链接，或直接上传本地视频');
+    }
+
     const taskId = Date.now();
     const workDir = path.join(this.outputDir, `viral_analyze_${taskId}`);
-    const framesDir = path.join(this.outputDir, `viral_frames_${taskId}`);
     fs.mkdirSync(workDir, { recursive: true });
-    fs.mkdirSync(framesDir, { recursive: true });
 
     try {
       // Step 1: Download video
@@ -333,6 +336,9 @@ export class ViralService {
       const videoPath = path.join(workDir, 'source.mp4');
       // Step 2: Download video (returns API metadata if available)
       const apiMeta = await this.downloadVideo(finalUrl, videoPath);
+      if (!fs.existsSync(videoPath) || fs.statSync(videoPath).size <= 1000) {
+        throw new BadRequestException('视频下载失败，请检查链接或稍后重试');
+      }
 
       // Step 2.5: Persist the downloaded original video for later playback.
       // The workDir gets cleaned up in finally, so save a compressed copy to
@@ -341,6 +347,37 @@ export class ViralService {
       // and compress (max 720p width, full duration) to save disk space.
       const localVideoUrl = await this.persistSourceVideo(videoPath, finalUrl, taskId);
 
+      return await this.analyzeFromLocalVideo({
+        videoPath, sourceUrl: finalUrl, localVideoUrl, apiMeta,
+        name, category, description, workDir,
+      });
+    } finally {
+      // Cleanup temp video dir only (keep framesDir for user reference images)
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Analyze an already-downloaded/local video file: probe info, extract frames,
+   * run the multimodal LLM and assemble the template result. workDir (if given)
+   * holds the temporary raw video copy and is removed before returning.
+   */
+  private async analyzeFromLocalVideo(opts: {
+    videoPath: string;
+    sourceUrl: string;
+    localVideoUrl: string | null;
+    apiMeta?: { duration: number; title: string } | null;
+    name?: string;
+    category?: string;
+    description?: string;
+    workDir?: string;
+  }) {
+    const { videoPath, sourceUrl, localVideoUrl, apiMeta, name, category, description, workDir } = opts;
+    const taskId = Date.now();
+    const framesDir = path.join(this.outputDir, `viral_frames_${taskId}`);
+    fs.mkdirSync(framesDir, { recursive: true });
+
+    try {
       // Step 3: Get video info (use API metadata as primary source)
       const info = await this.ffmpeg.getVideoInfo(videoPath);
       const videoDuration = (apiMeta?.duration && apiMeta.duration > 0 && apiMeta.duration < 300) ? apiMeta.duration : info.duration;
@@ -390,7 +427,7 @@ export class ViralService {
 - 总时长控制在 8-15 秒之间
 - category 不限于固定列表，根据视频实际内容动态判断，例如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、影视剪辑等`;
 
-      const pageTitle = videoTitle || await this.getPageTitle(finalUrl);
+      const pageTitle = videoTitle || (sourceUrl.startsWith('/static/') ? '' : await this.getPageTitle(sourceUrl));
       const userPrompt = `请分析这个视频的结构，识别出场景分镜和需要用户填写的变量。
 视频时长约 ${videoDuration.toFixed(0)} 秒。
 ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内容类型。` : ''}`;
@@ -423,14 +460,14 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         try {
           this.logger.log('尝试 generateSmartDescription 兜底');
           const desc = await this.aiService.generateSmartDescription(base64Frames);
-          return this.buildBasicTemplate(name, description, category, desc, info, frameUrls, localVideoUrl, finalUrl);
+          return this.buildBasicTemplate(name, description, category, desc, info, frameUrls, localVideoUrl, sourceUrl);
         } catch (err2: any) {
           this.logger.warn(`兜底分析也失败: ${err2.message}`);
         }
       }
       // Ultimate fallback
       if (!llmResult) {
-        return this.buildBasicTemplate(name, description, category, '', info, [], localVideoUrl, finalUrl);
+        return this.buildBasicTemplate(name, description, category, '', info, [], localVideoUrl, sourceUrl);
       }
 
       // Parse LLM result
@@ -453,8 +490,8 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         category: category || parsed.category || 'general',
         scenes: parsed.scenes || [],
         variables: parsed.variables || [],
-        reference_url: localVideoUrl || finalUrl,
-        source_url: finalUrl,
+        reference_url: localVideoUrl || sourceUrl,
+        source_url: sourceUrl,
         reference_frames: frameUrls,
         ratio: detectRatio(info.width, info.height),
         video_info: info,
@@ -475,7 +512,32 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       return result;
     } finally {
       // Cleanup temp video dir only (keep framesDir for user reference images)
-      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      if (workDir) { try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ } }
+    }
+  }
+
+  /**
+   * Analyze a locally uploaded video file (multipart upload). The upload temp
+   * file is deleted afterwards; the persisted /static/viral_source_*.mp4 copy
+   * is kept as the template's reference video.
+   */
+  async analyzeUploadedVideo(file: any, dto: { name?: string; category?: string; description?: string }) {
+    if (!file?.path || !fs.existsSync(file.path)) throw new BadRequestException('请上传视频文件');
+    const taskId = Date.now();
+    const workDir = path.join(this.outputDir, `viral_analyze_${taskId}`);
+    fs.mkdirSync(workDir, { recursive: true });
+    const videoPath = path.join(workDir, 'upload.mp4');
+    try {
+      fs.copyFileSync(file.path, videoPath);
+      const uploadUrl = `/static/${path.basename(file.path)}`;
+      const localVideoUrl = await this.persistSourceVideo(videoPath, uploadUrl, taskId);
+      const sourceUrl = localVideoUrl || uploadUrl;
+      return await this.analyzeFromLocalVideo({
+        videoPath, sourceUrl, localVideoUrl,
+        name: dto.name, category: dto.category, description: dto.description, workDir,
+      });
+    } finally {
+      try { fs.unlinkSync(file.path); } catch { /* ignore */ }
     }
   }
 

@@ -53,8 +53,8 @@ export default function LoginPage() {
         {/* Form */}
         <div style={{ padding: '32px 36px 36px' }}>
           <Form onFinish={onFinish} size="large">
-            <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-              <Input prefix={<UserOutlined style={{ color: '#a78bfa' }} />} placeholder="用户名" />
+            <Form.Item name="username" rules={[{ required: true, message: '请输入邮箱或用户名' }]}>
+              <Input prefix={<UserOutlined style={{ color: '#a78bfa' }} />} placeholder="邮箱或用户名" />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
               <Input.Password prefix={<LockOutlined style={{ color: '#a78bfa' }} />} placeholder="密码" />

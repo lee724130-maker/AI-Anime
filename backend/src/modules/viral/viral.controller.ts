@@ -1,7 +1,34 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards, Req, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import * as fs from 'fs';
+import * as path from 'path';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { ViralService } from './viral.service';
 import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, ListTemplateQuery, AnalyzeVideoDto, RegenerateSceneDto } from './viral.dto';
+
+const ALLOWED_VIDEO_EXT = /\.(mp4|mov|webm|mkv|avi|m4v)$/i;
+const ALLOWED_VIDEO_MIME = /^video\//;
+
+function analyzeUploadInterceptor() {
+  const dir = path.resolve(process.cwd(), 'output');
+  return FileInterceptor('file', {
+    storage: diskStorage({
+      destination: (_req, _file, cb) => {
+        fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+      },
+      filename: (_req, file, cb) => {
+        cb(null, `upload_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname).toLowerCase()}`);
+      },
+    }),
+    limits: { fileSize: 300 * 1024 * 1024 },
+    fileFilter: (_req, file, cb) => {
+      if (ALLOWED_VIDEO_EXT.test(file.originalname) && ALLOWED_VIDEO_MIME.test(file.mimetype)) cb(null, true);
+      else cb(new BadRequestException('不支持的文件类型，仅允许视频（mp4/mov/webm/mkv/avi/m4v）'), false);
+    },
+  });
+}
 
 @Controller('api/viral')
 @UseGuards(JwtAuthGuard)
@@ -28,6 +55,13 @@ export class ViralController {
   @Post('templates/analyze')
   analyzeVideo(@Body() dto: AnalyzeVideoDto) {
     return this.service.analyzeVideo(dto);
+  }
+
+  @Post('templates/analyze-upload')
+  @UseInterceptors(analyzeUploadInterceptor())
+  analyzeUpload(@UploadedFile() file: Express.Multer.File, @Body() body: { name?: string; category?: string; description?: string }) {
+    if (!file) throw new BadRequestException('请上传视频文件');
+    return this.service.analyzeUploadedVideo(file, body);
   }
 
   @Post('templates/:id/duplicate')

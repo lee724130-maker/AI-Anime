@@ -259,13 +259,13 @@ export class AdminService {
   async getUsers(page: number, limit: number, keyword?: string) {
     const qb = this.userRepo
       .createQueryBuilder('u')
-      .select(['u.id', 'u.username', 'u.phone', 'u.credits', 'u.status', 'u.role', 'u.created_at'])
+      .select(['u.id', 'u.username', 'u.phone', 'u.email', 'u.credits', 'u.status', 'u.role', 'u.created_at'])
       .orderBy('u.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit);
 
     if (keyword) {
-      qb.where('u.username LIKE :kw OR u.phone LIKE :kw', { kw: `%${keyword}%` });
+      qb.where('u.username LIKE :kw OR u.phone LIKE :kw OR u.email LIKE :kw', { kw: `%${keyword}%` });
     }
 
     const [items, total] = await qb.getManyAndCount();
