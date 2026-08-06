@@ -18,7 +18,7 @@ export default function LoginPage() {
       const { data } = await api.post('/api/auth/login', values);
       setAuth(data.user, data.access_token);
       message.success('登录成功');
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     } catch (err: any) {
       message.error(err.response?.data?.message || '登录失败');
     } finally {

@@ -140,7 +140,7 @@ export class AuthService {
     if (this.redisClient) return this.redisClient;
     try {
       const client = createClient({
-        url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`,
+        url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}/${process.env.REDIS_DB || 0}`,
         ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
       });
       client.on('error', () => { /* suppress connection noise */ });

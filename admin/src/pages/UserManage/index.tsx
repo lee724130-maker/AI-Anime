@@ -61,8 +61,7 @@ export default function UserManagePage() {
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
     { title: '用户名', dataIndex: 'username', width: 140 },
-    { title: '邮箱', dataIndex: 'email', width: 190, render: (v: string) => v || '-' },
-    { title: '手机号', dataIndex: 'phone', width: 130, render: (v: string) => v || '-' },
+    { title: '电子邮箱', dataIndex: 'email', width: 220, render: (v: string) => v || '-' },
     {
       title: '角色', dataIndex: 'role', width: 80,
       render: (v: string) => <Tag color={v === 'admin' ? 'purple' : 'blue'}>{v === 'admin' ? '管理员' : '用户'}</Tag>,
@@ -110,7 +109,7 @@ export default function UserManagePage() {
 
       <Card styles={{ body: { padding: '16px 24px' } }} style={{ marginBottom: 16 }}>
         <Space>
-          <Input.Search placeholder="搜索用户名或手机号" value={keyword}
+          <Input.Search placeholder="搜索用户名或邮箱" value={keyword}
             onChange={e => setKeyword(e.target.value)} onSearch={() => { setPage(1); fetchUsers(1, keyword); }}
             style={{ width: 280 }} allowClear />
           <Button icon={<ReloadOutlined />} onClick={() => fetchUsers()} loading={loading}>刷新</Button>

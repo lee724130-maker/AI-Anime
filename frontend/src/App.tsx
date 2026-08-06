@@ -41,12 +41,19 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Logged-in users must not see /login or /register (even via back button)
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('token');
+  if (token) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/login" element={<AuthGuard><LoginPage /></AuthGuard>} />
+        <Route path="/register" element={<AuthGuard><RegisterPage /></AuthGuard>} />
         <Route path="/" element={<LandingPage />} />
         <Route path="/dashboard" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/generate" element={<ProtectedRoute><UserLayout><GeneratePage /></UserLayout></ProtectedRoute>} />

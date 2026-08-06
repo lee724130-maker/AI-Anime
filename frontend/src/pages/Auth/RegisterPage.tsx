@@ -3,7 +3,6 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined } from '@ant-design/icons';
 import api from '../../services/api';
-import { useAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 
@@ -13,7 +12,6 @@ export default function RegisterPage() {
   const [countdown, setCountdown] = useState(0);
   const [form] = Form.useForm();
   const navigate = useNavigate();
-  const setAuth = useAuthStore((s) => s.setAuth);
 
   const sendCode = async () => {
     const email = form.getFieldValue('email');
@@ -46,10 +44,9 @@ export default function RegisterPage() {
   const onFinish = async (values: { username: string; email: string; code: string; password: string }) => {
     setLoading(true);
     try {
-      const { data } = await api.post('/api/auth/register', values);
-      setAuth(data.user, data.access_token);
-      message.success('注册成功');
-      navigate('/dashboard');
+      await api.post('/api/auth/register', values);
+      message.success('注册成功，请登录');
+      navigate('/login', { replace: true });
     } catch (err: any) {
       message.error(err.response?.data?.message || '注册失败');
     } finally {
