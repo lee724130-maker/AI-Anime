@@ -11,7 +11,10 @@ import { ViralTemplate } from './viral-template.entity';
 import { ViralProject } from './viral-project.entity';
 import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDto, AnalyzeVideoDto } from './viral.dto';
 import { AIServiceUtil } from '../../utils/ai-service.util';
-import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { FFmpegUtil, runFfmpegQueued } from '../../utils/ffmpeg.util';
+import { assertDiskSpace } from '../../common/utils/disk-check.util';
+
+const MIN_DISK_FREE_BYTES = 1024 * 1024 * 1024; // refuse generation when < 1GB free
 import { assertTemplateWritable, assertCanSetSystemFlag } from '../../common/utils/template-permission.util';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 
@@ -662,7 +665,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       const segPath = path.join(framesDir, `seg_${i}.mp4`);
       let clipped = false;
       try {
-        await execAsync(
+        await runFfmpegQueued(
           `ffmpeg -y -ss ${start.toFixed(2)} -t ${segDuration.toFixed(2)} -i "${videoPath}" -c copy "${segPath}"`,
           { timeout: 30000 },
         );
@@ -671,7 +674,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       if (clipped) {
         try {
           const pat = path.join(framesDir, `seg_${i}_%02d.jpg`);
-          await execAsync(
+          await runFfmpegQueued(
             `ffmpeg -y -i "${segPath}" -vf "select='gt(scene\\,0.1)',setpts=N/FRAME_RATE/TB" -vsync vfr -frames:v 3 -q:v 2 "${pat}"`,
             { timeout: 30000 },
           );
@@ -689,7 +692,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           const t = start + segDuration * frac;
           const fp = path.join(framesDir, `seg_${i}_pt${Math.round(frac * 100)}.jpg`);
           try {
-            await execAsync(
+            await runFfmpegQueued(
               `ffmpeg -y -ss ${t.toFixed(2)} -i "${videoPath}" -vframes 1 -q:v 2 "${fp}"`,
               { timeout: 30000 },
             );
@@ -748,7 +751,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     const dir = path.dirname(imagePath);
     const rawPath = path.join(dir, `hash_${Date.now()}_${Math.random().toString(36).slice(2)}.raw`);
     try {
-      await execAsync(
+      await runFfmpegQueued(
         `ffmpeg -y -i "${imagePath}" -vf "scale=9:8,format=gray" -f rawvideo -pix_fmt gray -frames:v 1 "${rawPath}"`,
         { timeout: 10000 },
       );
@@ -990,6 +993,9 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
   // ───── Generation ─────
 
   async startGeneration(projectId: number, userId: number) {
+    // Deployment guard: refuse when the disk is nearly full
+    assertDiskSpace(this.outputDir, MIN_DISK_FREE_BYTES);
+
     const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
     if (!project) throw new NotFoundException('项目不存在');
 

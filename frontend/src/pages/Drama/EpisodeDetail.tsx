@@ -12,7 +12,7 @@ import api from '../../services/api';
 
 const { Title, Text } = Typography;
 const STYLE_LABEL: Record<string, string> = { anime: '动漫', realistic: '写实' };
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
 interface Segment {

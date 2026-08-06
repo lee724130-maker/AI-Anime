@@ -14,6 +14,10 @@ function findFfmpeg(): string {
     path.resolve(process.cwd(), 'tools/ffmpeg/ffmpeg.exe'),
     path.resolve(__dirname, '../../../tools/ffmpeg/ffmpeg.exe'), // dist/src/utils
     path.resolve(__dirname, '../../tools/ffmpeg/ffmpeg.exe'),   // src/utils
+    // Linux: unversioned static build dropped into tools/ffmpeg/
+    path.resolve(process.cwd(), 'tools/ffmpeg/ffmpeg'),
+    path.resolve(__dirname, '../../../tools/ffmpeg/ffmpeg'),
+    path.resolve(__dirname, '../../tools/ffmpeg/ffmpeg'),
   ];
   for (const c of toolCandidates) {
     if (fs.existsSync(c)) return c;
@@ -36,6 +40,50 @@ export interface FFmpegCompositeOptions {
   resolution?: string;
   format?: string;
 }
+
+/**
+ * Global ffmpeg concurrency gate: heavy encode processes are CPU-bound, so we
+ * cap how many may run at once (deployment guard against OOM / CPU saturation
+ * on small servers). Every ffmpeg invocation goes through the semaphore.
+ */
+const FFMPEG_MAX_CONCURRENCY = Math.max(1, Number(process.env.FFMPEG_CONCURRENCY || 2));
+
+class Semaphore {
+  private queue: Array<() => void> = [];
+  private count = 0;
+  constructor(private readonly max: number) {}
+  acquire(): Promise<void> {
+    if (this.count < this.max) {
+      this.count++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this.queue.push(resolve));
+  }
+  release(): void {
+    const next = this.queue.shift();
+    if (next) next();
+    else this.count--;
+  }
+}
+
+const ffmpegSemaphore = new Semaphore(FFMPEG_MAX_CONCURRENCY);
+
+export async function runFfmpegQueued(
+  command: string,
+  opts?: { timeout?: number; maxBuffer?: number },
+): Promise<{ stderr: string; stdout: string }> {
+  await ffmpegSemaphore.acquire();
+  try {
+    return await execAsync(command, {
+      timeout: opts?.timeout || 120000,
+      maxBuffer: opts?.maxBuffer ?? 1024 * 1024 * 20,
+    });
+  } finally {
+    ffmpegSemaphore.release();
+  }
+}
+
+export { ffmpegSemaphore };
 
 @Injectable()
 export class FFmpegUtil {
@@ -68,7 +116,7 @@ export class FFmpegUtil {
   }
 
   private ff(args: string, opts?: { timeout?: number }): Promise<{ stderr: string; stdout: string }> {
-    return execAsync(`"${this.ffmpegPath}" ${args}`, { timeout: opts?.timeout || 120000 });
+    return runFfmpegQueued(`"${this.ffmpegPath}" ${args}`, opts);
   }
 
   /**

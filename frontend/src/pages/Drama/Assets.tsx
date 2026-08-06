@@ -15,7 +15,7 @@ import api from '../../services/api';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
 const TYPE_CONFIG: Record<string, { label: string; color: string }> = {

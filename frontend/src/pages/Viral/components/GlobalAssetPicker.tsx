@@ -4,7 +4,7 @@ import { PictureOutlined, CheckCircleFilled, SearchOutlined } from '@ant-design/
 import api from '../../../services/api';
 
 const { Text } = Typography;
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 interface GlobalAsset {
   id: number; type: string; name: string; image_url: string; description: string;

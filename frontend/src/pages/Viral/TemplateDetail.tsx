@@ -7,7 +7,7 @@ import GlobalAssetPicker from './components/GlobalAssetPicker';
 import CoverThumb from './CoverThumb';
 
 const { Title, Text } = Typography;
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 // Category is dynamically set by AI during analysis
 

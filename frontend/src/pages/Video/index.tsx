@@ -11,7 +11,7 @@ import api from '../../services/api';
 import AppHeader from '../../components/AppHeader';
 
 const { Title, Text } = Typography;
-const API_BASE = 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
 const statusConfig: Record<string, { color: string; icon: React.ReactNode; label: string }> = {

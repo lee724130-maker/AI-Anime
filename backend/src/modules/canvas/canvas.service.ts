@@ -3,15 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
 import { CanvasProject } from './canvas-project.entity';
 import { CanvasTemplate } from './canvas-template.entity';
-import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { FFmpegUtil, runFfmpegQueued } from '../../utils/ffmpeg.util';
+import { assertDiskSpace } from '../../common/utils/disk-check.util';
 import { assertTemplateWritable, assertCanSetSystemFlag } from '../../common/utils/template-permission.util';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 
-const execAsync = promisify(exec);
+const MIN_DISK_FREE_BYTES = 1024 * 1024 * 1024; // refuse rendering when < 1GB free
 
 export function ratioToRes(ratio: string): string {
   switch (ratio) {
@@ -284,6 +283,9 @@ export class CanvasService {
    * The request returns immediately; the frontend polls getProjectResult.
    */
   async startRender(projectId: number, userId: number) {
+    // Deployment guard: refuse when the disk is nearly full
+    assertDiskSpace(this.outputDir, MIN_DISK_FREE_BYTES);
+
     // Atomic claim: only transitions from non-rendering states to rendering,
     // so two concurrent render requests cannot start two pipelines
     const upd = await this.projectRepo.createQueryBuilder()
@@ -506,7 +508,7 @@ export class CanvasService {
         const dur = this.clampDuration(t.params?.duration || t.duration);
         return Math.max(mx, start + dur);
       }, 1);
-      await execAsync(
+      await runFfmpegQueued(
         `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -f lavfi -i "color=c=black:s=${res}:d=${Math.min(baseDur, 60).toFixed(2)}:r=24" -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p "${merged}"`,
         { timeout: 60000 },
       );
@@ -601,7 +603,7 @@ export class CanvasService {
     const st = start.toFixed(3);
     const en = Math.max(end, start + 0.2).toFixed(3);
     try {
-      await execAsync(
+      await runFfmpegQueued(
         `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -i "${base}" -i "${overlay}" ` +
         `-filter_complex "[1:v]format=rgba,setpts=PTS-STARTPTS+${st}/TB[ov];[0:v][ov]overlay=x=0:y=0:enable='between(t,${st},${en})'[vout]" ` +
         `-map "[vout]" -map 0:a? -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a aac -b:a 128k "${outPath}"`,
@@ -631,7 +633,7 @@ export class CanvasService {
     const vf = filters[filter];
     if (!vf) return clip;
     try {
-      await execAsync(
+      await runFfmpegQueued(
         `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -i "${clip}" -vf "${vf}" -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -c:a copy "${outPath}"`,
         { timeout: 180000 },
       );
@@ -769,7 +771,7 @@ export class CanvasService {
       if (!tw || !th) return inputPath;
       if (info.width === tw && info.height === th) return inputPath; // already exact
       const outPath = path.join(workDir, `${prefix}_${Date.now()}.mp4`);
-      await execAsync(
+      await runFfmpegQueued(
         `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -i "${inputPath}" ` +
         `-vf "scale=${tw}:${th}:force_original_aspect_ratio=increase,crop=${tw}:${th},setsar=1" ` +
         `-c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -r 24 ` +
@@ -870,7 +872,7 @@ export class CanvasService {
     const outPath = path.join(workDir, 'merged_transitions.mp4');
     try {
       const ffmpegPath = (this.ffmpeg as any).ffmpegPath || 'ffmpeg';
-      await execAsync(
+      await runFfmpegQueued(
         `"${ffmpegPath}" -y ${inputs} -filter_complex "${filters.join(';')}" -map "[vout]" -map "[aout]" ` +
         `-c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p -r 24 -c:a aac -b:a 128k -movflags +faststart "${outPath}"`,
         { timeout: 600000, maxBuffer: 50 * 1024 * 1024 },
