@@ -1,5 +1,39 @@
 # 修复日志
 
+## 2026-08-06（登录注册流程加固 + admin 邮箱列 ✅ 已提交+已部署）
+
+> 承接上线改进。用户反馈两个问题：① 注册后应先进登录页再登录进工作台，且登录成功后点后退不应回到登录页（除非主动退出）；② admin 用户管理页手机号列应改为电子邮箱列。全部完成并部署生产（commit `feat: 注册后跳登录页 + 已登录访问登录页自动重定向…`）。
+
+### ✅ ① 登录/注册流程加固
+- **注册后去登录页**：`RegisterPage.tsx` 注册成功不再 setAuth 自动登录 → toast「注册成功，请登录」+ `navigate('/login', { replace: true })`。
+- **登录成功后退不回登录页**（双保险）：
+  - `LoginPage.tsx` 登录成功 `navigate('/dashboard', { replace: true })`（replace 覆盖历史，后退回登录前页面/无处可退）
+  - `App.tsx` 新增 **AuthGuard** 包 /login /register：已登录（localStorage 有 token）访问一律 `<Navigate to="/dashboard" replace />`——无论后退还是 URL 直达都进不去登录页
+  - 退出登录（AppHeader）仍正常跳 /login ✓
+- **实测**：本地 Playwright 8/8（注册→/login+toast / 注册后后退回不到注册页 / 登录→/dashboard / 登录后后退不回 /login / 已登录访问 /login 与 /register 均重定向 /dashboard / 退出→/login）；**生产 6/6 全绿**。
+
+### ✅ ② admin 用户列表改电子邮箱列
+- `admin/src/pages/UserManage/index.tsx`：「手机号」列删除，「邮箱」列标题改「电子邮箱」（email 为空显示 '-'）；搜索 placeholder 改「搜索用户名或邮箱」（后端 keyword 本就含 email）。
+- ⚠️ 上次加的邮箱列生产没生效是因为 **admin 前端没重新构建部署**（本次部署流程补上：frontend+admin 双 dist 上传解压）。
+
+### ✅ ③ 顺带修复：验证码 Redis db 忽略 bug（隐藏 bug）
+- **症状**：生产注册 Redis 注入验证码报「验证码错误或已过期」，本地同样代码却通过。
+- **根因**：`auth.service.ts` redis() 的 URL `redis://host:port` **没带 db 参数**，REDIS_DB=5 被忽略 → 后端连 db 0（与前置项目共用，违反 .env「独立 db=5」注释）；本地 .env.local 无 REDIS 配置默认 db 0 所以本地注入 db 0 恰好能过。
+- **修复**：URL 加 `/${process.env.REDIS_DB || 0}`。生产重部署后注入 db 5 验证通过。
+- **教训**：注入验证码测试前先确认后端实际连的 Redis db；怀疑链路问题时优先 `pm2 logs` + `redis-cli GET` 验证，不要猜。
+
+### ⚠️ 部署教训（PowerShell zip + set -e）
+- 本次 deploy 脚本 `rm -rf dist && mkdir && unzip` 用 `set -e`：PowerShell Compress-Archive 的 zip 有 backslash warning，**unzip 返回非零 → set -e 中止脚本**，admin 部分未执行（frontend 恰好先执行完）→ 生产 admin 还是旧的。
+- **对策**：解压步骤不用 set -e（或拆开验证），解压后必须 curl/grep 检查 JS hash 与本地构建一致。
+
+### ⏳ 待办
+- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [ ] 用户复测「生成历史实时更新」效果
+- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+
+---
+
 ## 2026-08-06（追加改进：生成历史实时更新 + 模板链接仅抖音/B站 ✅ 已提交+已部署）
 
 > 承接上线改进。用户反馈三个问题：① /generate 生成历史不实时（提交后要刷新才出现）；② QQ 邮箱收到退信（测试假邮箱导致）；③ 模板 URL 只留抖音/B站。①②③ 全部处理完毕并部署生产（commit `feat: 生成历史提交后实时显示生成中…`）。
