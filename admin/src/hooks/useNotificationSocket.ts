@@ -18,7 +18,7 @@ export function useNotificationSocket() {
 
     if (instance.current?.connected) return;
 
-    const socket = io('http://localhost:3000/admin', {
+    const socket = io((import.meta.env.VITE_API_BASE || '') + '/admin', {
       auth: { token },
       transports: ['websocket', 'polling'],
     });
