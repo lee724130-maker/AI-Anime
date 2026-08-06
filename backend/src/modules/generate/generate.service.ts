@@ -18,6 +18,11 @@ const execFileAsync = promisify(execFile);
 export class GenerateService {
   private readonly logger = new Logger(GenerateService.name);
 
+  /** 后台生成任务并发上限（system_configs: max_concurrent_generations 可配置），超出部分排队等待 */
+  private maxConcurrent = 3;
+  private active = 0;
+  private pending: Array<() => void> = [];
+
   constructor(
     private readonly aiService: AIServiceUtil,
     private readonly modelConfigService: ModelConfigService,
@@ -29,7 +34,35 @@ export class GenerateService {
     private readonly userRepo: Repository<User>,
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
-  ) {}
+  ) {
+    this.getConfigInt('max_concurrent_generations', 3).then((n) => {
+      if (n >= 1 && n <= 20) this.maxConcurrent = n;
+      this.logger.log(`[gen-queue] 并发上限 = ${this.maxConcurrent}`);
+    }).catch(() => undefined);
+  }
+
+  /** 任务入队：超过并发上限的排队等待，空闲时自动调度 */
+  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const job = () => {
+        this.active++;
+        this.logger.log(`[gen-queue] 开始执行 active=${this.active} pending=${this.pending.length}`);
+        fn().then(resolve, reject).finally(() => {
+          this.active--;
+          this.drain();
+        });
+      };
+      this.pending.push(job);
+      this.drain();
+    });
+  }
+
+  private drain() {
+    while (this.active < this.maxConcurrent && this.pending.length > 0) {
+      const job = this.pending.shift()!;
+      job();
+    }
+  }
 
   /** 估算生成积分成本（system_configs 可配置） */
   private async getConfigInt(key: string, def: number): Promise<number> {
@@ -111,7 +144,7 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
-    void this.runTextToImage(userId, task.id, dto).catch((err: any) => {
+    void this.enqueue(() => this.runTextToImage(userId, task.id, dto)).catch((err: any) => {
       this.logger.error(`[后台] 文生图任务 ${task.id} 异常: ${err.message}`);
     });
 
@@ -259,7 +292,7 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
-    void this.runTextToVideo(userId, task.id, dto).catch((err: any) => {
+    void this.enqueue(() => this.runTextToVideo(userId, task.id, dto)).catch((err: any) => {
       this.logger.error(`[后台] 文生视频任务 ${task.id} 异常: ${err.message}`);
     });
 
@@ -356,7 +389,7 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
-    void this.runImageToVideo(userId, task.id, dto).catch((err: any) => {
+    void this.enqueue(() => this.runImageToVideo(userId, task.id, dto)).catch((err: any) => {
       this.logger.error(`[后台] 图生视频任务 ${task.id} 异常: ${err.message}`);
     });
 
