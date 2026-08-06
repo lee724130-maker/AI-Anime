@@ -114,7 +114,7 @@ export class AIServiceUtil {
 
     // Inject style keywords and strip conflicting ones
     if (options.style === 'realistic') {
-      let p = options.prompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '');
+      let p = options.prompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[的]?[,，]?\s*/g, '').replace(/动漫[的]?风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '').replace(/二次元[的]?[,，]?\s*/g, '').replace(/日漫[的]?[,，]?\s*/g, '').replace(/赛璐珞[的]?[,，]?\s*/g, '');
       options = { ...options, prompt: `photorealistic,真人实拍质感,超写实风格,highly detailed real person,真实照片,${p}` };
     } else if (options.style === 'anime') {
       let p = options.prompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
@@ -458,7 +458,7 @@ export class AIServiceUtil {
 
     // Inject style keywords and strip conflicting ones
     if (options.style === 'realistic' && textPrompt) {
-      textPrompt = textPrompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '');
+      textPrompt = textPrompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[的]?[,，]?\s*/g, '').replace(/动漫[的]?风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '').replace(/二次元[的]?[,，]?\s*/g, '').replace(/日漫[的]?[,，]?\s*/g, '').replace(/赛璐珞[的]?[,，]?\s*/g, '');
       textPrompt = `photorealistic,真人实拍质感,超写实风格,${textPrompt}`;
     } else if (options.style === 'anime' && textPrompt) {
       textPrompt = textPrompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
