@@ -1,5 +1,18 @@
 # 修复日志
 
+## 2026-08-06（生成页积分规则展示 ✅ 已提交+已部署）
+
+> 用户要求「每个项目里写清楚扣分规则」。实现：后端 `GET /api/generate/credit-rules`（读 system_configs 实时值：image_per_image / video_480p|720p|1080p_per_5s / video_unit_seconds=5 / refund_on_failure）+ 前端 Generate 页顶部 Alert 展示（文生图 X 分/张；视频 480p/720p/1080p = 10/20/40 分每 5 秒，不足 5 秒按 5 秒计；失败自动全额退款、预扣后成功不重复扣）。已部署生产（commit `feat: /generate 页面展示积分扣费规则…`），401 未登录验证 ✓。
+- ⚠️ **Windows 安全中心拦截事件**（用户报告「从当前项目 powershell 传来恶意行为」）：根因是本地后端重启时 `Start-Process -WindowStyle Hidden`（隐藏窗口启动 node 进程）——Defender 对「PowerShell 隐藏启动外部进程」有启发式拦截（挖矿/持久化特征）。**去掉 `-WindowStyle Hidden` 参数后一切正常**（本地后端启动：`Start-Process -FilePath node -ArgumentList "dist/src/main" -RedirectStandardOutput ... -RedirectStandardError ...`）。此外 plink/pscp 从 Temp 目录运行也可能触发启发式，建议移入固定目录并加 Defender 白名单。
+
+### ⏳ 待办
+- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [ ] 用户复测「连点多个生成任务排队」效果
+- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
+- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+
+---
+
 ## 2026-08-06（生成任务并发限制 ✅ 已提交+已部署）
 
 > 用户确认多用户并发风险，要求加并发限制。已实现并部署生产（commit `feat: 生成任务并发限制…`）。
