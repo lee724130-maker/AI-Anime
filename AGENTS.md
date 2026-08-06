@@ -1,5 +1,35 @@
 # 修复日志
 
+## 2026-08-06（生成任务异步化：可连续提交多个 + 默认写实风格 ✅ 已提交+已部署）
+
+> 承接登录流程加固。用户反馈：① 点击生成后按钮一直禁用，要刷新才能再点——「我用的不是队列生成吗？正常应该能连续点多个视频一起生成」；② /generate 三个 Tab 风格默认都是动漫，应默认写实。全部完成并部署生产（commit `feat: 生成任务异步化…`）。
+
+### ✅ ① 生成任务异步化（根因修复）
+- **根因**：`generate.service.ts` 三个生成方法（textToImage/textToVideo/imageToVideo）虽然任务入库 status=processing，但**同一请求内同步 await 模型生成完才返回** → 前端按钮一直 loading 直到生成结束（几分钟）→ 用户以为要刷新。
+- **修复**：拆成「同步校验+入库+立即返回」与「后台执行器」：
+  - 公开方法只做校验（prompt 空/模型存在性，错误仍即时 400）+ `taskRepo.save(processing)` + `void this.runXxx().catch(...)` 触发后台执行 + **立即返回 `{taskId, status:'processing'}`**（15~70ms）
+  - `runTextToImage/runTextToVideo/runImageToVideo`：原生成逻辑（扩写/抽视角/生成/下载/入库），失败只标 task failed，**不再抛给前端**；外层 .catch 兜底防 unhandledRejection 崩进程
+  - `retryTask` 无需改（内部走新异步方法）
+- **前端**：`doGenerate` 本来就有提交前后静默刷新 + 3s 轮询（hasActiveTask||loading）——现在 post 立即返回，按钮秒恢复，可**连续点击提交多个任务排队生成**，列表实时显示「生成中」逐个变「已完成」。
+- **实测**：本地 curl 两次提交 15ms/73ms 返回 processing，两任务并行后台生成；本地 Playwright 3/3（连点两次按钮均恢复/历史 2 任务）；**生产 5/5**（默认写实/连点两任务/历史 2 任务全过）。
+
+### ✅ ② 默认风格改写实
+- 前端 `Generate/index.tsx` 三个 Tab 风格 Select `initialValue="anime"` → `"realistic"`（antd Form.Item initialValue 只影响新建表单，无旧值残留问题）。
+- 后端兜底同步改：`runTextToImage` 的 `style || 'anime'` → `'realistic'`；`runTextToVideo/runImageToVideo` 补传 `style`（generateVideo 原本就支持 realistic/anime 提示词注入：写实=剥离动漫关键词，动漫=注入动漫关键词）。
+- 快速模板（IMAGE_PRESETS/VIDEO_PRESETS）文案仍含「动漫风格」字样——属提示词模板内容，不影响默认风格，未改。
+
+### ⚠️ 本轮教训
+- **本地后端重启没生效**：端口 3000 被旧进程（18:22 启动的 13272）占用，`Stop-Process 15612` 目标 PID 已不存在被吞掉 → 新 node 启动监听失败，3000 仍跑旧 dist（curl 返回旧同步格式才发现）。**重启后必须 curl 验证返回体是新的**（异步接口返回 `{taskId,status:'processing'}`，同步旧版返回 `{taskId,images:[...]}`），不能只看端口通。
+- antd v6 Select 选中值在 `.ant-select-content[title=...]`（不是 selection-item）；隐藏 Tab 面板也在 DOM 上，`has-text("生成图片")` 不会误匹配「生成视频」✓。
+
+### ⏳ 待办
+- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [ ] 用户复测「连点多个生成任务排队」效果
+- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+
+---
+
 ## 2026-08-06（登录注册流程加固 + admin 邮箱列 ✅ 已提交+已部署）
 
 > 承接上线改进。用户反馈两个问题：① 注册后应先进登录页再登录进工作台，且登录成功后点后退不应回到登录页（除非主动退出）；② admin 用户管理页手机号列应改为电子邮箱列。全部完成并部署生产（commit `feat: 注册后跳登录页 + 已登录访问登录页自动重定向…`）。
