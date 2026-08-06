@@ -1,5 +1,39 @@
 # 修复日志
 
+## 2026-08-06（上线改进：本地视频上传解析模板 + 邮箱验证码注册登录 ✅ 已提交+已部署）
+
+> 承接 08-05 上线记录。用户提出两个改进：①「创建新模板」支持**本地 MP4 上传解析**、**暂时移除 YouTube**；②注册改**邮箱+验证码**、登录支持**邮箱或用户名**、用户名重复提示「用户名已被使用」。全部完成并已部署生产（git 两次提交：`fix: 部署期修复…` + `feat: 模板支持本地上传视频解析 + 邮箱验证码注册…`）。
+
+### ✅ 需求一：本地视频上传解析 + 去 YouTube
+- **后端**（`viral.service.ts`/`viral.controller.ts`）：`analyzeVideo` 重构——下载逻辑留在原方法，分析主体抽为 **`analyzeFromLocalVideo`**（探测/抽帧/多模态分析/组装结果，含 workDir 清理）；新增 **`POST /api/viral/templates/analyze-upload`**（multer diskStorage 服务端文件名 + 扩展名/MIME 白名单 mp4/mov/webm/mkv/avi/m4v + 300MB 上限）；`analyzeUploadedVideo` 把上传文件拷入 `viral_analyze_*` 临时目录 → `persistSourceVideo` 持久化为 `/static/viral_source_*.mp4` → 分析 → **finally 删上传临时文件与 workDir**（framesDir 保留给模板参考帧，cleanup 兜底）。
+- **YouTube 拦截**：`analyzeVideo` 开头正则 `youtube\.com|youtu\.be` → 400「暂不支持 YouTube 链接，请使用抖音/B站等平台链接，或直接上传本地视频」；`source_url` 语义：本地上传存本地 `/static/` 路径（refresh-source 对 `/static/` 短路不重新下载，天然安全）。
+- **前端**（`CreateTemplate.tsx`）：URL 输入 + **antd Upload.Dragger 拖拽上传**（accept 视频、300MB 校验、beforeUpload 直调 analyze-upload、`Upload.LIST_IGNORE` 阻止自动上传）；Alert/placeholder 全去掉 YouTube；`applyResult` 抽公共。
+- **实测**：YouTube 400 拦截 ✓；txt 拒绝 400 ✓；ffmpeg 造 3s 测试片上传 → 8.4s 完成分析返回模板（9:16 正确、3 帧、reference_url=/static/viral_source_*.mp4）✓。
+
+### ✅ 需求二：邮箱验证码注册 + 邮箱/用户名双登录
+- **数据**：`users` 加 `email` 列（`varchar` unique nullable，synchronize 生产自动建列）；旧用户（admin/123）email=NULL，用户名登录不受影响。
+- **后端**（`auth.service.ts` 重写 + 新 `dto/send-code.dto.ts` + controller `POST /api/auth/send-code` @Throttle 5/分）：
+  - 验证码：6 位数字，**5 分钟有效**（TTL），**同邮箱 60 秒限频**、**每日 10 次上限**（发送成功才记录限频状态）；存储 = **Redis**（`email_code:{email}` = `code|expiresAt`，node-redis 惰性连接，失败自动降级**内存 Map**，单实例无碍）+ verifyCode 先查 Redis 后查内存，成功即删。
+  - SMTP：**nodemailer**（新依赖），配置读 `process.env`：`SMTP_HOST/PORT/USER/PASS`（QQ 邮箱 smtp.qq.com:465 SSL，发件人「AI 动漫短剧」，HTML 模板）。**授权码不进 git**：本地 `backend/.env.local`（gitignore 已有）+ 生产 `/home/www/ai-anime/backend/.env` 追加（`envFilePath: ['.env.local', '.env']`）。
+  - register：`ConflictException('用户名已被使用')` / `('该邮箱已被注册')` / `('验证码错误或已过期')`，成功才建用户。
+  - login：`where: [{ username }, { email }]` 双匹配（旧手机号用户仍用用户名）。
+- **前端**：`RegisterPage.tsx` 重写（邮箱 + 验证码输入 + 「发送验证码」按钮 60s 倒计时 + 用户名/密码）；`LoginPage.tsx` placeholder「邮箱或用户名」；admin `UserManage` 用户列表加「邮箱」列（`admin.service.ts` getUsers select 补 email + keyword 搜索含 email）。
+- **实测**：本地后端 9 项 + 前端 Playwright 9 项全绿（真实验证码流程：发送 → Redis 读码 → 填入 → 注册成功跳 dashboard；重复用户名 toast 显示「用户名已被使用」）；生产 9/9（send-code 真发信到用户 QQ 邮箱 201、60s 限频拦截 400 均验证）。
+
+### 🚀 生产部署（本次流程）
+- 本地三端编译（backend `npx tsc` / frontend+admin `npm run build`）→ `Compress-Archive` 打包 → pscp 上传 `/home/www/ai-anime/deploy/` → 服务器 unzip 覆盖 dist → backend `npm install nodemailer`（npm 在 `/usr/local/bin`，node v22.22.3）→ `.env` 追加 SMTP → `pm2 restart ai-anime-backend --update-env` → 生产 smoke 全绿。
+- ⚠️ **教训 1**：PowerShell `Compress-Archive` 生成的 zip 用反斜杠路径分隔符，unzip 有 warning 但**解压结果正常**（只 warn 不报错）；`rm -rf dist && unzip` 后曾以为部署了，实际 pm2 进程 uptime 82m 说明 **restart 没执行**——plink 多行 `set -e` 脚本某步失败整体退出、输出只有 warning 时**务必复查 pm2 uptime / curl 接口**。本次正是 curl `/api/auth/send-code` 404 + register 走旧文案才暴露，重启后全通。
+- ⚠️ **教训 2**：生产 smoke 脚本用户固定名重复跑会撞名 409——脚本用户名加随机后缀或先删用户。
+- ⚠️ **教训 3**：curl -d 含中文/引号经 PowerShell→plink 双层转义必挂 → 一律写脚本文件上传执行。
+
+### ⏳ 待办
+- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [ ] 用户确认 QQ 邮箱收到验证码邮件（2026-08-06 已发 1 封）
+- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+
+---
+
 ## 2026-08-05（收尾：安全加固 5 项 + 清理服务误删事故处置 ✅ 已提交）
 
 > 承接画布体检记录。用户要求盘点项目文档剩余待办并收尾，范围选定「安全加固」：**模板权限 / 上传白名单 / 登录限流 / SSRF+路径加固 / 产物清理** 5 项全部实现。**但清理服务首次运行因 SQL 引用收集失败（viral_projects 无 bgm_url 列）删掉了 5 个被模板引用的帧目录 + 4 个源视频——已修复服务并全部恢复数据**。实测全绿，已 git 提交（`feat: 安全加固（模板权限/上传白名单/登录限流/SSRF/产物清理）`）。
