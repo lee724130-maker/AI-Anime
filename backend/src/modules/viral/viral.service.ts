@@ -426,7 +426,8 @@ export class ViralService {
 - variables 是用户需要填写的变量，例如产品名称、广告语等，必须给出 default_value 建议值（从视频内容中提炼，让用户可以直接采用或修改）
 - 场景数量控制在 3-6 个之间
 - 总时长控制在 8-15 秒之间
-- category 不限于固定列表，根据视频实际内容动态判断，例如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、影视剪辑等`;
+- category 不限于固定列表，根据视频实际内容动态判断，例如：美食测评、游戏解说、情感故事、产品开箱、旅游vlog、影视剪辑等
+- **严格基于画面**：所有描述必须来自画面中实际可见的内容（画面主体、字幕文字、人物动作、镜头与运镜、色调光线）。画面中没有出现的信息（剧情走向、台词、品牌名、事件背景、解说内容）一律不得编造或脑补。如果画面只是素材或宣传片，如实描述画面元素即可，不要虚构一个不存在的叙事结构或故事线`;
 
       const pageTitle = videoTitle || (sourceUrl.startsWith('/static/') ? '' : await this.getPageTitle(sourceUrl));
       const userPrompt = `请分析这个视频的结构，识别出场景分镜和需要用户填写的变量。
@@ -786,9 +787,9 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       if (picked) framePaths.push(picked);
     }
 
-    // Cap at 4 frames for the multimodal analysis call (cost-saving: fewer
-    // frames = fewer image tokens; sample evenly to keep full-video coverage)
-    const maxFrames = 4;
+    // Cap frames for the multimodal analysis call; scale with video length so
+    // long videos stay readable (short clips get 4, long videos up to 8)
+    const maxFrames = duration > 300 ? 8 : duration > 120 ? 6 : 4;
     const kept = framePaths.length <= maxFrames
       ? framePaths
       : Array.from({ length: maxFrames }, (_, i) =>
