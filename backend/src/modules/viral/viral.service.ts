@@ -15,6 +15,7 @@ import { FFmpegUtil, runFfmpegQueued } from '../../utils/ffmpeg.util';
 import { assertDiskSpace } from '../../common/utils/disk-check.util';
 
 const MIN_DISK_FREE_BYTES = 1024 * 1024 * 1024; // refuse generation when < 1GB free
+const MAX_ANALYZE_DURATION_SECONDS = 300; // analysis only supports videos ≤ 5 min (long videos hog CPU/bandwidth)
 import { assertTemplateWritable, assertCanSetSystemFlag } from '../../common/utils/template-permission.util';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 
@@ -341,6 +342,15 @@ export class ViralService {
         throw new BadRequestException('视频下载失败，请检查链接或稍后重试');
       }
 
+      // Duration limit (before compressing/persisting, which is CPU-heavy for long videos)
+      const probe = await this.ffmpeg.getVideoInfo(videoPath);
+      const dur = (apiMeta?.duration && apiMeta.duration > 0 && apiMeta.duration < 300) ? apiMeta.duration : probe.duration;
+      if (dur > MAX_ANALYZE_DURATION_SECONDS) {
+        throw new BadRequestException(
+          `该视频时长 ${Math.floor(dur)} 秒，超过 5 分钟（300 秒）限制，不支持长视频解析，请重新选择视频`,
+        );
+      }
+
       // Step 2.5: Persist the downloaded original video for later playback.
       // The workDir gets cleaned up in finally, so save a compressed copy to
       // a persistent location under output/ (served as /static/...).
@@ -384,6 +394,13 @@ export class ViralService {
       const videoDuration = (apiMeta?.duration && apiMeta.duration > 0 && apiMeta.duration < 300) ? apiMeta.duration : info.duration;
       const videoTitle = apiMeta?.title || '';
       this.logger.log(`视频信息: ${info.width}x${info.height}, ${info.duration.toFixed(1)}s (API时长: ${apiMeta?.duration || 'N/A'}s)`);
+
+      // Duration limit (unified guard for link & upload paths)
+      if (videoDuration > MAX_ANALYZE_DURATION_SECONDS) {
+        throw new BadRequestException(
+          `该视频时长 ${Math.floor(videoDuration)} 秒，超过 5 分钟（300 秒）限制，不支持长视频解析，请重新选择视频`,
+        );
+      }
 
       // Step 4: Extract keyframes (use API duration for frame count)
       const frameCount = Math.min(Math.max(Math.floor(videoDuration / 2), 3), 10);
@@ -531,6 +548,13 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     const videoPath = path.join(workDir, 'upload.mp4');
     try {
       fs.copyFileSync(file.path, videoPath);
+      // Duration limit: long videos would hog CPU/bandwidth during compress/analyze
+      const probe = await this.ffmpeg.getVideoInfo(videoPath);
+      if (probe.duration > MAX_ANALYZE_DURATION_SECONDS) {
+        throw new BadRequestException(
+          `该视频时长 ${Math.floor(probe.duration)} 秒，超过 5 分钟（300 秒）限制，不支持长视频解析，请重新选择视频`,
+        );
+      }
       const uploadUrl = `/static/${path.basename(file.path)}`;
       const localVideoUrl = await this.persistSourceVideo(videoPath, uploadUrl, taskId);
       const sourceUrl = localVideoUrl || uploadUrl;

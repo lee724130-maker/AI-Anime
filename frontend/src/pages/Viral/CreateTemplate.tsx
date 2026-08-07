@@ -161,7 +161,7 @@ export default function CreateTemplate() {
         <Card style={cardStyle}>
           <Title level={4} style={{ marginBottom: 20 }}>创建新模板</Title>
           <Alert
-            message="支持抖音、B站视频链接；也可以上传本地视频"
+            message="支持抖音、B站视频链接；也可以上传本地视频。仅支持 5 分钟以内的视频解析，不支持长视频"
             type="info" showIcon style={{ borderRadius: 10, marginBottom: 20 }}
           />
 
@@ -185,7 +185,7 @@ export default function CreateTemplate() {
           >
             <p className="ant-upload-drag-icon"><InboxOutlined /></p>
             <p className="ant-upload-text">点击或拖拽本地视频到此处</p>
-            <p className="ant-upload-hint">支持 mp4/mov/webm/mkv/avi/m4v，最大 300MB</p>
+            <p className="ant-upload-hint">支持 mp4/mov/webm/mkv/avi/m4v，最大 300MB，仅支持 5 分钟以内视频</p>
           </Dragger>
 
           <Row gutter={16}>
