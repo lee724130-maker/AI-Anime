@@ -4,6 +4,7 @@ import { Typography, Button, Card, Tag, Space, Spin, Descriptions, Steps, Alert,
 import { ArrowLeftOutlined, FileTextOutlined, ThunderboltOutlined, CheckCircleOutlined, PictureOutlined, VideoCameraOutlined, RobotOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../../services/api';
+import CreditRulesAlert from '../../components/CreditRulesAlert';
 
 const { Title, Text } = Typography;
 
@@ -112,6 +113,7 @@ export default function DramaDetailPage() {
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/drama')} style={{ padding: 0, marginBottom: 16 }}>
         返回短剧列表
       </Button>
+      <CreditRulesAlert apiPath="/api/drama/credit-rules" />
 
       <Card style={{ borderRadius: 12, marginBottom: 24 }}>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>

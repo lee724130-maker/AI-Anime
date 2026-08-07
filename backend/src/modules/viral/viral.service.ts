@@ -13,6 +13,7 @@ import { CreateTemplateDto, UpdateTemplateDto, CreateProjectDto, UpdateProjectDt
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil, runFfmpegQueued } from '../../utils/ffmpeg.util';
 import { assertDiskSpace } from '../../common/utils/disk-check.util';
+import { CreditsService } from '../credits/credits.service';
 
 const MIN_DISK_FREE_BYTES = 1024 * 1024 * 1024; // refuse generation when < 1GB free
 const MAX_ANALYZE_DURATION_SECONDS = 300; // analysis only supports videos ≤ 5 min (long videos hog CPU/bandwidth)
@@ -78,6 +79,7 @@ export class ViralService {
     private readonly projectRepo: Repository<ViralProject>,
     private readonly aiService: AIServiceUtil,
     private readonly ffmpeg: FFmpegUtil,
+    private readonly credits: CreditsService,
   ) {
     this.outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(this.outputDir)) fs.mkdirSync(this.outputDir, { recursive: true });
@@ -311,7 +313,7 @@ export class ViralService {
 
   // ───── Video Analysis ─────
 
-  async analyzeVideo(dto: AnalyzeVideoDto) {
+  async analyzeVideo(dto: AnalyzeVideoDto, userId: number) {
     const { videoUrl, name, category, description } = dto;
     if (!videoUrl) throw new BadRequestException('视频 URL 不能为空');
 
@@ -327,6 +329,10 @@ export class ViralService {
     if (!/^https?:\/\/([a-z0-9-]+\.)?(douyin\.com|iesdouyin\.com|bilibili\.com|b23\.tv)(\/|$)/i.test(finalUrl)) {
       throw new BadRequestException('暂不支持该链接，仅支持抖音、B站视频链接；也可以直接上传本地视频');
     }
+
+    // Credit charge: 模板分析 50 分/次（预扣，失败退全款）
+    const analyzeCost = await this.credits.viralAnalyzeCost();
+    await this.credits.assertEnough(userId, analyzeCost, '模板分析');
 
     const taskId = Date.now();
     const workDir = path.join(this.outputDir, `viral_analyze_${taskId}`);
@@ -362,6 +368,10 @@ export class ViralService {
         videoPath, sourceUrl: finalUrl, localVideoUrl, apiMeta,
         name, category, description, workDir,
       });
+    } catch (err: any) {
+      // 分析失败（下载失败/时长超限/解析失败等）→ 退全款
+      await this.credits.refund(userId, analyzeCost).catch(() => undefined);
+      throw err;
     } finally {
       // Cleanup temp video dir only (keep framesDir for user reference images)
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -545,8 +555,13 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
    * file is deleted afterwards; the persisted /static/viral_source_*.mp4 copy
    * is kept as the template's reference video.
    */
-  async analyzeUploadedVideo(file: any, dto: { name?: string; category?: string; description?: string }) {
+  async analyzeUploadedVideo(file: any, dto: { name?: string; category?: string; description?: string }, userId: number) {
     if (!file?.path || !fs.existsSync(file.path)) throw new BadRequestException('请上传视频文件');
+
+    // Credit charge: 模板分析 50 分/次（预扣，失败退全款）
+    const analyzeCost = await this.credits.viralAnalyzeCost();
+    await this.credits.assertEnough(userId, analyzeCost, '模板分析');
+
     const taskId = Date.now();
     const workDir = path.join(this.outputDir, `viral_analyze_${taskId}`);
     fs.mkdirSync(workDir, { recursive: true });
@@ -567,6 +582,10 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         videoPath, sourceUrl, localVideoUrl,
         name: dto.name, category: dto.category, description: dto.description, workDir,
       });
+    } catch (err: any) {
+      // 分析失败（时长超限/解析失败等）→ 退全款
+      await this.credits.refund(userId, analyzeCost).catch(() => undefined);
+      throw err;
     } finally {
       try { fs.unlinkSync(file.path); } catch { /* ignore */ }
     }
@@ -1183,6 +1202,11 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       this.logger.log(`使用 ${mediaRefs.length} 个参考图 (media_refs)`);
     }
 
+    // Credit charge: 项目生成按参考图数量梯度（0图=50/1图=80/2图=120/每多1图+40）
+    const genCost = await this.credits.viralGenerateCost(mediaRefs.length);
+    await this.credits.assertEnough(userId, genCost, '项目生成');
+    this.logger.log(`[credits] 项目 ${projectId} 预扣 ${genCost} 积分（参考图 ${mediaRefs.length} 张）`);
+
     // Update status
     project.status = 'processing';
     project.progress = 0;
@@ -1365,6 +1389,11 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       project.scenes = JSON.stringify(sceneResults);
       await this.projectRepo.save(project);
     } finally {
+      // 生成失败（所有场景失败/异常）→ 退全款；成功（含部分场景成功）不退
+      if (project.status === 'failed') {
+        await this.credits.refund(userId, genCost).catch(() => undefined);
+        this.logger.log(`[credits] 项目 ${projectId} 生成失败，已退还 ${genCost} 积分`);
+      }
       // Cleanup temp files
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
@@ -1384,6 +1413,23 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     } catch {
       throw new BadRequestException('项目数据格式错误');
     }
+
+    // project.scenes was overwritten by startGeneration with generation
+    // results ({name,status,videoPath,duration}) — the original scene defs
+    // (type/description/duration) live in the template. Merge them back in so
+    // regenerate has something to work with.
+    try {
+      const tpl = await this.templateRepo.findOne({ where: { id: project.template_id } });
+      const templateScenes: any[] = tpl?.scenes ? JSON.parse(tpl.scenes) : [];
+      for (let i = 0; i < scenes.length; i++) {
+        const orig = templateScenes[i];
+        if (orig) {
+          if (scenes[i].type === undefined) scenes[i].type = orig.type;
+          if (scenes[i].description === undefined) scenes[i].description = orig.description;
+          if (scenes[i].duration === undefined || !(scenes[i].duration > 0)) scenes[i].duration = orig.duration;
+        }
+      }
+    } catch { /* ignore */ }
 
     if (sceneIndex < 0 || sceneIndex >= scenes.length) {
       throw new BadRequestException(`场景索引无效: ${sceneIndex}, 共 ${scenes.length} 个场景`);
@@ -1419,6 +1465,11 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     if (mediaRefs.length > 0) {
       this.logger.log(`重新生成场景 ${sceneIndex}: 使用 ${mediaRefs.length} 个参考图 (media_refs)`);
     }
+
+    // Credit charge: 单场景重生成与整次生成同价（按参考图数量梯度）
+    const regCost = await this.credits.viralGenerateCost(mediaRefs.length);
+    await this.credits.assertEnough(userId, regCost, '场景重新生成');
+    this.logger.log(`[credits] 项目 ${projectId} 重生成场景 ${sceneIndex} 预扣 ${regCost} 积分（参考图 ${mediaRefs.length} 张）`);
 
     let description = scene.description || '';
     for (const [key, val] of Object.entries(varMap)) {
@@ -1552,6 +1603,11 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       project.scenes = JSON.stringify(scenes);
       await this.projectRepo.save(project);
     } finally {
+      // 该场景重新生成失败 → 退全款
+      if (scenes[sceneIndex]?.status === 'failed') {
+        await this.credits.refund(userId, regCost).catch(() => undefined);
+        this.logger.log(`[credits] 项目 ${projectId} 场景 ${sceneIndex} 重生成失败，已退还 ${regCost} 积分`);
+      }
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
@@ -1597,6 +1653,13 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       scenes: project.scenes ? JSON.parse(project.scenes) : [],
       media_refs: project.media_refs ? JSON.parse(project.media_refs) : [],
     };
+  }
+
+  // ───── Credits ─────
+
+  /** 热门创作积分扣费规则（供前端展示） */
+  getViralCreditRules() {
+    return this.credits.getViralCreditRules();
   }
 
   // ───── Stats ─────

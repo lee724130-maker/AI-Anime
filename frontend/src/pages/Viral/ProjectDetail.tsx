@@ -5,6 +5,7 @@ import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlin
 import api from '../../services/api';
 import ProgressPanel from './components/ProgressPanel';
 import VideoPreview from './components/VideoPreview';
+import CreditRulesAlert from '../../components/CreditRulesAlert';
 
 const { Title, Text } = Typography;
 
@@ -129,6 +130,7 @@ export default function ViralProjectDetail() {
     <div style={{ padding: '24px 32px' }}>
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral/projects')}
         style={{ marginBottom: 16, color: '#666' }}>返回我的创作</Button>
+      <CreditRulesAlert apiPath="/api/viral/credit-rules" />
 
       <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>

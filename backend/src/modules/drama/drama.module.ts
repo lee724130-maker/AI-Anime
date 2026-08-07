@@ -12,12 +12,14 @@ import { DramaController } from './drama.controller';
 import { UtilsModule } from '../../utils/utils.module';
 import { PromptTemplateService } from '../admin/prompt-template.service';
 import { PromptTemplate } from '../admin/prompt-template.entity';
+import { CreditsModule } from '../credits/credits.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, PromptTemplate]),
     BullModule.registerQueue({ name: 'drama-segment' }),
     UtilsModule,
+    CreditsModule,
   ],
   controllers: [DramaController],
   providers: [DramaService, PromptTemplateService],

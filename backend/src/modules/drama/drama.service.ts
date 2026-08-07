@@ -12,6 +12,7 @@ import { PromptTemplateService } from '../admin/prompt-template.service';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
 import { downloadToFile } from '../../common/utils/safe-download.util';
+import { CreditsService } from '../credits/credits.service';
 import type { Queue } from 'bull';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -37,9 +38,15 @@ export class DramaService {
     private readonly aiService: AIServiceUtil,
     private readonly templateService: PromptTemplateService,
     private readonly ffmpeg: FFmpegUtil,
+    private readonly credits: CreditsService,
     @InjectQueue('drama-segment')
     private readonly segmentQueue: Queue,
   ) {}
+
+  /** 短剧工作室积分扣费规则（供前端展示） */
+  getDramaCreditRules() {
+    return this.credits.getDramaCreditRules();
+  }
 
   async list(userId: number, page = 1, limit = 20) {
     const [items, total] = await this.projectRepo.findAndCount({
@@ -89,6 +96,10 @@ export class DramaService {
     const analyzeTemplate = templates.find((t: any) => t.name === '剧本分析模板');
     if (!analyzeTemplate) throw new BadRequestException('系统未配置剧本分析模板');
 
+    // Credit charge: 剧情分析 5 分/次（预扣，失败退全款）
+    const analyzeCost = await this.credits.dramaAnalyzeCost();
+    await this.credits.assertEnough(userId, analyzeCost, '剧情分析');
+
     const prompt = analyzeTemplate.template.replace('{{outline}}', project.outline);
 
     let outline = await this.outlineRepo.findOne({ where: { project_id: projectId } });
@@ -129,6 +140,8 @@ export class DramaService {
         this.logger.error(`Analysis raw response: ${outline.raw_response.substring(0, 500)}`);
       }
       await this.outlineRepo.save(outline);
+      // 分析失败 → 退全款
+      await this.credits.refund(userId, analyzeCost).catch(() => undefined);
       const msg = err.message.includes('JSON')
         ? `AI 返回内容无法解析为有效 JSON，请重试或检查 LLM 配置。原始返回：${(outline.raw_response || '').substring(0, 200)}`
         : err.message;
@@ -337,6 +350,10 @@ export class DramaService {
     const project = await this.getById(userId, asset.project_id);
     if (!asset.prompt) throw new BadRequestException('资产没有生成提示词，请先编辑');
 
+    // Credit charge: 资产图生成 5 分/张（预扣，失败退全款）
+    const assetCost = await this.credits.dramaAssetImageCost();
+    await this.credits.assertEnough(userId, assetCost, '资产图生成');
+
     asset.status = 'generating';
     await this.assetRepo.save(asset);
 
@@ -380,6 +397,8 @@ export class DramaService {
     } catch (err: any) {
       asset.status = 'failed';
       await this.assetRepo.save(asset);
+      // 生成失败 → 退全款
+      await this.credits.refund(userId, assetCost).catch(() => undefined);
       throw new BadRequestException(`资产生成失败: ${err.message}`);
     }
   }
@@ -571,6 +590,11 @@ export class DramaService {
     if (!episode) throw new NotFoundException('分集不存在');
     await this.getById(userId, episode.project_id);
     if (!segment.prompt) throw new BadRequestException('片段没有提示词，请先编辑');
+
+    // Credit charge: 片段生成固定价（480p=120/720p=240/1080p=360，按分集分辨率；预扣，失败退全款）
+    const segCost = await this.credits.dramaSegmentCost(episode.resolution);
+    await this.credits.assertEnough(userId, segCost, '片段生成');
+    this.logger.log(`[credits] 片段 ${segmentId} 预扣 ${segCost} 积分（分辨率 ${episode.resolution || '720p'}）`);
 
     const epStyle = episode.style || 'anime';
     const epRatio = episode.ratio || '9:16';
@@ -834,6 +858,9 @@ export class DramaService {
     } catch (err: any) {
       segment.status = 'failed';
       await this.segmentRepo.save(segment);
+      // 片段生成失败 → 退全款
+      await this.credits.refund(userId, segCost).catch(() => undefined);
+      this.logger.log(`[credits] 片段 ${segmentId} 生成失败，已退还 ${segCost} 积分`);
       throw new BadRequestException(`片段生成失败: ${err.message}`);
     }
   }

@@ -166,6 +166,11 @@ export class DramaController {
   @Get('ping')
   ping() { return { ok: true }; }
 
+  @Get('credit-rules')
+  getCreditRules() {
+    return this.dramaService.getDramaCreditRules();
+  }
+
   @Get(':id')
   get(@Req() req, @Param('id') id: number) {
     return this.dramaService.getById(req.user.id, id);

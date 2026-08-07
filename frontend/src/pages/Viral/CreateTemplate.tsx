@@ -5,6 +5,7 @@ import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, Set
 import api from '../../services/api';
 import SceneEditor from './components/SceneEditor';
 import type { SceneItem } from './components/SceneEditor';
+import CreditRulesAlert from '../../components/CreditRulesAlert';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -146,7 +147,7 @@ export default function CreateTemplate() {
     <div style={{ padding: '24px 32px', maxWidth: 900 }}>
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral')}
         style={{ marginBottom: 16, color: '#666' }}>返回模板集市</Button>
-
+      <CreditRulesAlert apiPath="/api/viral/credit-rules" />
       <Steps
         current={step === 'edit' ? 2 : 0}
         style={{ marginBottom: 28, maxWidth: 600 }}

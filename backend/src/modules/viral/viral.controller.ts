@@ -53,15 +53,15 @@ export class ViralController {
   }
 
   @Post('templates/analyze')
-  analyzeVideo(@Body() dto: AnalyzeVideoDto) {
-    return this.service.analyzeVideo(dto);
+  analyzeVideo(@Req() req, @Body() dto: AnalyzeVideoDto) {
+    return this.service.analyzeVideo(dto, req.user.id);
   }
 
   @Post('templates/analyze-upload')
   @UseInterceptors(analyzeUploadInterceptor())
-  analyzeUpload(@UploadedFile() file: Express.Multer.File, @Body() body: { name?: string; category?: string; description?: string }) {
+  analyzeUpload(@Req() req, @UploadedFile() file: Express.Multer.File, @Body() body: { name?: string; category?: string; description?: string }) {
     if (!file) throw new BadRequestException('请上传视频文件');
-    return this.service.analyzeUploadedVideo(file, body);
+    return this.service.analyzeUploadedVideo(file, body, req.user.id);
   }
 
   @Post('templates/:id/duplicate')
@@ -138,5 +138,10 @@ export class ViralController {
   @Get('stats')
   getStats() {
     return this.service.getStats();
+  }
+
+  @Get('credit-rules')
+  getCreditRules() {
+    return this.service.getViralCreditRules();
   }
 }
