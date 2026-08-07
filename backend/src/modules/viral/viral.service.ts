@@ -395,6 +395,11 @@ export class ViralService {
       const videoTitle = apiMeta?.title || '';
       this.logger.log(`视频信息: ${info.width}x${info.height}, ${info.duration.toFixed(1)}s (API时长: ${apiMeta?.duration || 'N/A'}s)`);
 
+      // No valid video file → never fabricate a template from text only
+      if (!videoPath || !fs.existsSync(videoPath) || info.width <= 0 || info.duration <= 0) {
+        throw new BadRequestException('视频解析失败：无法读取视频内容，请重试或更换视频');
+      }
+
       // Duration limit (unified guard for link & upload paths)
       if (videoDuration > MAX_ANALYZE_DURATION_SECONDS) {
         throw new BadRequestException(
@@ -678,7 +683,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       const currentUrl = page.url();
       this.logger.log(`Playwright: 当前页面 URL: ${currentUrl}`);
 
-      // Fallback: extract aweme_id from page URL and call detail API directly in page context
+      // Fallback: extract aweme_id from page URL and call detail API directly (page context)
       if (!apiMeta || !apiMeta.videoUrl) {
         const m = currentUrl.match(/video\/(\d+)/) || currentUrl.match(/aweme_id=(\d+)/);
         if (m) {
@@ -686,14 +691,18 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
             const awemeId = m[1];
             this.logger.log(`Playwright: 提取 aweme_id=${awemeId}，尝试直连 detail API`);
             const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?device_platform=webapp&aid=6383&channel=channel_pc_web&aweme_id=${awemeId}`;
-            const text = await page.evaluate(async (u) => {
-              const ctrl = new AbortController();
-              setTimeout(() => ctrl.abort(), 20000);
-              const r = await fetch(u, { credentials: 'include', signal: ctrl.signal });
-              return r.text();
-            }, apiUrl);
+            // Use APIRequestContext (browser cookies, not affected by page navigation, hard timeout)
+            const resp = await context.request.get(apiUrl, {
+              timeout: 20000,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+                'Referer': `https://www.douyin.com/video/${awemeId}`,
+                'Accept': 'application/json, text/plain, */*',
+              },
+            });
+            const text = await resp.text();
             const body = text ? JSON.parse(text) : null;
-            const detail = body?.aweme_detail || (body?.item_list ? body.item_list[0] : null);
+            const detail = body?.aweme_detail || (body?.item_list ? body.item_list[0] : null) || (body?.data?.item_list ? body.data.item_list[0] : null);
             if (detail && detail.video?.play_addr?.url_list?.[0]) {
               const playUrl = detail.video.play_addr.url_list[0].replace(/\\u0026/g, '&').replace('/playwm/', '/play/');
               apiMeta = {
@@ -703,7 +712,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
               };
               this.logger.log(`Playwright: detail API 获取成功 "${(apiMeta.title || '').substring(0, 80)}" (${apiMeta.duration}s)`);
             } else {
-              this.logger.warn(`Playwright: detail API 无有效数据 (status_code=${body?.status_code})`);
+              this.logger.warn(`Playwright: detail API 无有效数据 (status_code=${body?.status_code}, head=${(text || '').slice(0, 120)})`);
             }
           } catch (e: any) {
             this.logger.warn(`Playwright: detail API 失败 (${e.message?.substring(0, 80)})`);
@@ -716,6 +725,12 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
 
       // Try to download using API URL
       if (apiMeta && apiMeta.videoUrl) {
+        // Reject long videos BEFORE downloading (they would hog server bandwidth/CPU)
+        if (apiMeta.duration > MAX_ANALYZE_DURATION_SECONDS) {
+          throw new BadRequestException(
+            `该视频时长 ${Math.floor(apiMeta.duration)} 秒，超过 5 分钟（300 秒）限制，不支持长视频解析，请重新选择视频`,
+          );
+        }
         try {
           this.logger.log(`Playwright: 下载视频 ${apiMeta.videoUrl.substring(0, 80)}`);
           const resp = await axios.get(apiMeta.videoUrl, {
@@ -738,6 +753,8 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
 
       this.logger.warn('Playwright: 未能获取视频');
     } catch (err: any) {
+      // Business rejections (e.g. duration limit) must pass through, not be swallowed
+      if (err instanceof BadRequestException) throw err;
       this.logger.warn(`Playwright 失败: ${err.message}`);
     } finally {
       if (browserRef) try { await browserRef.close(); } catch { /* ignore */ }
