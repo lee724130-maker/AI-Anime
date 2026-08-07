@@ -31,6 +31,9 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
+  @Column({ type: 'boolean', default: false })
+  test_notice_dismissed: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 }

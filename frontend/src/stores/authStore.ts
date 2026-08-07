@@ -42,6 +42,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    Object.keys(sessionStorage)
+      .filter((k) => k.startsWith('tn_shown_'))
+      .forEach((k) => sessionStorage.removeItem(k));
     set({ user: null, token: null });
   },
 

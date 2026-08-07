@@ -25,6 +25,12 @@ export class UserService {
     return user;
   }
 
+  async dismissTestNotice(userId: number) {
+    const result = await this.userRepo.update(userId, { test_notice_dismissed: true });
+    if (!result.affected) throw new NotFoundException('用户不存在');
+    return { ok: true };
+  }
+
   async getDashboard(userId: number) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('用户不存在');

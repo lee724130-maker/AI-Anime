@@ -34,6 +34,7 @@ import GlobalAssetsPage from './pages/Drama/GlobalAssets';
 import DramaEpisodesPage from './pages/Drama/Episodes';
 import EpisodeDetailPage from './pages/Drama/EpisodeDetail';
 import UserLayout from './components/UserLayout';
+import TestNoticeModal from './components/TestNoticeModal';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
@@ -86,6 +87,7 @@ export default function App() {
         <Route path="/canvas" element={<ProtectedRoute><UserLayout><CanvasIndex /></UserLayout></ProtectedRoute>} />
         <Route path="/canvas/editor/:id" element={<ProtectedRoute><UserLayout><CanvasEditor /></UserLayout></ProtectedRoute>} />
       </Routes>
+      <TestNoticeModal />
     </BrowserRouter>
   );
 }

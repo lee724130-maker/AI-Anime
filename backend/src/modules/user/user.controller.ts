@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { UserService } from './user.service';
 
@@ -10,6 +10,12 @@ export class UserController {
   @UseGuards(JwtAuthGuard)
   getProfile(@Req() req) {
     return this.userService.getProfile(req.user.id);
+  }
+
+  @Post('dismiss-test-notice')
+  @UseGuards(JwtAuthGuard)
+  dismissTestNotice(@Req() req) {
+    return this.userService.dismissTestNotice(req.user.id);
   }
 
   @Get('dashboard')
