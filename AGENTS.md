@@ -1,5 +1,16 @@
 # 修复日志
 
+## 2026-08-07（抖音链接解析生产打通 + 946s 快速拒绝 ✅ 已提交+已部署+生产验证）
+
+> 承接 5 分钟时长限制。生产复测发现两个连环问题，均已在本地反复验证后部署（commit `fix: 抖音链接解析 detail API 改用 context.request 带浏览器头直连 + 无效视频直接报错不再脑补模板`）：
+- **问题 1（生产 946s 链接返回 200 脑补模板）**：生产 `context.request.get(detail API)` 无浏览器 headers → 抖音 API 拒绝（status_code=undefined）→ apiMeta 拿不到 duration → 下载 72KB HTML 假视频 → ffprobe 失败（0x0, 5s 兜底）→ 纯文本**脑补**模板返回 200。本地当时没暴露（本地页面自发请求 detail 被 response 监听器捕获，走的是另一分支）。
+- **修复 A**：`context.request.get` 加浏览器 headers（UA Chrome/134 + Referer `https://www.douyin.com/video/{aweme_id}` + Accept json）→ 生产直连成功（121KB JSON：TITLE「漫威电影时间线第21部…」+ DURATION 946432ms + PLAY URL）→ 下载前拦截 400「该视频时长 946 秒，超过 5 分钟…」**17s 快速拒绝，零下载** ✓。响应解析兼容 `aweme_detail / item_list[0] / data.item_list[0]` 三种结构，失败日志带响应体前 120 字符。
+- **修复 B（防脑补兜底）**：analyzeFromLocalVideo 开头「无有效视频文件（不存在/width<=0/duration<=0）→ 400『视频解析失败：无法读取视频内容，请重试或更换视频』」，**杜绝下载失败后纯文本脑补模板**（脑补正是用户抱怨「解析结果与视频无关」的根源之一）。纯文本降级仅保留给「视频有效但视觉模型 API 挂」的场景。
+- **修复 C**：downloadVideo 的 catch 里 `instanceof BadRequestException` 重抛（业务拒绝穿透，之前被吞导致 400 变 200）。
+- **本地验证**：context.request 分支专项测试（page.route 拦截页面自发 detail 请求强制走直连分支）→ 200 + 946s + PLAY URL 全拿到 ✓；完整回归 3 用例两轮全绿（946s 链接 400 / 5s 上传 201 / 400s 上传 400 / 无 chromium 残留）。
+- **生产验证**：310s 上传 400 ✓、946s 链接 **17s 400** ✓、5s 上传 201 正常分析 ✓；output 20M 干净、无残留 chrome 进程、内存正常（可用 ~470MB）。
+- ⚠️ 教训：**「本地跑通」≠「生产跑通」**——本地页面自发请求 detail API 掩盖了 context.request 无 headers 的缺陷；生产与本地网络行为不同，**生产复测必须覆盖每条分支**。
+
 ## 2026-08-07（热门创作解析 5 分钟时长限制 ✅ 已提交+已部署+生产验证）
 
 > 946s 视频在 2GB 内存生产机上连续两次压垮服务器（下载几百 MB + ffmpeg 压缩 720p 占 CPU 10-20 分钟 → OOM/负载爆炸 → sshd/443 挂）。用户拍板：**解析仅支持 ≤5 分钟视频**。实现（commit `feat: 热门创作解析仅支持 5 分钟以内视频…`）：
