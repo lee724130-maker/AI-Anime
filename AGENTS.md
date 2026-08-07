@@ -1,5 +1,21 @@
 # 修复日志
 
+## ⚠️ 服务器操作安全铁律（2026-08-07 服务器崩溃事故后立规）
+
+> 事故：在服务器上跑 Playwright 调试脚本 test-pw-prod3.js，浏览器内 `fetch` 抖音 946s 视频直链无超时无大小限制 → 本地 plink 超时被杀但**远程 node/chromium 进程残留继续下载** → 服务器内存/带宽耗尽 → sshd/443 全挂，只能重启。
+1. **远程跑任何可能耗资源/下载大文件的脚本，必须自带硬退出**：脚本开头 `setTimeout(() => process.exit(1), 60000)`；所有 fetch/axios 必须 AbortController/timeout；**别在服务器上跑下载大视频的测试**（下载类验证一律本地做）。
+2. **plink/pscp 本地超时 ≠ 远程命令结束**：超时后必须立即补一条 `pkill -f test-xxx` 或 `timeout 60 node xxx` 类命令清理远程残留进程。
+3. **远程长命令用 Linux `timeout N cmd` 包裹**（如 `timeout 120 node xxx.js`），硬性兜底。
+4. **测试脚本跑完自清理**：不遗留临时文件/进程；pscp 上传的脚本用后删除。
+5. **发信测试铁律（08-06 教训重申）**：任何 send-code/真实 SMTP 发信测试必须**先征得用户同意且用用户提供的真实邮箱**；测试注册一律 Redis 注入验证码（写 `email_code:{email}` 键）绕过发信。违规会向用户 QQ 邮箱弹退信，可能被举报。
+6. **生产 analyze 长视频隐患**：946s 视频解析会长时间占 CPU（ffmpeg 压缩 720p 约 10-20 分钟）+ 大下载——待用户确认是否加分析时长上限（如 ≤600s）或压缩降级。
+
+## 2026-08-07（抖音链接解析生产打通 ✅ 本地已验证，待部署）
+
+> 生产 yt-dlp 对抖音需 Cookie 必然失败 → Playwright 降级：服务器已装 `chromium_headless_shell-1234`（`npx playwright install chromium-headless-shell` + `install-deps chromium-headless-shell`，含 xvfb）→ 但抖音 PC 页面（www.douyin.com/video/xxx）**不再自发请求 `/aweme/v1/web/aweme/detail`**，原捕获逻辑失效（下载到 72KB HTML，video_info 全 0、0 帧、纯文本脑补）。修复（viral.service.ts Playwright 分支，commit `fix: 抖音链接解析 Playwright 降级支持 detail API 直连…`）：导航后从 `page.url()` 提取 `aweme_id`（`/video/(\d+)`）→ 页面内 `fetch` detail API（带 cookie，AbortController 20s 兜底）→ 解析 `play_addr.url_list[0]`（playwm→play）→ axios 下载（原逻辑，120s 超时）。
+- **本地全链路实测**：946s 漫威剪辑视频 → 1920×1080 / 946.4s / **8 帧** / 模板准确识别「复仇者联盟3：无限战争 剧情梳理」✓。
+- **生产部署状态**：代码已提交未部署（服务器 15:52 崩溃事故，重启后补部署）。
+
 ## 2026-08-07（视频解析结果与内容无关修复 ✅ 已提交+已部署）
 
 > 用户生产上传 391s 长视频，解析出的模板（「1916 年鲨鱼袭击科学悬疑解说」）与视频实际内容（保护野生动物宣传片）完全无关。排查生产日志定位根因：`extractFrames` 硬编码 `maxFrames=4`（08-05 省钱方案遗留）——**无论视频多长只喂 4 帧给视觉模型**，391s 视频每帧间隔 ~100s，模型只能脑补编造叙事。修复已部署（commit `fix: 视频解析抽帧随时长自适应…`）。
@@ -9,12 +25,13 @@
 - **注意**：用户之前上传 391s 视频已生成错误模板「科学悬疑解说模板」在生产库，需删除或重新分析。
 
 ### ⏳ 待办
+- [ ] 服务器重启后：清理残留进程 → 上传部署 be-dist.zip（detail API 修复）→ pm2 restart → 生产复测抖音链接
 - [ ] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧）
 - [ ] 删除生产上错误的「科学悬疑解说模板」（id 待查）
 - [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
 - [ ] 用户复测「连点多个生成任务排队」效果
 - [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改）
-- [ ] 抖音链接解析：生产 yt-dlp 失败 + **Playwright 浏览器未安装**（chromium_headless_shell 缺失）——本地可用 Playwright 降级，生产目前抖音链接解析不通，待确认是否安装（`npx playwright install chromium-headless-shell` 或装 yt-dlp cookie）
+- [ ] 生产 analyze 长视频（946s）压缩占 CPU 10-20 分钟隐患——是否加分析时长上限（≤600s）或压缩降级，待用户确认
 - [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
