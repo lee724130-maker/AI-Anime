@@ -1,5 +1,33 @@
 # 修复日志
 
+## 2026-08-07（登录后测试版说明弹窗 ✅ 已提交+已部署+生产验证）
+
+> 用户需求：登录后弹「测试版说明」弹窗（测试状态/支付未开通/赠送 100 积分提示）+ 确认按钮 + 「不再提示」勾选框（勾选后该用户以后每次登录都不再弹）。实现（commit `feat: 登录后测试版说明弹窗（勾选不再提示按用户持久化，不再重复弹出）`）：
+- **后端**：users 表加 `test_notice_dismissed` 布尔列（synchronize 自动建列）；新增 `POST /api/user/dismiss-test-notice`（JwtAuthGuard，置 true）；profile 返回该字段。
+- **前端**：新组件 `TestNoticeModal.tsx` 挂 App.tsx 全局（Routes 外）——有 token 时检查：sessionStorage `tn_shown_{uid}`（本次登录已弹过？）→ localStorage `tn_dismissed_{uid}`（永久不再提示？）→ 调 profile 确认后端字段 → 弹出。footer 自定义：左侧「不再提示」Checkbox + 右侧「确认」按钮。确认时若勾选 → 调 dismiss 接口 + 写 localStorage（接口失败不阻断关闭）；未勾选 → 仅本次登录不再弹（sessionStorage）。`authStore.logout` 清**所有** `tn_shown_*`（会话内多账号切换时旧账号标记残留导致重登不弹的 bug）。
+- **文案**（用户口述 + 优化）：「感谢您体验 AI 短剧创作平台！目前该网站还处于测试状态，支付功能暂时未开通，注册即可获赠 100 积分。您可以先使用积分体验文生图、文生视频、热门创作解析、短剧生成等全部功能；正式版上线后将开放充值渠道，届时积分不足也能随时补充。」
+- **本地验证**：后端接口 4/4（profile false→dismiss→true / 无 token 401）；UI 5/5（登录弹窗+文案+勾选框+确认按钮 / 确认后刷新不弹 / 第二新用户仍弹 / 勾选后重登不弹 / 未勾选用户下次登录仍弹）+ JS errors 0。
+- **生产验证**：注册→登录→弹窗文案完整→勾选确认→重登不弹 4/4 全绿，JS errors 0；测试用户已清理。前端新构建 index-apjKzkKG.js。
+- ⚠️ 测试脚本血泪（三连坑）：
+  1. **antd v6 两字按钮自动加空格**：「注册」渲染为「注 册」→ `has-text("注册")` 找不到（CSS :has-text 子串不跨空格）→ 用 `getByRole('button', { name: /注\s*册/ })`（JS 正则，不经 CSS 解析器；`:has-text(/注\s*册/)` 写进 CSS 字符串会报 Unexpected token）。
+  2. **antd Form 输入框 fill 与 placeholder 匹配错位**：`fill('input[placeholder*="邮箱"]', email)` 实际把值填错位（邮箱框收到验证码值）→ 表单校验失败且无任何 toast——**antd 表单用索引定位** `page.locator('form input').nth(i)`（注册页 0 用户名/1 邮箱/2 验证码/3 密码）。
+  3. **AuthGuard 重定向**：登录态下 goto /register 被重定向 /dashboard，且 localStorage.clear() 在 about:blank 上抛 SecurityError → goto 后判断 URL，非目标页才 evaluate 清存储再 goto。
+- ⚠️ **会话内多账号切换残留**：sessionStorage 是页面级共享——u1 登录弹过（tn_shown_73=1）→ 换 u2 → 再登 u1 不弹（残留）→ **logout 必须清所有 `tn_shown_*` 前缀**而非只清当前用户。
+
+## 2026-08-07（热门创作+短剧工作室积分扣费 ✅ 已提交+已部署+生产验证）
+
+> 用户需求：给「热门创作（viral）」和「短剧工作室（drama）」补积分扣费（之前只 /generate 有）。方案经用户确认后实现（commit `feat: 热门创作+短剧工作室积分扣费（预扣/失败退款）+ 积分规则展示 + 修复重生成场景定义丢失`）：
+- **viral 定价（用户确认）**：模板分析 50/次；生成+重生成按参考图数量梯度（0图=50、1图=80、2图=120、每多 1 图 +40，不封顶——R2V 额度有限所以 0 图也收 50）；失败自动退全款。
+- **drama 定价（用户确认）**：分析 5/次、资产图 5/张、片段固定价 480p=120/720p=240/1080p=360（不按时长）、合成免费；失败自动退全款。
+- **扣费方式**：预扣制（`UPDATE users SET credits=credits-? WHERE id=? AND credits>=?`，不足返回 400「积分不足，本次…需要 X 积分」）；成功不退、失败 finally 退款。所有价格读 system_configs 实时值（9 个键已插入生产 DB：viral_analyze_cost=50 / viral_generate_base=50 / viral_generate_first_image_extra=30 / viral_generate_per_image_extra=40 / drama_analyze_cost=5 / drama_asset_image_cost=5 / drama_segment_cost_480p=120 / 720p=240 / 1080p=360）。
+- **实现**：新公共模块 `backend/src/modules/credits/`（CreditsService：getConfigInt/charge/refund/assertEnough + 定价 + 规则接口）；viral 三入口（analyzeVideo/analyzeUploadedVideo 预扣 50、startGeneration 按图数、regenerateScene 同梯度同价）；drama 三入口（analyze 5、generateAsset 5、executeSegmentGeneration 按分辨率 120/240/360）；两个 `GET /api/viral|drama/credit-rules` 规则接口；前端新组件 `CreditRulesAlert.tsx` 挂 CreateTemplate/ProjectDetail/Drama Detail 三页顶部展示扣分规则。
+- **顺带修 bug**：startGeneration 会把 project.scenes 覆写成结果对象（丢 type/description/duration）→ regenerateScene 必然失败 → 从模板 scenes 回填字段。
+- **本地验证 21 项 + UI 3/3 全绿；生产验证**：credit-rules 接口返回正确价格（新注册用户 token）+ 前端新构建 index-B0WwTGca.js。
+- ⚠️ 部署/验证血泪：
+  1. **PowerShell Compress-Archive 的 zip 有 backslash warning → unzip 返回非零 → set -e 脚本中断**（但 dist 实际解压成功）→ 后续步骤（pm2 restart/插配置键）没跑，服务跑旧代码。**对策：unzip 用 `unzip -o -q x.zip 2>/dev/null || unzip -o -q x.zip` 双保险（警告吞掉重试一次），脚本别用 set -e 包 unzip 步骤**；部署后必须 grep 前端 JS hash 与本地一致。
+  2. **curl 用 IP 直连生产域名站点返回 404 假象**：vhost 是 `anime.leesystem.xyz`（server_name 域名），IP 直连落到默认 server（/www/server/nginx/html）→ 所有 /api/* 全 404。**生产 curl 必须 `--resolve anime.leesystem.xyz:443:127.0.0.1`（或 -H Host）**；nginx 配置在 `/www/server/panel/vhost/nginx/anime.leesystem.xyz.conf`。
+  3. Node 脚本调 plink 用 **spawnSync 数组参数**（不经 cmd shell，`-pw 'xxx*'` 的 `*` 不会被通配展开、引号不炸）；execSync 拼字符串必挂。
+
 ## 2026-08-07（AI 智能规划感知所选风格 ✅ 已提交+已部署+生产验证）
 
 > 用户反馈：/generate 文生图默认写实风格，但生成出来是动漫风格。排查定位：**智能规划（smart-plan）不感知 style**——前端只传 `{prompt, images, mode}`；后端规划 systemPrompt 是「动漫游戏角色分析专家」+「画风（日系动画/厚涂/赛璐璐/写实）让 LLM 自由选」→ LLM 默认输出动漫描述（「日系厚涂」「二次元插画质感」等）→ 写实剥离正则（08-06）只覆盖 8 个词形（动漫风格/二次元[的]?/日漫/赛璐珞/anime style 等），**漏「立绘/日系/厚涂/线稿/插画/卡通/单独动漫/anime/cartoon」** → 原样进模型出二次元图（证据：production 任务 id=18 style=realistic + prompt 含「日系厚涂+强化线稿」「商业级二次元插画质感」）。修复（commit `fix: AI智能规划感知所选风格…`）：
