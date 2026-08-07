@@ -654,6 +654,39 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       const currentUrl = page.url();
       this.logger.log(`Playwright: 当前页面 URL: ${currentUrl}`);
 
+      // Fallback: extract aweme_id from page URL and call detail API directly in page context
+      if (!apiMeta || !apiMeta.videoUrl) {
+        const m = currentUrl.match(/video\/(\d+)/) || currentUrl.match(/aweme_id=(\d+)/);
+        if (m) {
+          try {
+            const awemeId = m[1];
+            this.logger.log(`Playwright: 提取 aweme_id=${awemeId}，尝试直连 detail API`);
+            const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?device_platform=webapp&aid=6383&channel=channel_pc_web&aweme_id=${awemeId}`;
+            const text = await page.evaluate(async (u) => {
+              const ctrl = new AbortController();
+              setTimeout(() => ctrl.abort(), 20000);
+              const r = await fetch(u, { credentials: 'include', signal: ctrl.signal });
+              return r.text();
+            }, apiUrl);
+            const body = text ? JSON.parse(text) : null;
+            const detail = body?.aweme_detail || (body?.item_list ? body.item_list[0] : null);
+            if (detail && detail.video?.play_addr?.url_list?.[0]) {
+              const playUrl = detail.video.play_addr.url_list[0].replace(/\\u0026/g, '&').replace('/playwm/', '/play/');
+              apiMeta = {
+                duration: detail.video.duration ? Math.floor(detail.video.duration / 1000) : 0,
+                title: detail.desc || '',
+                videoUrl: playUrl,
+              };
+              this.logger.log(`Playwright: detail API 获取成功 "${(apiMeta.title || '').substring(0, 80)}" (${apiMeta.duration}s)`);
+            } else {
+              this.logger.warn(`Playwright: detail API 无有效数据 (status_code=${body?.status_code})`);
+            }
+          } catch (e: any) {
+            this.logger.warn(`Playwright: detail API 失败 (${e.message?.substring(0, 80)})`);
+          }
+        }
+      }
+
       await browser.close().catch(() => {});
       browserRef = null;
 
