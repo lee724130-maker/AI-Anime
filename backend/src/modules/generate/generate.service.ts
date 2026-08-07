@@ -589,7 +589,13 @@ export class GenerateService {
   }
 
   // ─── T2I 策略：文字→图片 ─────────────────────────────
-  private async handleT2i(prompt: string, images?: string[]) {
+  private styleInstruction(style?: string): string {
+    return style === 'anime'
+      ? '用户当前选择【动漫风格】：描述必须采用日系动画/二次元插画质感（赛璐璐、厚涂、线稿均可），可自由使用动漫风格词汇。'
+      : '用户当前选择【写实风格】：描述必须采用写实真人实拍、摄影质感，人物/场景/物品按真实世界材质与光影描述；严禁出现动漫、二次元、插画、厚涂、线稿、立绘、卡通、赛璐璐、日系动画等动漫风格词汇，画面中的角色一律是真实人物。';
+  }
+
+  private async handleT2i(prompt: string, images?: string[], style?: string) {
     this.logger.log(`[T2I] 文字→图片智能规划: "${prompt}"`);
 
     let imageDescription = '';
@@ -614,10 +620,12 @@ export class GenerateService {
 
 用户提供了角色的真实资料（来自百度百科或参考图片）。你需要基于这些资料，生成一段高质量的文生图模型提示词。
 
+${this.styleInstruction(style)}
+
 要求：
 1. 必须严格基于提供的资料描述角色，不要额外编造
 2. 如果资料信息不足，用泛化描述填补（如"身着某风格服装"），不要编造具体细节
-3. 补全构图信息：视角（全身/半身/特写）、光线风格、画风（日系动画/厚涂/赛璐璐/写实）
+3. 补全构图信息：视角（全身/半身/特写）、光线风格
 4. 输出150-300字，直接作为文生图提示词
 5. 不要解释、不要引号、不要前缀`;
 
@@ -628,16 +636,17 @@ export class GenerateService {
     }
 
     // 第二步：没有百科资料，用 LLM 知识分析
-    const analysisPrompt = `你是一个动漫游戏角色分析专家。用户输入一个角色名或关键词，你需要：
+    const analysisPrompt = `${this.styleInstruction(style)}
 
-1. 先回忆你对这个角色的所有认知（来自训练数据）
+你是一个角色描述分析专家。用户输入一个角色名或关键词，你需要：
+
+1. 先回忆你对这个角色/主体的所有认知（来自训练数据）
 2. 逐项列出以下细节，并用【确定】/【推测】标注你的确信度：
 
 【外貌】发色、发型、瞳色、肤色、脸型、身高体型、特殊特征
 【服装】上衣款式及颜色、下装、鞋履、首饰、武器/道具
 【气质】表情、神态、常见姿态、标志性动作
 【场景】常见的背景设定、光影氛围
-【画风】该角色所属作品的艺术风格
 
 格式要求：
 - 【确定】表示你有明确的训练数据依据
@@ -656,11 +665,13 @@ export class GenerateService {
 
 你会收到一份角色分析报告，其中标注了【确定】和【推测】的细节。
 
+${this.styleInstruction(style)}
+
 构建规则：
 1. 【确定】的细节原样保留，优先放在前面
 2. 【推测】的细节用更泛化的描述（如"深色系服装"而非具体颜色）
 3. 不确定的细节不要编造具体数字/颜色/名称
-4. 补全构图信息：视角、光线风格、画风
+4. 补全构图信息：视角、光线风格
 5. 输出150-300字，直接作为文生图提示词
 6. 不要标注【确定】/【推测】标记，不要解释、不要引号、不要前缀`;
 
@@ -671,7 +682,7 @@ export class GenerateService {
   }
 
   // ─── T2V 策略：文字→视频 ─────────────────────────────
-  private async handleT2v(prompt: string, images?: string[]) {
+  private async handleT2v(prompt: string, images?: string[], style?: string) {
     this.logger.log(`[T2V] 文字→视频智能规划: "${prompt}"`);
 
     let imageDescription = '';
@@ -683,6 +694,8 @@ export class GenerateService {
     const systemPrompt = `你是一个AI视频分镜创意专家。
 
 用户输入一段创意描述，你将其扩展成适合视频生成的动态场景描述。
+
+${this.styleInstruction(style)}
 
 请包含以下要素：
 1. 场景设定：时间、地点、环境氛围（如黄昏街道、晨雾森林）
@@ -705,26 +718,28 @@ export class GenerateService {
   }
 
   // ─── I2V 策略：图片→视频 ─────────────────────────────
-  private async handleI2v(prompt: string, images?: string[]) {
+  private async handleI2v(prompt: string, images?: string[], style?: string) {
     this.logger.log(`[I2V] 图片→视频智能规划: "${prompt}"`);
 
     if (!images || images.length === 0) {
       this.logger.warn('[I2V] 没有参考图片，降级为T2V');
-      return this.handleT2v(prompt);
+      return this.handleT2v(prompt, images, style);
     }
 
     let imageDescription = '';
     try { imageDescription = await this.aiService.generateSmartDescription(images); }
-    catch (err) { this.logger.warn(`[I2V] 图片分析失败: ${err.message}`); }
+    catch (err: any) { this.logger.warn(`[I2V] 图片分析失败: ${err.message}`); }
 
     if (!imageDescription) {
       this.logger.warn('[I2V] 图片分析无结果，降级为T2V');
-      return this.handleT2v(prompt);
+      return this.handleT2v(prompt, images, style);
     }
 
     const systemPrompt = `你是一个AI视频动作指导专家。用户提供了参考图片的分析结果和一段文字描述。
 
 你需要基于图片分析结果，规划一段连贯的视频动作描述，让图片内容"动起来"。
+
+${this.styleInstruction(style)}
 
 请包含以下要素：
 1. 画面主体：保持与参考图一致的角色位置、姿态、表情
@@ -745,8 +760,8 @@ export class GenerateService {
   }
 
   // ─── 智能规划主入口：三路分发 ─────────────────────────
-  async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string }) {
-    const { prompt, images } = dto;
+  async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string; style?: string }) {
+    const { prompt, images, style } = dto;
     const mode = dto.mode || 't2i';
     if (!prompt || prompt.trim().length < 2) {
       throw new BadRequestException('请提供至少2个字的描述');
@@ -757,16 +772,16 @@ export class GenerateService {
 
       switch (mode) {
         case 't2i':
-          enhancedPrompt = await this.handleT2i(prompt, images);
+          enhancedPrompt = await this.handleT2i(prompt, images, style);
           break;
         case 't2v':
-          enhancedPrompt = await this.handleT2v(prompt, images);
+          enhancedPrompt = await this.handleT2v(prompt, images, style);
           break;
         case 'i2v':
-          enhancedPrompt = await this.handleI2v(prompt, images);
+          enhancedPrompt = await this.handleI2v(prompt, images, style);
           break;
         default:
-          enhancedPrompt = await this.handleT2i(prompt, images);
+          enhancedPrompt = await this.handleT2i(prompt, images, style);
       }
 
       return {

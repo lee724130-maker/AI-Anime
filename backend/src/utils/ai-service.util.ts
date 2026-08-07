@@ -114,7 +114,29 @@ export class AIServiceUtil {
 
     // Inject style keywords and strip conflicting ones
     if (options.style === 'realistic') {
-      let p = options.prompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[的]?[,，]?\s*/g, '').replace(/动漫[的]?风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '').replace(/二次元[的]?[,，]?\s*/g, '').replace(/日漫[的]?[,，]?\s*/g, '').replace(/赛璐珞[的]?[,，]?\s*/g, '');
+      let p = options.prompt
+        .replace(/\banime style\b[,，]?\s*/gi, '')
+        .replace(/动漫风格[的]?[,，]?\s*/g, '')
+        .replace(/动漫[的]?风格[,，]?\s*/g, '')
+        .replace(/Animation[,，]?\s*/gi, '')
+        .replace(/Japanese anime[,，]?\s*/gi, '')
+        .replace(/二次元[的]?[,，]?\s*/g, '')
+        .replace(/日漫[的]?[,，]?\s*/g, '')
+        .replace(/赛璐珞[的]?[,，]?\s*/g, '')
+        .replace(/日系动画[的]?[,，]?\s*/g, '')
+        .replace(/日系[的]?[,，]?\s*/g, '')
+        .replace(/厚涂[的]?[,，]?\s*/g, '')
+        .replace(/线稿[的]?[,，]?\s*/g, '')
+        .replace(/插画[的]?[,，]?\s*/g, '')
+        .replace(/立绘[的]?[,，]?\s*/g, '')
+        .replace(/卡通[的]?[,，]?\s*/g, '')
+        .replace(/动漫[的]?[,，]?\s*/g, '')
+        .replace(/动画[的]?[,，]?\s*/g, '')
+        .replace(/\banime\b[,，]?\s*/gi, '')
+        .replace(/\bcartoon\b[,，]?\s*/gi, '')
+        .replace(/\bmanga\b[,，]?\s*/gi, '')
+        .replace(/\bchibi\b[,，]?\s*/gi, '')
+        .replace(/\billustration\b[,，]?\s*/gi, '');
       options = { ...options, prompt: `photorealistic,真人实拍质感,超写实风格,highly detailed real person,真实照片,${p}` };
     } else if (options.style === 'anime') {
       let p = options.prompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
@@ -458,7 +480,7 @@ export class AIServiceUtil {
 
     // Inject style keywords and strip conflicting ones
     if (options.style === 'realistic' && textPrompt) {
-      textPrompt = textPrompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[的]?[,，]?\s*/g, '').replace(/动漫[的]?风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '').replace(/二次元[的]?[,，]?\s*/g, '').replace(/日漫[的]?[,，]?\s*/g, '').replace(/赛璐珞[的]?[,，]?\s*/g, '');
+      textPrompt = textPrompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[的]?[,，]?\s*/g, '').replace(/动漫[的]?风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '').replace(/二次元[的]?[,，]?\s*/g, '').replace(/日漫[的]?[,，]?\s*/g, '').replace(/赛璐珞[的]?[,，]?\s*/g, '').replace(/日系动画[的]?[,，]?\s*/g, '').replace(/日系[的]?[,，]?\s*/g, '').replace(/厚涂[的]?[,，]?\s*/g, '').replace(/线稿[的]?[,，]?\s*/g, '').replace(/插画[的]?[,，]?\s*/g, '').replace(/立绘[的]?[,，]?\s*/g, '').replace(/卡通[的]?[,，]?\s*/g, '').replace(/动漫[的]?[,，]?\s*/g, '').replace(/动画[的]?[,，]?\s*/g, '').replace(/\banime\b[,，]?\s*/gi, '').replace(/\bcartoon\b[,，]?\s*/gi, '').replace(/\bmanga\b[,，]?\s*/gi, '').replace(/\bchibi\b[,，]?\s*/gi, '').replace(/\billustration\b[,，]?\s*/gi, '');
       textPrompt = `photorealistic,真人实拍质感,超写实风格,${textPrompt}`;
     } else if (options.style === 'anime' && textPrompt) {
       textPrompt = textPrompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');

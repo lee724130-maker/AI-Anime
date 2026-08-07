@@ -17,7 +17,7 @@ const RATIO_LABELS: Record<string, string> = {
 };
 
 const IMAGE_PRESETS = [
-  { label: '角色立绘', value: '一个全身角色立绘，动态姿势，精致的服装细节，明亮的色彩，干净的线条，高品质，面部细节丰富，工作室灯光' },
+  { label: '角色立绘', value: '一个全身角色形象，动态姿势，精致的服装细节，明亮的色彩，高品质，面部细节丰富，工作室灯光' },
   { label: '场景背景', value: '精致的场景背景，广角视角，环境细节丰富，氛围光影，色彩鲜明，高分辨率' },
   { label: '物品道具', value: '一个奇幻风格物品的特写，发光特效，精致设计，焦距清晰，细节丰富，居中构图' },
   { label: '战斗场面', value: '角色交战的动态场景，动作模糊，粒子特效，戏剧性光影，紧张氛围' },
@@ -197,6 +197,7 @@ export default function GeneratePage() {
       message.warning('请先输入创意描述');
       return;
     }
+    const style = form.getFieldValue('style') || 'realistic';
     const loadingText = mode === 't2i' ? 'AI 正在规划图片描述...' : 'AI 正在规划视频描述...';
     const hideLoading = message.loading(loadingText, 0);
     try {
@@ -204,6 +205,7 @@ export default function GeneratePage() {
         prompt,
         images: images.length > 0 ? images : undefined,
         mode,
+        style,
       });
       form.setFieldsValue({ prompt: data.prompt });
       hideLoading();
