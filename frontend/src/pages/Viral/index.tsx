@@ -134,9 +134,10 @@ export default function ViralIndex() {
         {/* Hero 引导区 */}
         <div id="viral-top" style={{ scrollMarginTop: 80 }}>
           <div style={{
-            background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%)',
+            background: 'linear-gradient(135deg, #1e293b 0%, #4c1d95 100%)',
             borderRadius: 16, padding: '28px 32px', marginBottom: 16,
             color: '#fff', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24,
+            boxShadow: '0 4px 16px rgba(30, 41, 59, 0.35)',
           }}>
             <div style={{ flex: '1 1 360px', minWidth: 280 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -170,13 +171,14 @@ export default function ViralIndex() {
             </div>
             <div style={{ textAlign: 'center', flexShrink: 0, margin: '0 auto' }}>
               <Button
-                type="primary" size="large"
+                type="default" size="large"
                 icon={<PlusOutlined />}
                 onClick={() => navigate('/viral/create')}
                 style={{
                   height: 52, padding: '0 36px', borderRadius: 26, fontSize: 17, fontWeight: 600,
-                  background: '#fff', color: '#7c3aed', border: 'none',
-                  boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+                  background: '#8b5cf6', backgroundImage: 'none', color: '#fff',
+                  border: '1px solid rgba(255,255,255,0.35)',
+                  boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
                 }}
               >
                 创建模板
