@@ -105,11 +105,12 @@ export default function ViralIndex() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-      {/* 左侧导航 */}
-      <div style={{
-        position: 'sticky', top: 80, flexShrink: 0, width: 96,
-        background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+    <div>
+      <style>{`@media (max-width: 1400px){ .viral-side-nav{ display:none; } }`}</style>
+      {/* 左侧悬浮导航（不占内容区） */}
+      <div className="viral-side-nav" style={{
+        position: 'fixed', left: 24, top: '50%', transform: 'translateY(-50%)', zIndex: 100,
+        width: 96, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
         padding: '10px 0', display: 'flex', flexDirection: 'column', gap: 2,
       }}>
         {NAV_ITEMS.map(item => (
@@ -129,8 +130,7 @@ export default function ViralIndex() {
         ))}
       </div>
 
-      {/* 右侧内容 */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div>
         {/* Hero 引导区 */}
         <div id="viral-top" style={{ scrollMarginTop: 80 }}>
           <div style={{
@@ -200,13 +200,6 @@ export default function ViralIndex() {
             <div style={{ width: 3, height: 16, background: '#7c3aed', borderRadius: 2 }} />
             <Text strong style={{ fontSize: 15 }}>模板区域</Text>
             <Badge count={tplTotal} style={{ backgroundColor: '#7c3aed', fontSize: 10, boxShadow: 'none' }} />
-            <div style={{ flex: 1 }} />
-            {tplTotal > 8 && (
-              <Button type="link" icon={<RightOutlined />} style={{ fontSize: 13 }}
-                onClick={() => navigate('/viral/templates')}>
-                查看全部 ({tplTotal})
-              </Button>
-            )}
           </div>
 
           {/* Search + Filter */}
@@ -284,6 +277,13 @@ export default function ViralIndex() {
               </Col>
             )}
           </Row>
+          {tplTotal > 8 && (
+            <div style={{ textAlign: 'center', marginTop: -8, marginBottom: 24 }}>
+              <Button type="link" icon={<RightOutlined />} onClick={() => navigate('/viral/templates')}>
+                查看全部 ({tplTotal})
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* 我的创作 */}
@@ -292,13 +292,6 @@ export default function ViralIndex() {
             <div style={{ width: 3, height: 16, background: '#7c3aed', borderRadius: 2 }} />
             <Text strong style={{ fontSize: 15 }}>我的创作</Text>
             <Badge count={projects.length} style={{ backgroundColor: '#7c3aed', fontSize: 10, boxShadow: 'none' }} />
-            <div style={{ flex: 1 }} />
-            {projects.length > 8 && (
-              <Button type="link" icon={<RightOutlined />} style={{ fontSize: 13 }}
-                onClick={() => navigate('/viral/projects')}>
-                查看全部 ({projects.length})
-              </Button>
-            )}
           </div>
           {projects.length === 0 ? (
             <Card style={cardStyle}>
@@ -330,6 +323,13 @@ export default function ViralIndex() {
                 );
               })}
             </Row>
+          )}
+          {projects.length > 8 && (
+            <div style={{ textAlign: 'center', marginTop: 16 }}>
+              <Button type="link" icon={<RightOutlined />} onClick={() => navigate('/viral/projects')}>
+                查看全部 ({projects.length})
+              </Button>
+            </div>
           )}
         </div>
 
