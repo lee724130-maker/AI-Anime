@@ -10,9 +10,9 @@ import CreditRulesAlert from '../../components/CreditRulesAlert';
 const { Title, Text } = Typography;
 
 const STATUS_MAP: Record<string, { color: string; label: string; icon: any }> = {
-  pending: { color: 'default', label: '待生�?, icon: <ClockCircleOutlined /> },
-  processing: { color: 'processing', label: '生成�?, icon: <SyncOutlined spin /> },
-  completed: { color: 'success', label: '已完�?, icon: <CheckCircleOutlined /> },
+  pending: { color: 'default', label: '待生成', icon: <ClockCircleOutlined /> },
+  processing: { color: 'processing', label: '生成中', icon: <SyncOutlined spin /> },
+  completed: { color: 'success', label: '已完成', icon: <CheckCircleOutlined /> },
   failed: { color: 'error', label: '失败', icon: <CloseCircleOutlined /> },
 };
 
@@ -49,7 +49,7 @@ export default function ViralProjectDetail() {
     setGenerating(true);
     try {
       await api.post(`/api/viral/projects/${id}/generate`);
-      message.success('开始生�?);
+      message.success('开始生成');
       // Start polling
       pollRef.current = setInterval(fetchProject, 3000);
     } catch (err: any) {
@@ -61,11 +61,11 @@ export default function ViralProjectDetail() {
   const regenerateScene = async (sceneIndex: number) => {
     Modal.confirm({
       title: '确认重新生成',
-      content: `将重新生成场�?#${sceneIndex + 1}，确定要继续吗？`,
+      content: `将重新生成场景 #${sceneIndex + 1}，确定要继续吗？`,
       onOk: async () => {
         try {
           await api.post(`/api/viral/projects/${id}/regenerate-scene`, { sceneIndex });
-          message.success('场景重新生成�?);
+          message.success('场景重新生成中');
           pollRef.current = setInterval(fetchProject, 3000);
         } catch (err: any) {
           message.error(err?.response?.data?.message || '重新生成失败');
@@ -83,10 +83,10 @@ export default function ViralProjectDetail() {
         message.success('原视频已获取成功');
         fetchProject();
       } else {
-        message.info(data?.message || '模板已使用本地视�?);
+        message.info(data?.message || '模板已使用本地视频');
       }
     } catch (err: any) {
-      message.error(err?.response?.data?.message || '获取原视频失�?);
+      message.error(err?.response?.data?.message || '获取原视频失败');
     }
     setRefreshingSource(false);
   };
@@ -94,7 +94,7 @@ export default function ViralProjectDetail() {
   const changeRatio = async (ratio: string) => {
     try {
       await api.put(`/api/viral/projects/${id}`, { ratio });
-      message.success('比例已更新，重新生成后生�?);
+      message.success('比例已更新，重新生成后生效');
       fetchProject();
     } catch (err: any) {
       message.error(err?.response?.data?.message || '比例更新失败');
@@ -104,7 +104,7 @@ export default function ViralProjectDetail() {
   const changeDuration = async (duration?: number) => {
     try {
       await api.put(`/api/viral/projects/${id}`, { target_duration: duration || undefined });
-      message.success('目标时长已更新，重新生成后生�?);
+      message.success('目标时长已更新，重新生成后生效');
       fetchProject();
     } catch (err: any) {
       message.error(err?.response?.data?.message || '目标时长更新失败');
@@ -118,7 +118,7 @@ export default function ViralProjectDetail() {
     return (
       <div style={{ padding: '24px 32px' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral/projects')}>返回</Button>
-        <Empty description="项目不存�? style={{ padding: '60px 0' }} />
+        <Empty description="项目不存在" style={{ padding: '60px 0' }} />
       </div>
     );
   }
@@ -142,10 +142,11 @@ export default function ViralProjectDetail() {
             {project.status === 'pending' && (
               <Button type="primary" icon={<ThunderboltOutlined />} onClick={startGeneration}
                 loading={generating} style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
-                开始生�?              </Button>
+                开始生成
+              </Button>
             )}
             {project.status === 'processing' && (
-              <Button icon={<SyncOutlined spin />} disabled>生成�?..</Button>
+              <Button icon={<SyncOutlined spin />} disabled>生成中...</Button>
             )}
             {project.status === 'failed' && (
               <Button type="primary" icon={<ReloadOutlined />} onClick={startGeneration}
@@ -190,20 +191,22 @@ export default function ViralProjectDetail() {
               <span style={{ background: '#7c3aed20', color: '#7c3aed', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
                 AI 生成视频
               </span>
-              <Text type="secondary" style={{ fontSize: 12 }}>根据模板生成的视�?/Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>根据模板生成的视频</Text>
             </div>
             <VideoPreview url={project.result_url} />
             <Divider style={{ margin: '20px 0' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ background: '#1890ff20', color: '#1890ff', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
-                原视�?              </span>
+                原视频
+              </span>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {project.template_name ? `${project.template_name} 的参考视频` : '模板参考视�?}
+                {project.template_name ? `${project.template_name} 的参考视频` : '模板参考视频'}
               </Text>
               {project.reference_url && !project.reference_url.startsWith('/static/') && (
                 <Button size="small" type="primary" loading={refreshingSource} onClick={refreshSource}
                   style={{ borderRadius: 6, background: '#1890ff', borderColor: '#1890ff', marginLeft: 'auto' }}>
-                  获取原视�?                </Button>
+                  获取原视频
+                </Button>
               )}
             </div>
             {project.reference_url && project.reference_url.startsWith('/static/') ? (
@@ -213,7 +216,8 @@ export default function ViralProjectDetail() {
                 background: '#f5f7fa', borderRadius: 10, padding: '28px 16px',
                 textAlign: 'center', color: '#999', fontSize: 13,
               }}>
-                原视频暂未保存到本地，点击右上角「获取原视频」下载保存后可播�?              </div>
+                原视频暂未保存到本地，点击右上角「获取原视频」下载保存后可播放
+              </div>
             )}
           </div>
         )}
@@ -227,7 +231,7 @@ export default function ViralProjectDetail() {
         <Descriptions column={2} size="small" style={{ marginTop: 16 }}>
           <Descriptions.Item label="模板 ID">{project.template_id}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{new Date(project.created_at).toLocaleString('zh-CN')}</Descriptions.Item>
-          <Descriptions.Item label="状�?>
+          <Descriptions.Item label="状态">
             <Tag color={sm.color} style={{ borderRadius: 6 }}>{sm.label}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="进度">{project.progress}%</Descriptions.Item>
@@ -237,7 +241,7 @@ export default function ViralProjectDetail() {
           <Descriptions.Item label="目标时长">
             <Tag style={{ borderRadius: 6 }}>{project.target_duration ? `${project.target_duration}s` : '模板默认'}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="分辨�?>
+          <Descriptions.Item label="分辨率">
             <Tag style={{ borderRadius: 6 }}>{project.resolution || '720p'}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="风格">
@@ -268,7 +272,7 @@ export default function ViralProjectDetail() {
                   <Text style={{ fontSize: 13, flex: 1 }}>{scene.name || `场景 ${i + 1}`}</Text>
                 </div>
                 <Space>
-                  {scene.status === 'completed' && <Tag color="success" style={{ borderRadius: 6 }}>已完�?/Tag>}
+                  {scene.status === 'completed' && <Tag color="success" style={{ borderRadius: 6 }}>已完成</Tag>}
                   {scene.status === 'failed' && (
                     <Tag color="error" style={{ borderRadius: 6 }}>失败</Tag>
                   )}

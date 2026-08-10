@@ -29,7 +29,7 @@ export default function ProgressPanel({ progress, scenes }: Props) {
 
       {scenes && scenes.length > 0 && (
         <div>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>场景状�?/Text>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>场景状态</Text>
           <Space orientation="vertical" style={{ width: '100%' }}>
             {scenes.map((s, i) => (
               <div key={i} style={{

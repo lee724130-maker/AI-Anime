@@ -112,7 +112,7 @@ export default function GlobalAssetsPage() {
     setGenerateModal(prev => ({ ...prev, visible: false }));
     try {
       await api.post(`/api/global-assets/${assetId}/generate`, { width, height, style });
-      message.success(`生成成功�?{ratio} ${width}x${height}）`);
+      message.success(`生成成功（${ratio} ${width}x${height}）`);
       fetchData();
     } catch (err: any) {
       message.error(err.response?.data?.message || '生成失败');
@@ -136,14 +136,14 @@ export default function GlobalAssetsPage() {
   const handleDelete = async (assetId: number) => {
     try {
       await api.delete(`/api/global-assets/${assetId}`);
-      message.success('已删�?);
+      message.success('已删除');
       fetchData();
       fetchStats();
     } catch { message.error('删除失败'); }
   };
 
   const handleAdd = async () => {
-    if (!addName.trim()) { message.warning('请输入名�?); return; }
+    if (!addName.trim()) { message.warning('请输入名称'); return; }
     try {
       await api.post('/api/global-assets', {
         type: addType, name: addName.trim(),
@@ -152,7 +152,7 @@ export default function GlobalAssetsPage() {
         prompt_cn: addPromptCn.trim() || undefined,
         tags: addTags.trim() || undefined,
       });
-      message.success('已添�?);
+      message.success('已添加');
       setAddModal(false);
       setAddName(''); setAddDesc(''); setAddPrompt(''); setAddPromptCn(''); setAddTags('');
       fetchData();
@@ -169,7 +169,7 @@ export default function GlobalAssetsPage() {
     if (!asset) return;
     try {
       await api.put(`/api/global-assets/${asset.id}`, { prompt_cn: promptCn, prompt });
-      message.success('已更�?);
+      message.success('已更新');
       setEditModal({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false });
       fetchData();
     } catch { message.error('更新失败'); }
@@ -191,12 +191,12 @@ export default function GlobalAssetsPage() {
 
   const handleTranslatePrompt = async () => {
     const { asset, promptCn } = editModal;
-    if (!asset || !promptCn.trim()) { message.warning('请先输入中文提示�?); return; }
+    if (!asset || !promptCn.trim()) { message.warning('请先输入中文提示词'); return; }
     setEditModal(prev => ({ ...prev, translating: true }));
     try {
       const { data } = await api.post(`/api/global-assets/${asset.id}/translate`, { text: promptCn });
       setEditModal(prev => ({ ...prev, prompt: data.prompt }));
-      message.success('中文已转换为英文提示�?);
+      message.success('中文已转换为英文提示词');
     } catch (err: any) {
       message.error(err.response?.data?.message || '翻译失败');
     }
@@ -230,7 +230,7 @@ export default function GlobalAssetsPage() {
           <Space size={4}>
             <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
             <Tag color={hasMedia ? 'success' : 'default'} style={{ fontSize: 11 }}>
-              {isVideo ? (hasMedia ? '有视�? : '无视�?) : (hasMedia ? '有图' : '无图')}
+              {isVideo ? (hasMedia ? '有视频' : '无视频') : (hasMedia ? '有图' : '无图')}
             </Tag>
             {asset.usage_count > 0 && (
               <Tag style={{ fontSize: 10 }}>引用{asset.usage_count}</Tag>
@@ -281,7 +281,7 @@ export default function GlobalAssetsPage() {
             ) : (
               <div style={{ width: '100%', height: 140, background: '#f5f5f5', borderRadius: 4,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc' }}>
-                {asset.prompt ? '点击⚡生�? : '无提示词'}
+                {asset.prompt ? '点击⚡生成' : '无提示词'}
               </div>
             )
           )}
@@ -310,7 +310,7 @@ export default function GlobalAssetsPage() {
           {!isVideo && (
             <Button type="text" size="small" icon={isGenerating ? <SyncOutlined spin /> : <ThunderboltOutlined />}
               onClick={() => openGenerateModal(asset.id)} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
-              {isGenerating ? '生成�? : '生成图片'}
+              {isGenerating ? '生成中' : '生成图片'}
             </Button>
           )}
           <Button type="text" size="small" icon={<AimOutlined />}
@@ -320,7 +320,7 @@ export default function GlobalAssetsPage() {
           </Button>
           <Button type="text" size="small" icon={<AimOutlined />}
             onClick={() => handleEdit(asset)} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
-            编辑提示�?
+            编辑提示词
           </Button>
           {!isVideo && (
             <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file); return false; }}>
@@ -343,7 +343,7 @@ export default function GlobalAssetsPage() {
     <div>
       <Space style={{ marginBottom: 16 }}>
         <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} style={{ padding: 0 }}>
-          返回工作�?
+          返回工作台
         </Button>
       </Space>
 
@@ -352,7 +352,7 @@ export default function GlobalAssetsPage() {
           <Col>
             <Title level={4} style={{ margin: 0 }}>大资产库</Title>
             <Text type="secondary">
-              {stats ? `�?${stats.total} 个资�?· 人物 ${stats.characters} · 物品 ${stats.props} · 场景 ${stats.scenes} · 视频 ${stats.videos || 0}` : '加载�?..'}
+              {stats ? `共 ${stats.total} 个资产 · 人物 ${stats.characters} · 物品 ${stats.props} · 场景 ${stats.scenes} · 视频 ${stats.videos || 0}` : '加载中...'}
             </Text>
           </Col>
           <Col>
@@ -410,15 +410,15 @@ export default function GlobalAssetsPage() {
           <TextArea placeholder="资产描述（可选）" value={addDesc} onChange={e => setAddDesc(e.target.value)} rows={2} />
           <TextArea placeholder={addType === 'video' ? "英文视频提示词（给AI用，可选）" : "英文提示词（给AI用，可选）"} value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
           <TextArea placeholder={addType === 'video' ? "中文视频提示词描述（给你看，可选）" : "中文提示词描述（给你看，可选）"} value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
-          <Input placeholder="标签，用逗号分隔（如：古�?仙侠,主角�? value={addTags} onChange={e => setAddTags(e.target.value)} />
+          <Input placeholder="标签，用逗号分隔（如：古风,仙侠,主角）" value={addTags} onChange={e => setAddTags(e.target.value)} />
         </Space>
       </Modal>
 
-      <Modal title={<div style={{ textAlign: 'center', fontSize: 18 }}>编辑提示�?/div>} open={editModal.visible} onOk={handleEditSave}
+      <Modal title={<div style={{ textAlign: 'center', fontSize: 18 }}>编辑提示词</div>} open={editModal.visible} onOk={handleEditSave}
         onCancel={() => setEditModal({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false })}
         okText="保存" cancelText="取消" width={900} centered>
         <Space orientation="vertical" style={{ width: '100%' }} size="small">
-          <Text strong style={{ fontSize: 14 }}>中文提示�?/Text>
+          <Text strong style={{ fontSize: 14 }}>中文提示词</Text>
           <TextArea rows={8} value={editModal.promptCn}
             onChange={e => setEditModal(prev => ({ ...prev, promptCn: e.target.value }))} />
           <div style={{ display: 'flex', gap: 8 }}>
@@ -428,10 +428,10 @@ export default function GlobalAssetsPage() {
             </Button>
             <Button icon={<SyncOutlined />} loading={editModal.translating}
               onClick={handleTranslatePrompt} style={{ flex: 1 }}>
-              中文转英�?
+              中文转英文
             </Button>
           </div>
-          <Text strong style={{ fontSize: 14 }}>英文提示词（只读�?/Text>
+          <Text strong style={{ fontSize: 14 }}>英文提示词（只读）</Text>
           <TextArea rows={8} value={editModal.prompt} readOnly
             style={{ background: '#f5f5f5' }} />
         </Space>
@@ -439,7 +439,7 @@ export default function GlobalAssetsPage() {
 
       <Modal title="生成图片参数" open={generateModal.visible} onOk={handleGenerate}
         onCancel={() => setGenerateModal(prev => ({ ...prev, visible: false }))}
-        okText="开始生�? cancelText="取消">
+        okText="开始生成" cancelText="取消">
         <Space orientation="vertical" style={{ width: '100%' }} size="middle">
           <div>
             <Text strong>画面风格</Text>
@@ -456,7 +456,7 @@ export default function GlobalAssetsPage() {
             </Row>
           </div>
           <div>
-            <Text strong>宽高�?/Text>
+            <Text strong>宽高比</Text>
             <Row gutter={[8, 8]} style={{ marginTop: 6 }}>
               {presets.map(p => (
                 <Col key={p.value}>

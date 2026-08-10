@@ -19,19 +19,19 @@ const RATIO_LABELS: Record<string, string> = {
 const IMAGE_PRESETS = [
   { label: '角色立绘', value: '一个全身角色形象，动态姿势，精致的服装细节，明亮的色彩，高品质，面部细节丰富，工作室灯光' },
   { label: '场景背景', value: '精致的场景背景，广角视角，环境细节丰富，氛围光影，色彩鲜明，高分辨率' },
-  { label: '物品道具', value: '一个奇幻风格物品的特写，发光特效，精致设计，焦距清晰，细节丰富，居中构�? },
+  { label: '物品道具', value: '一个奇幻风格物品的特写，发光特效，精致设计，焦距清晰，细节丰富，居中构图' },
   { label: '战斗场面', value: '角色交战的动态场景，动作模糊，粒子特效，戏剧性光影，紧张氛围' },
   { label: '日常场景', value: '平静的日常生活场景，温暖的光线，柔和的色彩，舒适的氛围，背景细节丰富，日常风格' },
   { label: '风景全景', value: '令人惊叹的全景风景，壮丽的景色，丰富的色彩，大气透视，电影感构图' },
 ];
 
 const VIDEO_PRESETS = [
-  { label: '角色出场', value: '一个角色从右侧走入画面，镜头平滑跟随，戏剧性亮相，慢动作效果，电影感灯�? },
+  { label: '角色出场', value: '一个角色从右侧走入画面，镜头平滑跟随，戏剧性亮相，慢动作效果，电影感灯光' },
   { label: '动作打斗', value: '快节奏的动作场景，快速镜头切换，动态运动，打击特效，激烈的战斗编排' },
-  { label: '场景推移', value: '镜头缓慢平移扫过环境细节，建立镜头，平滑过渡，氛围感，电影质�? },
+  { label: '场景推移', value: '镜头缓慢平移扫过环境细节，建立镜头，平滑过渡，氛围感，电影质感' },
   { label: '情感独白', value: '角色面部特写，背景柔焦，情感表情，镜头缓慢推进，亲密氛围' },
-  { label: '追逐奔�?, value: '角色在环境中奔跑，手持镜头风格，动态运动，环境快速掠过，急促节奏' },
-  { label: '转场过渡', value: '平滑的转场镜头，镜头飞过环境，无缝移动，电影感流畅，建立上下�? },
+  { label: '追逐奔跑', value: '角色在环境中奔跑，手持镜头风格，动态运动，环境快速掠过，急促节奏' },
+  { label: '转场过渡', value: '平滑的转场镜头，镜头飞过环境，无缝移动，电影感流畅，建立上下文' },
 ];
 
 function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan, prompt }: { 
@@ -46,7 +46,7 @@ function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan,
   return (
     <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
       <Button type="link" size="small" icon={<BulbOutlined />} onClick={() => setShow(!show)} style={{ padding: 0 }}>
-        {show ? '收起提示词模�? : '💡 快速模�?}
+        {show ? '收起提示词模板' : '💡 快速模板'}
       </Button>
       {smartGenerate && (
         <Button 
@@ -57,7 +57,7 @@ function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan,
           disabled={!hasImages}
           title={!hasImages ? '请先上传或选择图片' : '根据图片智能生成描述'}
         >
-          🖼�?根据图片描述
+          🖼️ 根据图片描述
         </Button>
       )}
       {smartPlan && (
@@ -67,9 +67,9 @@ function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan,
           icon={<RobotOutlined />}
           onClick={smartPlan}
           disabled={!prompt || prompt.trim().length < 2}
-          title={!prompt || prompt.trim().length < 2 ? '请先输入创意描述' : 'AI 帮你扩展成详细视频描�?}
+          title={!prompt || prompt.trim().length < 2 ? '请先输入创意描述' : 'AI 帮你扩展成详细视频描述'}
         >
-          �?AI 智能规划
+          ✨ AI 智能规划
         </Button>
       )}
       {show && (
@@ -108,7 +108,7 @@ export default function GeneratePage() {
   const [formTextToVideo] = Form.useForm();
   const [formImageToVideo] = Form.useForm();
 
-  // 使用 Form.useWatch �?prompt 值变成响应式，按钮状态才能实时更�?
+  // 使用 Form.useWatch 让 prompt 值变成响应式，按钮状态才能实时更新
   const promptTextToImage = Form.useWatch('prompt', formTextToImage) || '';
   const promptTextToVideo = Form.useWatch('prompt', formTextToVideo) || '';
   const promptImageToVideo = Form.useWatch('prompt', formImageToVideo) || '';
@@ -127,7 +127,7 @@ export default function GeneratePage() {
     api.get('/api/generate/credit-rules').then(({ data }) => setCreditRules(data)).catch(() => setCreditRules(null));
   }, []);
 
-  // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷�?
+  // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新
   const hasActiveTask = history.some(r => r.status === 'pending' || r.status === 'processing');
   useEffect(() => {
     if (!hasActiveTask && !loading) return;
@@ -184,7 +184,7 @@ export default function GeneratePage() {
       const { data } = await api.post('/api/generate/smart-describe', { images });
       form.setFieldsValue({ prompt: data.description });
       hideLoading();
-      message.success('描述生成成功�?);
+      message.success('描述生成成功！');
     } catch (err: any) {
       hideLoading();
       message.error(err.response?.data?.message || '智能描述生成失败');
@@ -212,7 +212,7 @@ export default function GeneratePage() {
       if (data.has_image_analysis) {
         message.success('智能规划完成（已结合图片分析）！');
       } else {
-        message.success('智能规划完成�?);
+        message.success('智能规划完成！');
       }
     } catch (err: any) {
       hideLoading();
@@ -227,7 +227,7 @@ export default function GeneratePage() {
     fetchHistory(1, true);
     try {
       await api.post(url, body);
-      message.success('生成任务已提�?);
+      message.success('生成任务已提交');
       form.resetFields();
       setUploadFileList([]);
       setSelectedLibraryAssets([]);
@@ -277,7 +277,7 @@ export default function GeneratePage() {
   const handleRetry = async (id: number) => {
     try {
       await api.post(`/api/generate/tasks/${id}/retry`);
-      message.success('任务已重新提�?);
+      message.success('任务已重新提交');
       fetchHistory();
     } catch (err: any) {
       message.error(err.response?.data?.message || '重试失败');
@@ -357,8 +357,8 @@ export default function GeneratePage() {
         {v === 'image' ? '图片' : '视频'}
       </Tag>
     )},
-    { title: '状�?, dataIndex: 'status', width: 90, render: (v: string) => (
-      <Tag color={statusColor[v] || 'default'}>{v === 'pending' ? '排队�? : v === 'processing' ? '生成�? : v === 'completed' ? '已完�? : '失败'}</Tag>
+    { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => (
+      <Tag color={statusColor[v] || 'default'}>{v === 'pending' ? '排队中' : v === 'processing' ? '生成中' : v === 'completed' ? '已完成' : '失败'}</Tag>
     )},
     { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => new Date(v).toLocaleString() },
     { title: '结果', dataIndex: 'output_data', width: 200, render: (v: string, r: any) => {
@@ -428,7 +428,7 @@ export default function GeneratePage() {
                 prompt={promptTextToImage}
               />
             </div>
-            <Form.Item name="prompt" rules={[{ required: true, message: '请输入图片描�? }]}>
+            <Form.Item name="prompt" rules={[{ required: true, message: '请输入图片描述' }]}>
               <TextArea rows={3} placeholder="描述你想要生成的图片内容..." />
             </Form.Item>
             <Space style={{ width: '100%' }} size={12}>
@@ -438,7 +438,7 @@ export default function GeneratePage() {
               <Form.Item name="num_images" label="数量" initialValue={1}>
                 <Select style={{ width: 100 }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
               </Form.Item>
-              <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px' }}>1�?单图 / 2�?正面+背面 / 4�?正面+背面+左侧+右侧</Text>
+              <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
@@ -459,14 +459,14 @@ export default function GeneratePage() {
                 prompt={promptTextToVideo}
               />
             </div>
-            <Form.Item name="prompt" rules={[{ required: true, message: '请输入视频描�? }]}>
-              <TextArea rows={3} placeholder="描述视频画面内容、动作、风�?.." />
+            <Form.Item name="prompt" rules={[{ required: true, message: '请输入视频描述' }]}>
+              <TextArea rows={3} placeholder="描述视频画面内容、动作、风格..." />
             </Form.Item>
             <Space style={{ width: '100%' }} size={12}>
-              <Form.Item name="resolution" label="分辨�? initialValue="720p">
+              <Form.Item name="resolution" label="分辨率" initialValue="720p">
                 <Select style={{ width: 120 }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="宽高�? initialValue="9:16">
+              <Form.Item name="ratio" label="宽高比" initialValue="9:16">
                 <Select style={{ width: 140 }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
               </Form.Item>
               <Form.Item name="duration" label="时长" initialValue={5}>
@@ -514,7 +514,7 @@ export default function GeneratePage() {
               <Form.Item style={{ marginBottom: 16 }}>
                 <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Space>
-                    <Tag color="blue">{selectedLibraryAssets.length}/{MAX_LIBRARY_ASSETS}张图�?/Tag>
+                    <Tag color="blue">{selectedLibraryAssets.length}/{MAX_LIBRARY_ASSETS}张图片</Tag>
                     {selectedLibraryAssets.length > 0 && (
                       <Button type="link" size="small" onClick={clearLibraryAssets}>
                         <DeleteOutlined /> 清空
@@ -571,7 +571,7 @@ export default function GeneratePage() {
                     />
                   </div>
                   {assetsLoading ? (
-                    <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>加载�?..</div>
+                    <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>加载中...</div>
                   ) : globalAssets.length === 0 ? (
                     <Empty description={`暂无${assetTab === 'character' ? '人物' : assetTab === 'scene' ? '场景' : '道具'}资产`} style={{ padding: 20 }} />
                   ) : (
@@ -615,7 +615,7 @@ export default function GeneratePage() {
             ) : (
               <Form.Item style={{ marginBottom: 16 }}>
                 <div style={{ marginBottom: 8 }}>
-                  <Tag color="blue">{uploadFileList.length}/{MAX_LIBRARY_ASSETS}张图�?/Tag>
+                  <Tag color="blue">{uploadFileList.length}/{MAX_LIBRARY_ASSETS}张图片</Tag>
                 </div>
                 <Dragger {...uploadProps} listType="picture">
                   <p className="ant-upload-drag-icon"><InboxOutlined /></p>
@@ -651,10 +651,10 @@ export default function GeneratePage() {
               <TextArea rows={2} placeholder="描述角色的动作或镜头运动..." />
             </Form.Item>
             <Space style={{ width: '100%' }} size={12}>
-              <Form.Item name="resolution" label="分辨�? initialValue="720p">
+              <Form.Item name="resolution" label="分辨率" initialValue="720p">
                 <Select style={{ width: 120 }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="宽高�? initialValue="9:16">
+              <Form.Item name="ratio" label="宽高比" initialValue="9:16">
                 <Select style={{ width: 140 }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
               </Form.Item>
               <Form.Item name="duration" label="时长" initialValue={5}>
@@ -675,7 +675,7 @@ export default function GeneratePage() {
         return (
           <Card style={{ textAlign: 'center', padding: 60 }}>
             <Title level={4} type="secondary">多图合并</Title>
-            <Text type="secondary">功能开发中，敬请期�?/Text>
+            <Text type="secondary">功能开发中，敬请期待</Text>
           </Card>
         );
     }
@@ -684,7 +684,7 @@ export default function GeneratePage() {
   return (
     <div>
       <Title level={3} style={{ marginBottom: 4 }}>AI 生成中心</Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>选择生成模式，AI 将自动为您创�?/Text>
+      <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>选择生成模式，AI 将自动为您创作</Text>
 
       {creditRules && (
         <Alert
@@ -694,9 +694,9 @@ export default function GeneratePage() {
           message="积分扣费规则"
           description={
             <Space orientation="vertical" size={2}>
-              <Text>📝 文字生图片：{creditRules.image_per_image} 积分 / �?/Text>
-              <Text>🎬 文字生视�?/ 🖼 图片生视频：480p = {creditRules.video_480p_per_5s} 积分�?20p = {creditRules.video_720p_per_5s} 积分�?080p = {creditRules.video_1080p_per_5s} 积分 / �?{creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按�?{creditRules.video_unit_seconds} 秒叠加）</Text>
-              <Text>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣�?/Text>
+              <Text>📝 文字生图片：{creditRules.image_per_image} 积分 / 张</Text>
+              <Text>🎬 文字生视频 / 🖼 图片生视频：480p = {creditRules.video_480p_per_5s} 积分、720p = {creditRules.video_720p_per_5s} 积分、1080p = {creditRules.video_1080p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
+              <Text>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣费</Text>
             </Space>
           }
         />
@@ -704,9 +704,9 @@ export default function GeneratePage() {
 
       <Card style={{ borderRadius: 12, marginBottom: 24 }}>
         <Tabs activeKey={tabKey} onChange={setTabKey} items={[
-          { key: 'text-to-image', label: '📝 文字生图�?, children: renderForm('text-to-image') },
-          { key: 'text-to-video', label: '🎬 文字生视�?, children: renderForm('text-to-video') },
-          { key: 'image-to-video', label: '🖼 图片生视�?, children: renderForm('image-to-video') },
+          { key: 'text-to-image', label: '📝 文字生图片', children: renderForm('text-to-image') },
+          { key: 'text-to-video', label: '🎬 文字生视频', children: renderForm('text-to-video') },
+          { key: 'image-to-video', label: '🖼 图片生视频', children: renderForm('image-to-video') },
           { key: 'image-merge', label: '🔀 多图合并', children: renderForm('image-merge') },
         ]} />
       </Card>
@@ -717,7 +717,7 @@ export default function GeneratePage() {
           pagination={false} scroll={{ x: 950 }} size="small" />
       </Card>
 
-      <Modal title="保存到大资产�? open={saveModal.visible}
+      <Modal title="保存到大资产库" open={saveModal.visible}
         onOk={handleSaveToGlobal} onCancel={() => setSaveModal({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' })}
         okText="保存" cancelText="取消" width={520}>
         <Space orientation="vertical" style={{ width: '100%' }} size={12}>
@@ -740,13 +740,13 @@ export default function GeneratePage() {
             <Text style={{ display: 'block', marginBottom: 4 }}>描述（可选）</Text>
             <Input.TextArea rows={2} value={saveModal.description}
               onChange={(e) => setSaveModal(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="人物定位、场景作用或物品用�? />
+              placeholder="人物定位、场景作用或物品用途" />
           </div>
           <div>
             <Text style={{ display: 'block', marginBottom: 4 }}>中文提示词描述（可选）</Text>
             <Input.TextArea rows={3} value={saveModal.promptCn}
               onChange={(e) => setSaveModal(prev => ({ ...prev, promptCn: e.target.value }))}
-              placeholder="用中文描述该资产的画面表�? />
+              placeholder="用中文描述该资产的画面表现" />
           </div>
           {saveModal.record?._url && (
             <div>

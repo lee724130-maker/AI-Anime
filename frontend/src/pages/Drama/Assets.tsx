@@ -120,7 +120,7 @@ export default function DramaAssetsPage() {
       ]);
       setAssets(assetsRes.data || []);
       setProjectTitle(projRes.data?.title || '');
-    } catch { message.error('加载资产库失�?); }
+    } catch { message.error('加载资产库失败'); }
     setLoading(false);
   };
 
@@ -138,7 +138,7 @@ export default function DramaAssetsPage() {
     setGenerateModal(prev => ({ ...prev, visible: false }));
     try {
       await api.post(`/api/drama/${id}/assets/${assetId}/generate`, { width, height, style });
-      message.success(`生成成功�?{ratio} ${width}x${height}）`);
+      message.success(`生成成功（${ratio} ${width}x${height}）`);
       fetchData();
     } catch (err: any) {
       message.error(err.response?.data?.message || '生成失败');
@@ -153,7 +153,7 @@ export default function DramaAssetsPage() {
       const { data } = await api.post(`/api/drama/${id}/assets/generate-all`);
       const succeeded = data.filter((r: any) => r.status === 'completed').length;
       const failed = data.filter((r: any) => r.status === 'failed').length;
-      message.success(`批量生成完成�?{succeeded} 成功${failed ? `�?{failed} 失败` : ''}`);
+      message.success(`批量生成完成：${succeeded} 成功${failed ? `，${failed} 失败` : ''}`);
       fetchData();
     } catch (err: any) {
       message.error(err.response?.data?.message || '批量生成失败');
@@ -164,13 +164,13 @@ export default function DramaAssetsPage() {
   const handleDelete = async (assetId: number) => {
     try {
       await api.delete(`/api/drama/assets/${assetId}`);
-      message.success('已删�?);
+      message.success('已删除');
       fetchData();
     } catch { message.error('删除失败'); }
   };
 
   const handleAdd = async () => {
-    if (!addName.trim()) { message.warning('请输入名�?); return; }
+    if (!addName.trim()) { message.warning('请输入名称'); return; }
     try {
       await api.post(`/api/drama/${id}/assets`, {
         type: addType, name: addName.trim(),
@@ -178,7 +178,7 @@ export default function DramaAssetsPage() {
         prompt: addPrompt.trim() || undefined,
         prompt_cn: addPromptCn.trim() || undefined,
       });
-      message.success('已添�?);
+      message.success('已添加');
       setAddModal(false);
       setAddName('');
       setAddDesc('');
@@ -197,7 +197,7 @@ export default function DramaAssetsPage() {
     if (!asset) return;
     try {
       await api.put(`/api/drama/assets/${asset.id}`, { prompt_cn: promptCn, prompt });
-      message.success('已更�?);
+      message.success('已更新');
       setEditModal({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false });
       fetchData();
     } catch { message.error('更新失败'); }
@@ -231,12 +231,12 @@ export default function DramaAssetsPage() {
 
   const handleTranslatePrompt = async () => {
     const { asset, promptCn } = editModal;
-    if (!asset || !promptCn.trim()) { message.warning('请先输入中文提示�?); return; }
+    if (!asset || !promptCn.trim()) { message.warning('请先输入中文提示词'); return; }
     setEditModal(prev => ({ ...prev, translating: true }));
     try {
       const { data } = await api.post(`/api/drama/${id}/assets/${asset.id}/translate`, { text: promptCn });
       setEditModal(prev => ({ ...prev, prompt: data.prompt }));
-      message.success('中文已转换为英文提示�?);
+      message.success('中文已转换为英文提示词');
     } catch (err: any) {
       message.error(err.response?.data?.message || '翻译失败');
     }
@@ -266,7 +266,7 @@ export default function DramaAssetsPage() {
             <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
             <Tag color={asset.status === 'completed' ? 'success' : asset.status === 'failed' ? 'error' : 'default'}
               style={{ fontSize: 11 }}>
-              {asset.status === 'completed' ? '有图' : asset.status === 'pending' ? '待生�? : '失败'}
+              {asset.status === 'completed' ? '有图' : asset.status === 'pending' ? '待生成' : '失败'}
             </Tag>
           </Space>
         </div>
@@ -279,7 +279,7 @@ export default function DramaAssetsPage() {
           ) : (
             <div style={{ width: '100%', height: 140, background: '#f5f5f5', borderRadius: 4,
               display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc' }}>
-              {asset.prompt ? '点击⚡生�? : '无提示词'}
+              {asset.prompt ? '点击⚡生成' : '无提示词'}
             </div>
           )}
         </div>
@@ -301,7 +301,7 @@ export default function DramaAssetsPage() {
         <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 8, paddingTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
           <Button type="text" size="small" icon={isGenerating ? <SyncOutlined spin /> : <ThunderboltOutlined />}
             onClick={() => openGenerateModal(asset.id)} style={{ fontSize: 12, height: 32, width: '100%' }}>
-            {isGenerating ? '生成�? : '生成图片'}
+            {isGenerating ? '生成中' : '生成图片'}
           </Button>
           <Button type="text" size="small" icon={<CheckCircleOutlined />}
             loading={planning.has(asset.id)} onClick={() => handlePlanPrompt(asset.id)}
@@ -310,9 +310,9 @@ export default function DramaAssetsPage() {
           </Button>
           <Button type="text" size="small" icon={<AimOutlined />}
             onClick={() => handleEditPrompt(asset)} style={{ fontSize: 12, height: 32, width: '100%' }}>
-            编辑提示�?
+            编辑提示词
           </Button>
-          <Popconfirm title="确定删除�? onConfirm={() => handleDelete(asset.id)}>
+          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(asset.id)}>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 12, height: 32, width: '100%' }}>
               删除
             </Button>
@@ -320,7 +320,7 @@ export default function DramaAssetsPage() {
           <Button type="text" size="small" icon={<ExportOutlined />}
             onClick={() => handlePublishToGlobal(asset)} className="publish-btn"
             style={{ fontSize: 12, height: 32, width: '100%', gridColumn: '1 / -1' }}>
-            保存到大资产�?
+            保存到大资产库
           </Button>
         </div>
       </Card>
@@ -339,13 +339,13 @@ export default function DramaAssetsPage() {
       <Card style={{ borderRadius: 12, marginBottom: 16 }}>
         <Row justify="space-between" align="middle">
           <Col>
-            <Title level={4} style={{ margin: 0 }}>资产�?· {projectTitle}</Title>
-            <Text type="secondary">�?{assets.length} 个资产，{pendingCount} 个待生成</Text>
+            <Title level={4} style={{ margin: 0 }}>资产库 · {projectTitle}</Title>
+            <Text type="secondary">共 {assets.length} 个资产，{pendingCount} 个待生成</Text>
           </Col>
           <Col>
             <Space>
               <Button icon={<PlusOutlined />} onClick={() => setAddModal(true)}>新增资产</Button>
-              <Button icon={<ImportOutlined />} onClick={openImportModal}>从大资产库导�?/Button>
+              <Button icon={<ImportOutlined />} onClick={openImportModal}>从大资产库导入</Button>
               <Button type="primary" icon={<ThunderboltOutlined />} loading={batchGenerating}
                 disabled={pendingCount === 0}
                 style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
@@ -380,7 +380,7 @@ export default function DramaAssetsPage() {
         ]}
       />
 
-      <Modal title="从大资产库导�? open={importModal} onOk={handleImportGlobal}
+      <Modal title="从大资产库导入" open={importModal} onOk={handleImportGlobal}
         onCancel={() => setImportModal(false)} okText="导入选中" cancelText="取消" width={640}>
         {loadingGlobal ? <Spin /> : (
           <div style={{ maxHeight: 400, overflow: 'auto' }}>
@@ -437,11 +437,11 @@ export default function DramaAssetsPage() {
         </Space>
       </Modal>
 
-      <Modal title={<div style={{ textAlign: 'center', fontSize: 18 }}>编辑提示�?/div>} open={editModal.visible} onOk={handleEditSave}
+      <Modal title={<div style={{ textAlign: 'center', fontSize: 18 }}>编辑提示词</div>} open={editModal.visible} onOk={handleEditSave}
         onCancel={() => setEditModal({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false })}
         okText="保存" cancelText="取消" width={900} centered>
         <Space orientation="vertical" style={{ width: '100%' }} size="small">
-          <Text strong style={{ fontSize: 14 }}>中文提示�?/Text>
+          <Text strong style={{ fontSize: 14 }}>中文提示词</Text>
           <TextArea rows={8} value={editModal.promptCn}
             onChange={e => setEditModal(prev => ({ ...prev, promptCn: e.target.value }))} />
           <div style={{ display: 'flex', gap: 8 }}>
@@ -451,10 +451,10 @@ export default function DramaAssetsPage() {
             </Button>
             <Button icon={<SyncOutlined />} loading={editModal.translating}
               onClick={handleTranslatePrompt} style={{ flex: 1 }}>
-              中文转英�?
+              中文转英文
             </Button>
           </div>
-          <Text strong style={{ fontSize: 14 }}>英文提示词（只读�?/Text>
+          <Text strong style={{ fontSize: 14 }}>英文提示词（只读）</Text>
           <TextArea rows={8} value={editModal.prompt} readOnly
             style={{ background: '#f5f5f5' }} />
         </Space>
@@ -462,7 +462,7 @@ export default function DramaAssetsPage() {
 
       <Modal title="生成图片参数" open={generateModal.visible} onOk={handleGenerate}
         onCancel={() => setGenerateModal(prev => ({ ...prev, visible: false }))}
-        okText="开始生�? cancelText="取消">
+        okText="开始生成" cancelText="取消">
         <Space orientation="vertical" style={{ width: '100%' }} size="middle">
           <div>
             <Text strong>画面风格</Text>
@@ -479,7 +479,7 @@ export default function DramaAssetsPage() {
             </Row>
           </div>
           <div>
-            <Text strong>宽高�?/Text>
+            <Text strong>宽高比</Text>
             <Row gutter={[8, 8]} style={{ marginTop: 6 }}>
               {presets.map(p => (
                 <Col key={p.value}>
