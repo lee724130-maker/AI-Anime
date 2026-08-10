@@ -94,7 +94,7 @@ export default function DramaEpisodesPage() {
     if (!ep) return;
     try {
       await api.put(`/api/drama/episodes/${ep.id}/settings`, { style, ratio, resolution, audio_lang });
-      message.success('设置已保存');
+      message.success('设置已保�?);
       setSettingsModal(prev => ({ ...prev, visible: false }));
       fetchData();
     } catch { message.error('保存失败'); }
@@ -110,7 +110,7 @@ export default function DramaEpisodesPage() {
 
       <Card style={{ borderRadius: 12, marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>分集列表 · {projectTitle}</Title>
-        <Text type="secondary">共 {episodes.length} 集 · 点击「制作」进入片段编辑</Text>
+        <Text type="secondary">�?{episodes.length} �?· 点击「制作」进入片段编�?/Text>
       </Card>
 
       <Row gutter={[12, 12]}>
@@ -122,7 +122,7 @@ export default function DramaEpisodesPage() {
               <Card
                 style={{ borderRadius: 12 }}
                 actions={[
-                  <Tooltip title="本集设置（风格/比例/清晰度/配音）">
+                  <Tooltip title="本集设置（风�?比例/清晰�?配音�?>
                     <Button type="text" size="small" icon={<SettingOutlined />}
                       onClick={() => openSettings(ep)}>设置</Button>
                   </Tooltip>,
@@ -133,7 +133,7 @@ export default function DramaEpisodesPage() {
                 ]}
               >
                 <Space style={{ marginBottom: 8 }}>
-                  <Tag color="purple">第{ep.episode_no}集</Tag>
+                  <Tag color="purple">第{ep.episode_no}�?/Tag>
                   <Text strong>{ep.title}</Text>
                 </Space>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -151,7 +151,7 @@ export default function DramaEpisodesPage() {
                   <Space size={4}>
                     <Tag color="purple">{cnt.total} 片段</Tag>
                     {cnt.completed > 0 && <Tag color="success">{cnt.completed} 完成</Tag>}
-                    {cnt.pending > 0 && <Tag>{cnt.pending} 待生成</Tag>}
+                    {cnt.pending > 0 && <Tag>{cnt.pending} 待生�?/Tag>}
                     {cnt.failed > 0 && <Tag color="error">{cnt.failed} 失败</Tag>}
                   </Space>
                   {cnt.total > 0 && (
@@ -168,7 +168,7 @@ export default function DramaEpisodesPage() {
       <Modal title={<div style={{ textAlign: 'center' }}>本集设置</div>} open={settingsModal.visible} onOk={saveSettings}
         onCancel={() => setSettingsModal(prev => ({ ...prev, visible: false }))}
         okText="保存" cancelText="取消">
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        <Space orientation="vertical" style={{ width: '100%' }} size="middle">
           <div>
             <Text strong>画面风格</Text>
             <Select value={settingsModal.style} onChange={v => setSettingsModal(prev => ({ ...prev, style: v }))}
@@ -180,7 +180,7 @@ export default function DramaEpisodesPage() {
               style={{ width: '100%', marginTop: 4 }} options={RATIOS} />
           </div>
           <div>
-            <Text strong>清晰度</Text>
+            <Text strong>清晰�?/Text>
             <Select value={settingsModal.resolution} onChange={v => setSettingsModal(prev => ({ ...prev, resolution: v }))}
               style={{ width: '100%', marginTop: 4 }} options={RESOLUTIONS.map(r => ({ label: r, value: r }))} />
           </div>

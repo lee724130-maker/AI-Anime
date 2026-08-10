@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, Badge, message, Modal } from 'antd';
-import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined } from '@ant-design/icons';
+import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined, QuestionCircleOutlined, LinkOutlined, RocketOutlined, BulbOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import CoverThumb from './CoverThumb';
+import CreditRulesAlert from '../../components/CreditRulesAlert';
 
 const { Title, Text } = Typography;
 
@@ -75,6 +76,14 @@ export default function ViralIndex() {
 
   const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
 
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  const STEPS = [
+    { icon: <LinkOutlined />, title: '提供参考视频', desc: '粘贴抖音/B站视频链接，或直接上传本地视频（仅支持 5 分钟以内）' },
+    { icon: <BulbOutlined />, title: 'AI 自动分析', desc: 'AI 解析视频结构、节奏和画面，自动生成专属模板' },
+    { icon: <RocketOutlined />, title: '一键生成', desc: '选择模板 → 填写你的内容 → 生成属于你的营销视频' },
+  ];
+
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '100px 0' }}>
@@ -85,8 +94,69 @@ export default function ViralIndex() {
 
   return (
     <div style={{ padding: '24px 32px' }}>
+      {/* Hero 引导区 */}
+      <div style={{
+        background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%)',
+        borderRadius: 16, padding: '28px 32px', marginBottom: 16,
+        color: '#fff', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 24,
+      }}>
+        <div style={{ flex: '1 1 360px', minWidth: 280 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <FireOutlined style={{ fontSize: 26 }} />
+            <Title level={3} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>热门创作</Title>
+          </div>
+          <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, display: 'block', marginBottom: 16 }}>
+            参考爆款模板，替换你的内容，快速生成营销视频
+          </Text>
+          <Row gutter={[12, 12]}>
+            {STEPS.map((s, i) => (
+              <Col xs={24} sm={8} key={i}>
+                <div style={{
+                  background: 'rgba(255,255,255,0.12)', borderRadius: 10,
+                  padding: '12px 14px', height: '100%', backdropFilter: 'blur(4px)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{
+                      width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                      color: '#7c3aed', fontSize: 12, fontWeight: 700, lineHeight: '20px', textAlign: 'center',
+                    }}>{i + 1}</span>
+                    <Text strong style={{ color: '#fff', fontSize: 14 }}>{s.icon} {s.title}</Text>
+                  </div>
+                  <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, lineHeight: 1.5, display: 'block' }}>
+                    {s.desc}
+                  </Text>
+                </div>
+              </Col>
+            ))}
+          </Row>
+        </div>
+        <div style={{ textAlign: 'center', flexShrink: 0, margin: '0 auto' }}>
+          <Button
+            type="primary" size="large"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/viral/create')}
+            style={{
+              height: 52, padding: '0 36px', borderRadius: 26, fontSize: 17, fontWeight: 600,
+              background: '#fff', color: '#7c3aed', border: 'none',
+              boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+            }}
+          >
+            创建模板
+          </Button>
+          <div style={{ marginTop: 10 }}>
+            <Button type="text" icon={<QuestionCircleOutlined />} style={{ color: 'rgba(255,255,255,0.9)' }}
+              onClick={() => setHelpOpen(true)}>
+              使用教程
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* 积分扣费规则 */}
+      <CreditRulesAlert apiPath="/api/viral/credit-rules" title="积分扣费规则" />
+
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 24, display: 'none' }}>
         <Title level={3} style={{ margin: 0 }}>热门创作</Title>
         <Text type="secondary">参考爆款模板，替换你的内容，快速生成营销视频</Text>
       </div>
@@ -211,6 +281,42 @@ export default function ViralIndex() {
           )}
         </Row>
       )}
+
+      {/* 使用教程弹窗 */}
+      <Modal
+        open={helpOpen}
+        title="热门创作 · 使用教程"
+        onCancel={() => setHelpOpen(false)}
+        footer={<Button type="primary" onClick={() => setHelpOpen(false)}>我知道了</Button>}
+        width={620}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ fontSize: 15 }}>操作步骤</Text>
+          <div style={{ marginTop: 8 }}>
+            {STEPS.map((s, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <span style={{
+                  width: 22, height: 22, borderRadius: '50%', background: '#7c3aed', color: '#fff',
+                  fontSize: 13, fontWeight: 700, lineHeight: '22px', textAlign: 'center', flexShrink: 0,
+                }}>{i + 1}</span>
+                <div>
+                  <Text strong>{s.title}</Text>
+                  <Text type="secondary" style={{ display: 'block', fontSize: 13 }}>{s.desc}</Text>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <Text strong style={{ fontSize: 15 }}>注意事项</Text>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: '#666', fontSize: 13, lineHeight: 1.8 }}>
+            <li>仅支持抖音、B站视频链接，或上传本地视频（MP4 等格式）</li>
+            <li>视频解析仅支持 5 分钟以内，长视频无法解析</li>
+            <li>模板分析消耗 50 积分，生成视频按参考图数量扣费，失败自动全额退还</li>
+            <li>生成中的项目可在「我的创作」中查看进度</li>
+          </ul>
+        </div>
+      </Modal>
     </div>
   );
 }

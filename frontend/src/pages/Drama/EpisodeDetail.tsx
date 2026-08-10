@@ -101,7 +101,7 @@ export default function EpisodeDetailPage() {
           setSegmentProgress(prev => ({ ...prev, [segId]: { message: data.progress_message || '', percent: data.progress_percent || 0 } }));
         }
         if (data.status === 'completed') {
-          setSegmentProgress(prev => ({ ...prev, [segId]: { message: '视频已生成', percent: 100 } }));
+          setSegmentProgress(prev => ({ ...prev, [segId]: { message: '视频已生�?, percent: 100 } }));
           setTimeout(() => finishPolling(segId), 1000);
           fetchData();
         } else if (data.status === 'failed') {
@@ -122,7 +122,7 @@ export default function EpisodeDetailPage() {
     setSubmitting(prev => new Set(prev).add(segId));
     try {
       await api.post(`/api/drama/episodes/${episodeId}/segments/${segId}/generate`);
-      message.info('已加入生成队列');
+      message.info('已加入生成队�?);
       startPolling(segId);
     } catch (err: any) {
       message.error(err.response?.data?.message || '提交失败');
@@ -146,7 +146,7 @@ export default function EpisodeDetailPage() {
         submittedCount++;
       }
       if (submittedCount > 0) {
-        message.success(`已提交 ${submittedCount} 个片段到生成队列`);
+        message.success(`已提�?${submittedCount} 个片段到生成队列`);
       } else {
         message.info('没有待生成的片段');
         setBatchGenerating(false);
@@ -172,13 +172,13 @@ export default function EpisodeDetailPage() {
           setStitchProgress({ message: data.stitch_progress_message || '', percent: data.stitch_progress_percent || 0 });
         }
         if (data.stitch_status === 'completed') {
-          setStitchProgress({ message: '本集成片已完成', percent: 100 });
+          setStitchProgress({ message: '本集成片已完�?, percent: 100 });
           setTimeout(() => {
             if (stitchPollTimer.current) { clearInterval(stitchPollTimer.current); stitchPollTimer.current = null; }
             setStitching(false);
             setStitchProgress(null);
           }, 1500);
-          message.success('本集合成成功！');
+          message.success('本集合成成功�?);
           fetchData();
         } else if (data.stitch_status === 'failed') {
           if (stitchPollTimer.current) { clearInterval(stitchPollTimer.current); stitchPollTimer.current = null; }
@@ -199,7 +199,7 @@ export default function EpisodeDetailPage() {
     try {
       const { data } = await api.post(`/api/drama/episodes/${episodeId}/stitch`);
       if (data.status === 'queued') {
-        message.info('已加入合成队列');
+        message.info('已加入合成队�?);
         startStitchPolling();
       }
     } catch (err: any) {
@@ -227,7 +227,7 @@ export default function EpisodeDetailPage() {
     if (!episode) return;
     try {
       await api.put(`/api/drama/episodes/${episode.id}/settings`, { style, ratio, resolution, audio_lang });
-      message.success('设置已保存');
+      message.success('设置已保�?);
       setSettingsModal(prev => ({ ...prev, visible: false }));
       fetchData();
     } catch { message.error('保存失败'); }
@@ -238,7 +238,7 @@ export default function EpisodeDetailPage() {
     if (!seg) return;
     try {
       await api.put(`/api/drama/episodes/${episodeId}/segments/${seg.id}`, { prompt_cn: value });
-      message.success('已更新');
+      message.success('已更�?);
       setEditModal({ visible: false, seg: null, value: '' });
       fetchData();
     } catch { message.error('更新失败'); }
@@ -248,7 +248,7 @@ export default function EpisodeDetailPage() {
     setPlanning(prev => new Set(prev).add(segId));
     try {
       const { data } = await api.post(`/api/drama/episodes/${episodeId}/segments/${segId}/plan`);
-      message.success(`智能规划完成：${data.duration}秒`);
+      message.success(`智能规划完成�?{data.duration}秒`);
       fetchData();
     } catch (err: any) {
       message.error(err.response?.data?.message || '规划失败');
@@ -286,13 +286,13 @@ export default function EpisodeDetailPage() {
         <Row justify="space-between" align="middle">
           <Col>
             <Title level={4} style={{ margin: 0 }}>
-              第{episode.episode_no}集 · {episode.title}
+              第{episode.episode_no}�?· {episode.title}
             </Title>
             <Text type="secondary">
-              {segments.length} 个片段 · {completedCount} 已完成 · {pendingCount} 待生成
+              {segments.length} 个片�?· {completedCount} 已完�?· {pendingCount} 待生�?
               {episode.duration && ` · 目标 ${episode.duration} 秒`}
-              {episode.stitch_status === 'completed' && ' · ✅ 已合成'}
-              {episode.stitch_status === 'failed' && ' · ❌ 合成失败'}
+              {episode.stitch_status === 'completed' && ' · �?已合�?}
+              {episode.stitch_status === 'failed' && ' · �?合成失败'}
             </Text>
           </Col>
           <Col>
@@ -314,7 +314,7 @@ export default function EpisodeDetailPage() {
           <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>{episode.summary}</Text>
         )}
         <Space style={{ marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>本集设置：</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>本集设置�?/Text>
           <Tag style={{ fontSize: 11 }}>{STYLE_LABEL[episode.style || ''] || '动漫'}</Tag>
           <Tag style={{ fontSize: 11 }}>{episode.ratio || '9:16'}</Tag>
           <Tag style={{ fontSize: 11 }}>{episode.resolution || '720p'}</Tag>
@@ -337,7 +337,7 @@ export default function EpisodeDetailPage() {
 
       {stitchProgress && (
         <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }} size="small">
+          <Space orientation="vertical" style={{ width: '100%' }} size="small">
             <Text strong>合成本集进度</Text>
             <Progress percent={stitchProgress.percent} style={{ width: '100%' }} />
             <Text type="secondary" style={{ fontSize: 13 }}>{stitchProgress.message}</Text>
@@ -358,7 +358,7 @@ export default function EpisodeDetailPage() {
       )}
 
       {!allCompleted && segments.length > 0 && (
-        <Alert type="info" showIcon message="所有片段完成后即可合成整集视频"
+        <Alert type="info" showIcon title="所有片段完成后即可合成整集视频"
           style={{ marginBottom: 16, borderRadius: 8 }} />
       )}
 
@@ -381,7 +381,7 @@ export default function EpisodeDetailPage() {
                       onChange={v => handleDurationChange(seg.id, v)}
                       options={Array.from({ length: 13 }, (_, i) => ({ label: `${i + 3}秒`, value: i + 3 }))} />
                     <Tag color={seg.status === 'completed' ? 'success' : isGenerating || seg.status === 'generating' ? 'processing' : seg.status === 'failed' ? 'error' : 'default'}>
-                      {seg.status === 'completed' ? '✅已完成' : isGenerating || seg.status === 'generating' ? '⏳生成中' : seg.status === 'failed' ? '❌失败' : '待生成'}
+                      {seg.status === 'completed' ? '✅已完成' : isGenerating || seg.status === 'generating' ? '⏳生成中' : seg.status === 'failed' ? '❌失�? : '待生�?}
                     </Tag>
                   </Space>
                 }
@@ -398,7 +398,7 @@ export default function EpisodeDetailPage() {
                   </Button>,
                   <Button type="text" size="small" icon={<AimOutlined />}
                     onClick={() => handleEditPrompt(seg)}>
-                    编辑提示词
+                    编辑提示�?
                   </Button>,
                 ]}
               >
@@ -440,7 +440,7 @@ export default function EpisodeDetailPage() {
         })}
       </Row>
 
-      <Modal title="编辑提示词" open={editModal.visible} onOk={handleEditSave}
+      <Modal title="编辑提示�? open={editModal.visible} onOk={handleEditSave}
         onCancel={() => setEditModal({ visible: false, seg: null, value: '' })}
         okText="保存" cancelText="取消">
         <Input.TextArea rows={4} value={editModal.value}
@@ -450,7 +450,7 @@ export default function EpisodeDetailPage() {
       <Modal title={<div style={{ textAlign: 'center' }}>本集设置</div>} open={settingsModal.visible} onOk={saveSettings}
         onCancel={() => setSettingsModal(prev => ({ ...prev, visible: false }))}
         okText="保存" cancelText="取消">
-        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+        <Space orientation="vertical" style={{ width: '100%' }} size="middle">
           <div>
             <Text strong>画面风格</Text>
             <Select value={settingsModal.style} onChange={v => setSettingsModal(prev => ({ ...prev, style: v }))}
@@ -470,7 +470,7 @@ export default function EpisodeDetailPage() {
               ]} />
           </div>
           <div>
-            <Text strong>清晰度</Text>
+            <Text strong>清晰�?/Text>
             <Select value={settingsModal.resolution} onChange={v => setSettingsModal(prev => ({ ...prev, resolution: v }))}
               style={{ width: '100%', marginTop: 4 }}
               options={['480p', '720p', '1080p'].map(r => ({ label: r, value: r }))} />

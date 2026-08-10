@@ -34,7 +34,7 @@ export default function CoverThumb({
     return (
       <div style={{ ...boxStyle, background: '#000' }}>
         <video
-          src={src} muted playsInline preload="auto"
+          src={src} muted playsInline preload="metadata"
           onLoadedData={e => { (e.target as HTMLVideoElement).currentTime = 0.1; }}
           onError={() => setFailed(true)}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}

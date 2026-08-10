@@ -29,6 +29,8 @@ const safeParse = (key: string) => {
   }
 };
 
+let profileInFlight: Promise<void> | null = null;
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: safeParse('user'),
   token: localStorage.getItem('token'),
@@ -53,12 +55,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   refreshUser: async () => {
     const token = get().token;
     if (!token) return;
-    try {
-      const { data } = await api.get('/api/user/profile');
-      localStorage.setItem('user', JSON.stringify(data));
-      set({ user: data });
-    } catch {
-      // Silently fail — keep using cached data if API is unavailable
-    }
+    if (profileInFlight) return profileInFlight;
+    profileInFlight = api
+      .get('/api/user/profile')
+      .then(({ data }) => {
+        localStorage.setItem('user', JSON.stringify(data));
+        set({ user: data });
+      })
+      .catch(() => {
+        // Silently fail — keep using cached data if API is unavailable
+      })
+      .finally(() => {
+        profileInFlight = null;
+      });
+    return profileInFlight;
   },
 }));
