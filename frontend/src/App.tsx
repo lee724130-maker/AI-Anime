@@ -26,6 +26,7 @@ const ViralTemplateDetail = lazy(() => import('./pages/Viral/TemplateDetail'));
 const ViralCreateTemplate = lazy(() => import('./pages/Viral/CreateTemplate'));
 const ViralProjectList = lazy(() => import('./pages/Viral/ProjectList'));
 const ViralProjectDetail = lazy(() => import('./pages/Viral/ProjectDetail'));
+const ViralTemplateList = lazy(() => import('./pages/Viral/TemplateList'));
 const CanvasIndex = lazy(() => import('./pages/Canvas'));
 const CanvasEditor = lazy(() => import('./pages/Canvas/Editor'));
 const GeneratePage = lazy(() => import('./pages/Generate'));
@@ -92,6 +93,7 @@ export default function App() {
           <Route path="/order" element={<ProtectedRoute><OrderPage /></ProtectedRoute>} />
           <Route path="/viral" element={<ProtectedRoute><UserLayout><ViralIndex /></UserLayout></ProtectedRoute>} />
           <Route path="/viral/create" element={<ProtectedRoute><UserLayout><ViralCreateTemplate /></UserLayout></ProtectedRoute>} />
+          <Route path="/viral/templates" element={<ProtectedRoute><UserLayout><ViralTemplateList /></UserLayout></ProtectedRoute>} />
           <Route path="/viral/templates/:id" element={<ProtectedRoute><UserLayout><ViralTemplateDetail /></UserLayout></ProtectedRoute>} />
           <Route path="/viral/projects" element={<ProtectedRoute><UserLayout><ViralProjectList /></UserLayout></ProtectedRoute>} />
           <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />
