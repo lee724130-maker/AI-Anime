@@ -1,5 +1,32 @@
 # 修复日志
 
+## 2026-08-11（生成页结果轮播 + 生成历史独立页 + admin 密码对齐 + 服务器清理 ✅ 已提交+已部署+生产验证）
+
+> 承接 08-10 热门创作页改造（b5a278b/04f85c6/4af700e 已提交未记录：左侧锚点导航 + 模板列表页分页搜索分类 + 首页卡片 8 个上限跳转新页面 → 侧栏改视口悬浮 + 「查看全部」按钮统一区块底部 → Hero 深色科技风）。本轮（commit `2e15697`）：
+- **后端**：`GET /api/generate/tasks` 支持 `type`/`status` 筛选（listTasks where 动态拼接）；**生成进度上报链**——`updateProgress`（单调递增 + taskRepo.update 防 save 覆盖旧值，完成置 100/失败不置），文生图按视角数分段上报，文生/图生视频把 `onProgress` 透传进 ai-service.util（通义/Seedance/智谱/Runway 四家轮询回调 `30 + min(55, i*2)`，降级链逐级透传），retryTask 重置 progress=0。
+- **前端**：
+  - 新组件 `HistoryTable.tsx`：类型/状态筛选、分页、重试/保存到资产库/删除/视频全屏预览，`active` prop 有活跃任务时 3s 静默轮询（与生成页同步）；
+  - 新页面 `/generate/history`（pageSize=10 + 筛选器 + 分页）；App.tsx 加路由（懒加载）。
+  - `Generate/index.tsx` 大改：结果区改**轮播**（左/右圆形箭头 + `x / N` 页码 + 右上关闭移除 + 页脚信息条：类型/状态/视角 tag + prompt 摘要 + 参数摘要 + 保存/全屏/重试/删除）；completed 多图任务按张**逐张展开成多页**；pending/processing/failed/completed 各状态页；进度条（Progress 组件）；轮播背景 `#fafafa` 浅色（用户反馈 #141414 深色下文字不可读）；自绘 Tab 标签行（替代 antd Tabs，key 强制卸载重建表单）；历史区 8 条 + 「查看更多」跳转历史页。
+- **Bug 修复**：① 关闭当前页后 currentIdx 越界崩溃 → `closeCurrent` 用 `Math.min(i, resultPages.length - 2)` 回退 + 渲染防御 `resultPages[currentIdx] ? render : null`；② HistoryTable 无自动刷新导致与轮播状态不同步 → active 3s 静默轮询。
+- **生产部署**：前端新构建 hash `index-Uq4NQMyM.js`（本地=生产核对一致）+ HistoryTable-DDBcjjYE.js；pm2 online；生产验证 **16/16 全绿 + 0 JS 错误**（tasks 接口筛选×3 / 轮播空态→提交→进度条→完成显示图片→页码 / 历史页筛选后全为图片类型）；测试用户/任务/图片/zip 全清。
+- **admin 密码对齐**：本地库 admin 密码 123456 → **admin123**（与生产一致；生产 `/api/auth/login` admin/admin123 实测 200；坑：PowerShell→node -e 传递 `\$2b\$` 哈希会被转义破坏致 compare false → 用 bcryptjs 重新生成哈希写库 + 文件方式读哈希验证）。
+- **服务器清理**：deploy 目录历史遗留全清（admin-dist.zip/admin.zip/dist-{frontend,backend,admin}.zip ×5、test-prod-*.sh/js ×3、cleanup-orphans.sh、query-admin.sh、package-backend.json、old-backend-dist 2.6M——dist_bak 备份机制保留无损）。
+- **git push**：本地领先 origin 47 提交全量推送 GitHub（lee724130-maker/AI-Anime）。
+
+### ✅ 待办更新（2026-08-11）
+- [x] 用户复测生产文生视频（模型列错位修复后）→ **用户 08-11 确认测试无误**
+- [x] 用户复测「连点多个生成任务排队」→ **用户 08-11 确认测试无误**
+- [x] 生产错误模板「科学悬疑解说模板」排查 → 08-11 查证 **不存在**：viral_templates 仅 1 条「英雄联盟改动解析」（id=1，user_id=16 即用户账号，is_system=0）
+- [x] admin 密码 → 08-11 本地已对齐 admin123（生产不变）
+- [x] 服务器 deploy 目录遗留清理
+- [ ] 用户复测生产抖音链接解析（detail API 直连已部署，**用户自测中**）
+- [ ] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧，≤5 分钟）
+- [ ] 观察：多个长视频（200-300s）并发分析时压缩 CPU 叠加风险（必要时压缩改 ultrafast 或串行化）
+- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+
+---
+
 ## 2026-08-07（登录后测试版说明弹窗 ✅ 已提交+已部署+生产验证）
 
 > 用户需求：登录后弹「测试版说明」弹窗（测试状态/支付未开通/赠送 100 积分提示）+ 确认按钮 + 「不再提示」勾选框（勾选后该用户以后每次登录都不再弹）。实现（commit `feat: 登录后测试版说明弹窗（勾选不再提示按用户持久化，不再重复弹出）`）：
