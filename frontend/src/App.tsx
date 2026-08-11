@@ -30,6 +30,7 @@ const ViralTemplateList = lazy(() => import('./pages/Viral/TemplateList'));
 const CanvasIndex = lazy(() => import('./pages/Canvas'));
 const CanvasEditor = lazy(() => import('./pages/Canvas/Editor'));
 const GeneratePage = lazy(() => import('./pages/Generate'));
+const GenerateHistoryPage = lazy(() => import('./pages/Generate/History'));
 const DramaListPage = lazy(() => import('./pages/Drama'));
 const DramaCreatePage = lazy(() => import('./pages/Drama/Create'));
 const DramaDetailPage = lazy(() => import('./pages/Drama/Detail'));
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/dashboard" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
           <Route path="/generate" element={<ProtectedRoute><UserLayout><GeneratePage /></UserLayout></ProtectedRoute>} />
+          <Route path="/generate/history" element={<ProtectedRoute><UserLayout><GenerateHistoryPage /></UserLayout></ProtectedRoute>} />
           <Route path="/drama" element={<ProtectedRoute><UserLayout><DramaListPage /></UserLayout></ProtectedRoute>} />
           <Route path="/drama/create" element={<ProtectedRoute><UserLayout><DramaCreatePage /></UserLayout></ProtectedRoute>} />
           <Route path="/drama/:id" element={<ProtectedRoute><UserLayout><DramaDetailPage /></UserLayout></ProtectedRoute>} />

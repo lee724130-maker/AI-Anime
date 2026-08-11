@@ -61,8 +61,8 @@ export class GenerateController {
   }
 
   @Get('tasks')
-  listTasks(@Req() req, @Query('page') page: number, @Query('limit') limit: number) {
-    return this.generateService.listTasks(req.user.id, page || 1, limit || 20);
+  listTasks(@Req() req, @Query('page') page: number, @Query('limit') limit: number, @Query('type') type: string, @Query('status') status: string) {
+    return this.generateService.listTasks(req.user.id, page || 1, limit || 20, type || '', status || '');
   }
 
   @Get('credit-rules')

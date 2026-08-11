@@ -64,6 +64,13 @@ export class GenerateService {
     }
   }
 
+  /** 更新任务进度（单调递增 + 内存对象与 DB 同步，避免 save 覆盖旧值） */
+  private async updateProgress(task: any, progress: number) {
+    if (progress <= (task.progress || 0)) return;
+    task.progress = progress;
+    await this.taskRepo.update(task.id, { progress });
+  }
+
   /** 估算生成积分成本（system_configs 可配置） */
   private async getConfigInt(key: string, def: number): Promise<number> {
     try {
@@ -181,8 +188,10 @@ export class GenerateService {
     if (!task) return;
     const { prompt, style, num_images } = dto;
     let expandedPrompt = prompt;
+    await this.updateProgress(task, 10);
 
     if (prompt.length < 15) {
+      await this.updateProgress(task, 15);
       try {
         const systemPrompt = `你是一个AI绘图Prompt扩写专家，对各类动漫、游戏、小说角色了如指掌。
 
@@ -233,8 +242,11 @@ export class GenerateService {
 
     try {
       const results: any[] = [];
-      for (const view of viewConfigs) {
+      const total = viewConfigs.length;
+      for (let vi = 0; vi < total; vi++) {
+        const view = viewConfigs[vi];
         const viewPrompt = expandedPrompt + view.promptSuffix;
+        await this.updateProgress(task, 20 + Math.round((vi / total) * 60));
         const urls = await this.aiService.generateImage({
           prompt: viewPrompt,
           style: style || 'realistic',
@@ -255,12 +267,14 @@ export class GenerateService {
           });
           results.push({ id: file.id, url: localUrl, view: view.label });
         }
+        await this.updateProgress(task, 20 + Math.round(((vi + 1) / total) * 60));
       }
 
       task.status = 'completed';
       task.output_data = JSON.stringify(results);
       task.credits_charged = true;
       task.completed_at = new Date();
+      await this.updateProgress(task, 100);
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 文生图完成`);
     } catch (err: any) {
@@ -328,8 +342,10 @@ export class GenerateService {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
     const { prompt, style, resolution, ratio, duration, model } = dto;
+    await this.updateProgress(task, 10);
 
     try {
+      await this.updateProgress(task, 20);
       const videoUrl = await this.aiService.generateVideo({
         imageUrl: '',
         prompt,
@@ -339,9 +355,12 @@ export class GenerateService {
         model: model || '',
         videoType: 't2v',
         style,
-      }, prompt);
+      }, prompt, (p) => {
+        void this.updateProgress(task, Math.min(85, Math.max(30, p)));
+      });
 
       const localUrl = await this.downloadToLocal(videoUrl, `vid_${task.id}`);
+      await this.updateProgress(task, 92);
       const file = await this.mediaRepo.save({
         user_id: userId,
         task_id: task.id,
@@ -355,6 +374,7 @@ export class GenerateService {
       task.output_data = JSON.stringify({ id: file.id, url: localUrl });
       task.credits_charged = true;
       task.completed_at = new Date();
+      await this.updateProgress(task, 100);
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 文生视频完成`);
     } catch (err: any) {
@@ -427,10 +447,12 @@ export class GenerateService {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
     const { image_url, media, prompt, style, resolution, ratio, duration, model } = dto;
+    await this.updateProgress(task, 10);
 
     try {
       // 自动判断使用 I2V 还是 R2V
       const videoType = media && media.length > 1 ? 'r2v' : 'i2v';
+      await this.updateProgress(task, 20);
       const videoUrl = await this.aiService.generateVideo({
         imageUrl: image_url,
         media: media,
@@ -441,9 +463,12 @@ export class GenerateService {
         model: model || '',
         videoType,
         style,
-      }, prompt);
+      }, prompt, (p) => {
+        void this.updateProgress(task, Math.min(85, Math.max(30, p)));
+      });
 
       const localUrl = await this.downloadToLocal(videoUrl, `i2v_${task.id}`);
+      await this.updateProgress(task, 92);
       const file = await this.mediaRepo.save({
         user_id: userId,
         task_id: task.id,
@@ -457,6 +482,7 @@ export class GenerateService {
       task.output_data = JSON.stringify({ id: file.id, url: localUrl });
       task.credits_charged = true;
       task.completed_at = new Date();
+      await this.updateProgress(task, 100);
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 图生视频完成`);
     } catch (err: any) {
@@ -472,9 +498,12 @@ export class GenerateService {
     }
   }
 
-  async listTasks(userId: number, page = 1, limit = 20) {
+  async listTasks(userId: number, page = 1, limit = 20, type = '', status = '') {
+    const where: any = { user_id: userId };
+    if (type) where.type = type;
+    if (status) where.status = status;
     const [items, total] = await this.taskRepo.findAndCount({
-      where: { user_id: userId },
+      where,
       order: { created_at: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
@@ -490,6 +519,7 @@ export class GenerateService {
     const input = JSON.parse(task.input_data || '{}');
     task.status = 'pending';
     task.error_msg = '';
+    task.progress = 0;
     task.completed_at = undefined as any;
     await this.taskRepo.save(task);
 

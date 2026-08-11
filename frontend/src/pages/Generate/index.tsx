@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Tabs, Form, Select, Input, Button, Card, Table, Tag,
-  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert,
+  Tabs, Form, Select, Input, Button, Card, Tag,
+  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert, Progress,
 } from 'antd';
-import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, PlayCircleFilled, UserOutlined, EnvironmentOutlined, AppstoreOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined } from '@ant-design/icons';
+import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, UserOutlined, EnvironmentOutlined, AppstoreOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, FullscreenOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import HistoryTable from './HistoryTable';
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
@@ -90,7 +92,11 @@ export default function GeneratePage() {
   const [tabKey, setTabKey] = useState('text-to-image');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  // 结果区轮播：本次会话提交的任务 id（最新在前），关闭即移除
+  const [resultIds, setResultIds] = useState<number[]>([]);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [histRefresh, setHistRefresh] = useState(0);
+  const navigate = useNavigate();
   const [uploadFileList, setUploadFileList] = useState<any[]>([]);
   const [saveModal, setSaveModal] = useState<{ visible: boolean; record: any; name: string; type: string; description: string; promptCn: string }>({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' });
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
@@ -113,13 +119,11 @@ export default function GeneratePage() {
   const promptTextToVideo = Form.useWatch('prompt', formTextToVideo) || '';
   const promptImageToVideo = Form.useWatch('prompt', formImageToVideo) || '';
 
-  const fetchHistory = useCallback(async (page = 1, silent = false) => {
-    if (!silent) setHistoryLoading(true);
+  const fetchHistory = useCallback(async (page = 1) => {
     try {
       const { data } = await api.get('/api/generate/tasks', { params: { page, limit: 20 } });
       setHistory(data.items || []);
     } catch { /* ignore */ }
-    if (!silent) setHistoryLoading(false);
   }, []);
 
   useEffect(() => {
@@ -131,7 +135,7 @@ export default function GeneratePage() {
   const hasActiveTask = history.some(r => r.status === 'pending' || r.status === 'processing');
   useEffect(() => {
     if (!hasActiveTask && !loading) return;
-    const timer = setInterval(() => fetchHistory(1, true), 3000);
+    const timer = setInterval(() => fetchHistory(), 3000);
     return () => clearInterval(timer);
   }, [hasActiveTask, loading, fetchHistory]);
 
@@ -224,17 +228,21 @@ export default function GeneratePage() {
     setLoading(true);
     // Refresh immediately so the new task shows as "processing" right away;
     // the 3s polling (started by loading=true) keeps it updated until done.
-    fetchHistory(1, true);
+    fetchHistory();
     try {
-      await api.post(url, body);
+      const { data } = await api.post(url, body);
       message.success('生成任务已提交');
+      if (data?.taskId) {
+        setResultIds(prev => [data.taskId, ...prev.filter(id => id !== data.taskId)].slice(0, 10));
+        setHistRefresh(r => r + 1);
+      }
       form.resetFields();
       setUploadFileList([]);
       setSelectedLibraryAssets([]);
-      fetchHistory(1, true);
+      fetchHistory();
     } catch (err: any) {
       message.error(err.response?.data?.message || '生成失败');
-      fetchHistory(1, true);
+      fetchHistory();
     }
     setLoading(false);
   };
@@ -278,6 +286,7 @@ export default function GeneratePage() {
     try {
       await api.post(`/api/generate/tasks/${id}/retry`);
       message.success('任务已重新提交');
+      setHistRefresh(r => r + 1);
       fetchHistory();
     } catch (err: any) {
       message.error(err.response?.data?.message || '重试失败');
@@ -295,6 +304,8 @@ export default function GeneratePage() {
         try {
           await api.delete(`/api/generate/tasks/${id}`);
           message.success('删除成功');
+          setResultIds(prev => prev.filter(x => x !== id));
+          setHistRefresh(r => r + 1);
           fetchHistory();
         } catch (err: any) {
           message.error(err.response?.data?.message || '删除失败');
@@ -346,73 +357,6 @@ export default function GeneratePage() {
       });
     },
   };
-
-  const statusColor: Record<string, string> = {
-    pending: 'default', processing: 'processing', completed: 'success', failed: 'error',
-  };
-
-  const historyColumns = [
-    { title: '类型', dataIndex: 'type', width: 80, render: (v: string) => (
-      <Tag icon={v === 'image' ? <PictureOutlined /> : <VideoCameraOutlined />}>
-        {v === 'image' ? '图片' : '视频'}
-      </Tag>
-    )},
-    { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => (
-      <Tag color={statusColor[v] || 'default'}>{v === 'pending' ? '排队中' : v === 'processing' ? '生成中' : v === 'completed' ? '已完成' : '失败'}</Tag>
-    )},
-    { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => new Date(v).toLocaleString() },
-    { title: '结果', dataIndex: 'output_data', width: 200, render: (v: string, r: any) => {
-      if (!v) return '-';
-      try {
-        const data = JSON.parse(v);
-        const items = Array.isArray(data) ? data : (data.url ? [data] : []);
-        if (items.length === 0) return '-';
-        if (r.type === 'image') return (
-          <Space size={4} wrap>
-            {items.map((item: any, i: number) => {
-              const imgUrl = getUrl(item.url);
-              const label = item.view || '';
-              return (
-                <div key={i} style={{ textAlign: 'center' }}>
-                  <Image src={imgUrl} width={label ? 48 : 60} preview={{ src: imgUrl }} />
-                  {label && <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{label}</div>}
-                </div>
-              );
-            })}
-          </Space>
-        );
-        const videoUrl = getUrl(items[0]?.url);
-        return (
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <video
-              src={videoUrl}
-              width={160}
-              height={90}
-              controls
-              playsInline
-              preload="metadata"
-              style={{ borderRadius: 4, background: '#1a1a1a', cursor: 'pointer', objectFit: 'contain' }}
-              onClick={() => { setPreviewVideoUrl(videoUrl); setPreviewVideoVisible(true); }}
-            />
-            <Tooltip title="全屏预览">
-              <PlayCircleFilled
-                onClick={() => { setPreviewVideoUrl(videoUrl); setPreviewVideoVisible(true); }}
-                style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', fontSize: 32, color: 'rgba(255,255,255,0.8)', cursor: 'pointer', opacity: 0.7 }}
-              />
-            </Tooltip>
-          </div>
-        );
-      } catch { return '-'; }
-    }},
-    { title: '错误', dataIndex: 'error_msg', width: 150, ellipsis: true, render: (v: string) => v ? <Text type="danger">{v}</Text> : '-' },
-    { title: '操作', width: 140, render: (_: any, r: any) => (
-      <Space size={0}>
-        {r.status === 'failed' ? <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(r.id)}>重试</Button> : null}
-        {r.status === 'completed' && r.output_data ? <Button type="link" size="small" icon={<SaveOutlined />} onClick={() => openSaveModal(r)}>保存</Button> : null}
-        <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.id)}>删除</Button>
-      </Space>
-    )},
-  ];
 
   const renderForm = (mode: string) => {
     switch (mode) {
@@ -681,6 +625,127 @@ export default function GeneratePage() {
     }
   };
 
+  const statusText: Record<string, string> = {
+    pending: '排队中', processing: '生成中', completed: '已完成', failed: '失败',
+  };
+  const statusColor: Record<string, string> = {
+    pending: 'default', processing: 'processing', completed: 'success', failed: 'error',
+  };
+
+  const resultRecords = resultIds
+    .map(id => history.find(h => h.id === id))
+    .filter(Boolean) as any[];
+
+  // 轮播页：completed 图片任务按张数逐张展开，其余任务一任务一页
+  const resultPages: any[] = resultRecords.flatMap((task: any) => {
+    if (task.status === 'completed' && task.type === 'image') {
+      try {
+        const d = JSON.parse(task.output_data || 'null');
+        const items = Array.isArray(d) ? d : [];
+        if (items.length > 0) {
+          return items.map((item: any, i: number) => ({ task, item, key: `p-${task.id}-${i}` }));
+        }
+      } catch { /* fallthrough */ }
+    }
+    return [{ task, item: null, key: `p-${task.id}` }];
+  });
+
+  useEffect(() => {
+    if (resultPages.length === 0) {
+      if (currentIdx !== 0) setCurrentIdx(0);
+    } else if (currentIdx > resultPages.length - 1) {
+      setCurrentIdx(resultPages.length - 1);
+    }
+  }, [resultPages.length, currentIdx]);
+
+  const inputOf = (task: any) => {
+    try { return JSON.parse(task.input_data || '{}'); } catch { return {}; }
+  };
+  const promptOf = (task: any) => {
+    const input = inputOf(task);
+    return (input.prompt || '').trim().slice(0, 40) || (task.type === 'image' ? '文生图' : '视频生成');
+  };
+  const briefOf = (task: any) => {
+    const input = inputOf(task);
+    const styleText = input.style === 'anime' ? '动漫' : '写实';
+    return task.type === 'image'
+      ? `${styleText} · ${input.num_images || 1}张`
+      : `${styleText} · ${input.resolution || '720p'} · ${input.ratio || '9:16'} · ${input.duration || 5}秒`;
+  };
+  const videoUrlOf = (task: any) => {
+    try {
+      const o = JSON.parse(task.output_data || 'null');
+      return o?.url ? getUrl(o.url) : '';
+    } catch { return ''; }
+  };
+
+  const closeCurrent = () => {
+    const task = resultPages[currentIdx]?.task;
+    if (!task) return;
+    setResultIds(prev => prev.filter(x => x !== task.id));
+    // 若移除的是最后一页，索引同步回退，避免重渲染越界
+    setCurrentIdx(i => Math.min(i, resultPages.length - 2));
+    setHistRefresh(r => r + 1);
+  };
+
+  const renderResultPage = (page: any) => {
+    const task = page.task;
+    if (task.status === 'pending') {
+      return (
+        <div style={{ textAlign: 'center', padding: '30px 0', color: '#999' }}>
+          <LoadingOutlined style={{ fontSize: 22, marginRight: 8 }} />排队等待中，稍后自动开始生成…
+        </div>
+      );
+    }
+    if (task.status === 'processing') {
+      return (
+        <div style={{ padding: '20px 24px' }}>
+          <Progress percent={task.progress || 5} status="active" />
+          <Text type="secondary" style={{ fontSize: 12 }}>生成中，请稍候…（视频通常需要 1~3 分钟）</Text>
+        </div>
+      );
+    }
+    if (task.status === 'failed') {
+      return (
+        <div style={{ maxWidth: 480, margin: '0 auto' }}>
+          <Alert type="error" showIcon message="生成失败" description={task.error_msg || '未知错误'} style={{ marginBottom: 12 }} />
+          <Space size={8}>
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(task.id)}>重试</Button>
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(task.id)}>删除</Button>
+          </Space>
+        </div>
+      );
+    }
+    if (page.item) {
+      return (
+        <Image
+          src={getUrl(page.item.url)}
+          style={{ maxHeight: 360, maxWidth: '100%', borderRadius: 8 }}
+          preview={{ src: getUrl(page.item.url) }}
+        />
+      );
+    }
+    const videoUrl = videoUrlOf(task);
+    return videoUrl ? (
+      <video
+        src={videoUrl}
+        controls
+        playsInline
+        preload="metadata"
+        style={{ maxHeight: 360, maxWidth: '100%', borderRadius: 8, background: '#000' }}
+      />
+    ) : (
+      <Empty description="暂无结果文件" style={{ padding: 30 }} />
+    );
+  };
+
+  const tabItems = [
+    { key: 'text-to-image', label: '📝 文字生图片' },
+    { key: 'text-to-video', label: '🎬 文字生视频' },
+    { key: 'image-to-video', label: '🖼 图片生视频' },
+    { key: 'image-merge', label: '🔀 多图合并' },
+  ];
+
   return (
     <div>
       <Title level={3} style={{ marginBottom: 4 }}>AI 生成中心</Title>
@@ -703,18 +768,109 @@ export default function GeneratePage() {
       )}
 
       <Card style={{ borderRadius: 12, marginBottom: 24 }}>
-        <Tabs activeKey={tabKey} onChange={setTabKey} items={[
-          { key: 'text-to-image', label: '📝 文字生图片', children: renderForm('text-to-image') },
-          { key: 'text-to-video', label: '🎬 文字生视频', children: renderForm('text-to-video') },
-          { key: 'image-to-video', label: '🖼 图片生视频', children: renderForm('image-to-video') },
-          { key: 'image-merge', label: '🔀 多图合并', children: renderForm('image-merge') },
-        ]} />
+        {/* Tab 标签行（仿 antd line 风格） */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid rgba(5,5,5,0.06)' }}>
+          {tabItems.map(t => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTabKey(t.key)}
+              style={{
+                border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                padding: '12px 16px', fontSize: 14, lineHeight: '22px', marginBottom: -1,
+                color: tabKey === t.key ? '#1677ff' : 'rgba(0,0,0,0.88)',
+                fontWeight: tabKey === t.key ? 500 : 400,
+                borderBottom: tabKey === t.key ? '2px solid #1677ff' : '2px solid transparent',
+              }}
+            >{t.label}</button>
+          ))}
+        </div>
+
+        {/* 生成结果区：位于标签行下方、表单上方 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+            <Text strong style={{ fontSize: 15 }}>生成结果</Text>
+            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>实时展示本次生成流程，可左右切换查看</Text>
+          </div>
+          {resultPages.length === 0 ? (
+            <Empty description="提交生成任务后，此处实时展示生成进度与结果" style={{ padding: '24px 0' }} />
+          ) : (
+            <div>
+              <div style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 10, minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                <Button
+                  shape="circle"
+                  icon={<LeftOutlined />}
+                  disabled={currentIdx === 0}
+                  onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
+                  style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
+                  title="上一个"
+                />
+                <Button
+                  shape="circle"
+                  icon={<RightOutlined />}
+                  disabled={currentIdx >= resultPages.length - 1}
+                  onClick={() => setCurrentIdx(i => Math.min(resultPages.length - 1, i + 1))}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
+                  title="下一个"
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={closeCurrent}
+                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, color: 'rgba(0,0,0,0.45)' }}
+                  title="从结果区移除"
+                />
+                <div style={{ padding: '28px 64px', width: '100%', textAlign: 'center' }}>
+                  {resultPages[currentIdx] ? renderResultPage(resultPages[currentIdx]) : null}
+                </div>
+              </div>
+              {resultPages[currentIdx] && (() => {
+                const task = resultPages[currentIdx].task;
+                const item = resultPages[currentIdx].item;
+                const isImage = task.type === 'image';
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                    <Tag icon={isImage ? <PictureOutlined /> : <VideoCameraOutlined />}>{isImage ? '图片' : '视频'}</Tag>
+                    <Tag color={statusColor[task.status] || 'default'}>{statusText[task.status] || task.status}</Tag>
+                    {item?.view && <Tag color="blue">{item.view}</Tag>}
+                    <Text type="secondary" style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 120 }} title={promptOf(task)}>{promptOf(task)}</Text>
+                    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{briefOf(task)}</Text>
+                    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{currentIdx + 1} / {resultPages.length}</Text>
+                    <Space size={4}>
+                      {task.status === 'completed' && (
+                        <Button size="small" icon={<SaveOutlined />} onClick={() => openSaveModal(task)}>保存</Button>
+                      )}
+                      {task.status === 'completed' && !isImage && (
+                        <Button size="small" icon={<FullscreenOutlined />} onClick={() => {
+                          const u = videoUrlOf(task);
+                          if (u) { setPreviewVideoUrl(u); setPreviewVideoVisible(true); }
+                        }}>全屏</Button>
+                      )}
+                      {task.status === 'failed' && (
+                        <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(task.id)}>重试</Button>
+                      )}
+                      <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(task.id)}>删除</Button>
+                    </Space>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+
+        {/* 表单内容（key 强制切换 Tab 时卸载重建，避免 antd Form 实例复用导致 store 绑定错乱） */}
+        <div key={tabKey}>{renderForm(tabKey)}</div>
       </Card>
 
-      <Title level={4}>生成历史</Title>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <Title level={4} style={{ margin: 0 }}>生成历史</Title>
+        <Button type="link" onClick={() => navigate('/generate/history')}>
+          查看更多 <RightOutlined />
+        </Button>
+      </div>
       <Card style={{ borderRadius: 12 }}>
-        <Table rowKey="id" columns={historyColumns} dataSource={history} loading={historyLoading}
-          pagination={false} scroll={{ x: 950 }} size="small" />
+        <HistoryTable pageSize={8} refreshKey={histRefresh} active={hasActiveTask} />
       </Card>
 
       <Modal title="保存到大资产库" open={saveModal.visible}

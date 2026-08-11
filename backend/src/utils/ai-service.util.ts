@@ -475,7 +475,7 @@ export class AIServiceUtil {
   }
 
   /** Generate video from image/text using configured AI provider */
-  async generateVideo(options: VideoGenerationOptions, textPrompt?: string): Promise<string> {
+  async generateVideo(options: VideoGenerationOptions, textPrompt?: string, onProgress?: (progress: number) => void): Promise<string> {
     const provider = await this.getConfigValue('video_provider') || 'auto';
 
     // Inject style keywords and strip conflicting ones
@@ -493,17 +493,17 @@ export class AIServiceUtil {
       try {
         if (options.model.startsWith('ep-')) {
           const key = await this.getApiKey('volcengine_api_key');
-          if (key) return await this.generateVideoWithSeedance(key, options, textPrompt);
+          if (key) return await this.generateVideoWithSeedance(key, options, textPrompt, onProgress);
           throw new Error('火山引擎 Key 未配置，无法使用 ' + options.model);
         }
         if (options.model.startsWith('wan') || options.model.startsWith('wanx') || options.model.startsWith('happyhorse')) {
           const key = await this.getApiKey('tongyi_api_key');
-          if (key) return await this.generateVideoWithTongyi(key, options, textPrompt);
+          if (key) return await this.generateVideoWithTongyi(key, options, textPrompt, 0, onProgress);
           throw new Error('阿里云 Key 未配置，无法使用 ' + options.model);
         }
         if (options.model.startsWith('CogVideo')) {
           const key = await this.getApiKey('zai_api_key');
-          if (key) return await this.generateVideoWithZhipu(key, options, textPrompt);
+          if (key) return await this.generateVideoWithZhipu(key, options, textPrompt, onProgress);
           throw new Error('智谱 Key 未配置，无法使用 ' + options.model);
         }
       } catch (err: any) {
@@ -517,7 +517,7 @@ export class AIServiceUtil {
       const key = await this.getApiKey('volcengine_api_key');
       if (key) {
         this.logger.log('Using 火山引擎 Seedance (forced) for video generation');
-        try { return await this.generateVideoWithSeedance(key, options, textPrompt); }
+        try { return await this.generateVideoWithSeedance(key, options, textPrompt, onProgress); }
         catch (err: any) { this.logger.error(`火山引擎失败: ${err.message}`); }
       } else { this.logger.warn('火山引擎 Key 未配置'); }
     } else if (provider === 'aliyun') {
@@ -527,7 +527,7 @@ export class AIServiceUtil {
         const key = await this.getApiKey('tongyi_api_key');
         if (key) {
           this.logger.log('Using 阿里云通义万相 (forced) for video generation');
-          try { return await this.generateVideoWithTongyi(key, options, textPrompt); }
+          try { return await this.generateVideoWithTongyi(key, options, textPrompt, 0, onProgress); }
           catch (err: any) { this.logger.error(`通义万相失败: ${err.message}`); }
         } else { this.logger.warn('阿里云 Key 未配置'); }
       }
@@ -535,14 +535,14 @@ export class AIServiceUtil {
       const key = await this.getApiKey('zai_api_key');
       if (key) {
         this.logger.log('Using 智谱 CogVideoX (forced) for video generation');
-        try { return await this.generateVideoWithZhipu(key, options, textPrompt); }
+        try { return await this.generateVideoWithZhipu(key, options, textPrompt, onProgress); }
         catch (err: any) { this.logger.error(`智谱失败: ${err.message}`); }
       } else { this.logger.warn('智谱 Key 未配置'); }
     } else if (provider === 'runway') {
       const key = await this.getApiKey('runway_api_key');
       if (key) {
         this.logger.log('Using Runway (forced) for video generation');
-        try { return await this.generateVideoWithRunway(key, options); }
+        try { return await this.generateVideoWithRunway(key, options, onProgress); }
         catch (err: any) { this.logger.error(`Runway失败: ${err.message}`); }
       } else { this.logger.warn('Runway Key 未配置'); }
     }
@@ -598,6 +598,7 @@ export class AIServiceUtil {
     options: VideoGenerationOptions,
     textPrompt?: string,
     downgradeDepth = 0,
+    onProgress?: (progress: number) => void,
   ): Promise<string> {
     const prompt = textPrompt || options.prompt || 'cinematic video';
     this.logger.log(`通义万相 video prompt: ${prompt.slice(0, 120)}...`);
@@ -867,6 +868,7 @@ export class AIServiceUtil {
         // 动态轮询间隔：前15次(30秒)用2秒，之后用5秒
         const interval = i < 15 ? 2000 : 5000;
         await this.delay(interval);
+        onProgress?.(30 + Math.min(55, i * 2));
         const pollRes = await axios.get(
           `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`,
           {
@@ -943,6 +945,7 @@ export class AIServiceUtil {
           { ...options, media: [options.media[0]] },
           textPrompt,
           downgradeDepth + 1,
+          onProgress,
         );
       } catch (err: any) {
         this.logger.warn(`I2V 降级也失败: ${err.message}`);
@@ -958,6 +961,7 @@ export class AIServiceUtil {
           { ...options, media: undefined },
           textPrompt,
           downgradeDepth + 1,
+          onProgress,
         );
       } catch (err: any) {
         this.logger.warn(`T2V 降级也失败: ${err.message}`);
@@ -1089,6 +1093,7 @@ export class AIServiceUtil {
     apiKey: string,
     options: VideoGenerationOptions,
     textPrompt?: string,
+    onProgress?: (progress: number) => void,
   ): Promise<string> {
     // Build the content array (text prompt + optional reference image)
     const contentItems: any[] = [];
@@ -1196,7 +1201,7 @@ export class AIServiceUtil {
         this.logger.log(`Seedance task submitted: ${taskId} (model: ${model})`);
 
         // Poll for result
-        const videoUrl = await this.pollSeedanceTask(apiKey, taskId, model);
+        const videoUrl = await this.pollSeedanceTask(apiKey, taskId, model, onProgress);
         if (videoUrl) {
           this.logger.log(`Seedance video ready: ${videoUrl.slice(0, 100)}...`);
           return videoUrl;
@@ -1233,6 +1238,7 @@ export class AIServiceUtil {
     apiKey: string,
     taskId: string,
     model: string,
+    onProgress?: (progress: number) => void,
   ): Promise<string | null> {
     const pollUrl = `${this.CONTENT_TASKS_URL}/${taskId}`;
     let attempts = 0;
@@ -1243,6 +1249,7 @@ export class AIServiceUtil {
       const interval = attempts < 15 ? 2000 : 5000;
       await this.delay(interval);
       attempts++;
+      onProgress?.(30 + Math.min(55, attempts * 2));
 
       try {
         const pollRes = await axios.get(pollUrl, {
@@ -1287,6 +1294,7 @@ export class AIServiceUtil {
     apiKey: string,
     options: VideoGenerationOptions,
     textPrompt?: string,
+    onProgress?: (progress: number) => void,
   ): Promise<string> {
     const prompt = textPrompt || options.prompt || '';
     try {
@@ -1334,6 +1342,7 @@ export class AIServiceUtil {
       for (let i = 0; i < 60; i++) {
         const interval = i < 10 ? 2000 : 5000;
         await this.delay(interval);
+        onProgress?.(30 + Math.min(55, i * 2));
         const pollRes = await axios.get(
           `https://api.z.ai/api/paas/v4/async-result/${taskId}`,
           {
@@ -1360,6 +1369,7 @@ export class AIServiceUtil {
   private async generateVideoWithRunway(
     apiKey: string,
     options: VideoGenerationOptions,
+    onProgress?: (progress: number) => void,
   ): Promise<string> {
     try {
       // Convert localhost/static URLs to data URI (cloud can't reach localhost)
@@ -1424,6 +1434,7 @@ export class AIServiceUtil {
         const interval = attempts < 10 ? 2000 : 5000;
         await this.delay(interval);
         attempts++;
+        onProgress?.(30 + Math.min(55, attempts * 2));
       }
       throw new Error('Runway task timed out');
     } catch (err: any) {
