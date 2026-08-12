@@ -178,6 +178,9 @@ export class DramaService {
       // 兜底：片段引用了但 assets 未定义的资产 → 自动补入（供前端展示/编辑）
       this.mergeUnknownAssetRefs(structure);
 
+      // 兜底：prompt 应为纯英文（模板约束失效时防止中文残留进 AI 视频生成提示词）
+      this.sanitizePrompts(structure);
+
       this.validateAnalysis(structure);
 
       outline.structured_result = JSON.stringify(structure);
@@ -1461,6 +1464,27 @@ export class DramaService {
           }
         }
       }
+    }
+  }
+
+  /** 兜底：剥离 prompt 中的中文字符（模板约束失效时防止中文残留进 AI 视频生成提示词）；剥离后为空则回退 prompt_cn */
+  private sanitizePrompts(data: any) {
+    const clean = (s: string) => (s || '')
+      .replace(/[\u4e00-\u9fff，。、；：！？（）「」《》【】“”‘’·…—、]/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    const sanitize = (o: any) => {
+      if (typeof o?.prompt === 'string' && o.prompt.trim()) {
+        const cleaned = clean(o.prompt);
+        if (cleaned) o.prompt = cleaned;
+        else if (typeof o.prompt_cn === 'string' && o.prompt_cn.trim()) o.prompt = o.prompt_cn.trim();
+      }
+    };
+    for (const ep of data.episodes || []) {
+      for (const seg of ep.segments || []) sanitize(seg);
+    }
+    for (const list of ['characters', 'props', 'scenes']) {
+      for (const a of data.assets?.[list] || []) sanitize(a);
     }
   }
 
