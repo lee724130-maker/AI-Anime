@@ -40,6 +40,11 @@ export class DramaController {
     return this.dramaService.confirmAnalysis(req.user.id, id);
   }
 
+  @Post(':id/regenerate-segment')
+  regenerateSegment(@Req() req, @Param('id') id: number, @Body() body: { episodeNo: number; segmentNo?: number }) {
+    return this.dramaService.regenerateSegment(req.user.id, id, body);
+  }
+
   @Get(':id/episodes')
   getEpisodes(@Req() req, @Param('id') id: number) {
     return this.dramaService.getEpisodes(req.user.id, id);

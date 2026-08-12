@@ -4,7 +4,7 @@ import {
   Typography, Button, Card, Tag, Space, Spin, Input, InputNumber,
   Divider, message, Tabs,
 } from 'antd';
-import { ArrowLeftOutlined, SaveOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, SaveOutlined, CheckCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { Title, Text } = Typography;
@@ -16,6 +16,7 @@ export default function EditAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [regenerating, setRegenerating] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
 
   useEffect(() => {
@@ -58,6 +59,38 @@ export default function EditAnalysisPage() {
     const r = { ...result };
     r.episodes[epIndex].segments = r.episodes[epIndex].segments.filter((_: any, i: number) => i !== segIndex);
     setResult(r);
+  };
+
+  const regenerateSegment = async (epIndex: number, segIndex: number) => {
+    if (!id) return;
+    const ep = result.episodes[epIndex];
+    const seg = ep.segments[segIndex];
+    const key = `${epIndex}-${segIndex}`;
+    setRegenerating(key);
+    try {
+      const { data } = await api.post(`/api/drama/${id}/regenerate-segment`, {
+        episodeNo: ep.episodeNo, segmentNo: seg.segmentNo,
+      });
+      const r = { ...result };
+      r.episodes = [...r.episodes];
+      r.episodes[epIndex] = { ...ep, segments: [...ep.segments] };
+      r.episodes[epIndex].segments[segIndex] = { ...data.segment };
+      if (data.newAssets && Object.keys(data.newAssets).length > 0) {
+        r.assets = {
+          characters: [...(r.assets?.characters || [])],
+          props: [...(r.assets?.props || [])],
+          scenes: [...(r.assets?.scenes || [])],
+        };
+        for (const type of ['characters', 'props', 'scenes']) {
+          for (const a of data.newAssets[type] || []) r.assets[type].push(a);
+        }
+      }
+      setResult(r);
+      message.success(`片段 ${seg.segmentNo} 已重新生成`);
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '重新生成失败');
+    }
+    setRegenerating(null);
   };
 
   const addAsset = (type: string) => {
@@ -153,8 +186,13 @@ export default function EditAnalysisPage() {
                   {(ep.segments || []).map((seg: any, segIndex: number) => (
                     <Card key={segIndex} type="inner" size="small" style={{ marginBottom: 8 }}
                       extra={
-                        <Button type="link" danger size="small"
-                          onClick={() => removeSegment(epIndex, segIndex)}>删除</Button>
+                        <Space size={4}>
+                          <Button type="link" size="small" icon={<ReloadOutlined />}
+                            loading={regenerating === `${epIndex}-${segIndex}`}
+                            onClick={() => regenerateSegment(epIndex, segIndex)}>重新生成</Button>
+                          <Button type="link" danger size="small"
+                            onClick={() => removeSegment(epIndex, segIndex)}>删除</Button>
+                        </Space>
                       }>
                       <Space orientation="vertical" style={{ width: '100%' }}>
                         <Space size={8}>

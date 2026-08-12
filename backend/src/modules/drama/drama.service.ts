@@ -306,6 +306,75 @@ export class DramaService {
     return { status: 'analysis_done', episodeCount: savedEpisodes.length };
   }
 
+  /** 重新生成指定片段（编辑分析结果用）：复用分段扩展模板，喂入当前集信息保持剧情连贯，不写库由前端保存 */
+  async regenerateSegment(userId: number, projectId: number, dto: { episodeNo: number; segmentNo?: number }) {
+    const project = await this.getById(userId, projectId);
+    const outline = await this.outlineRepo.findOne({ where: { project_id: projectId } });
+    if (!outline?.structured_result) throw new BadRequestException('尚未进行分析，请先点击 AI 分析');
+
+    const result = JSON.parse(outline.structured_result);
+    const ep = (result.episodes || []).find((e: any) => String(e.episodeNo) === String(dto.episodeNo));
+    if (!ep) throw new BadRequestException('分集不存在');
+
+    const templates = await this.templateService.find(undefined, undefined);
+    const expandTemplate = templates.find((t: any) => t.name === '剧本分段扩展模板');
+    if (!expandTemplate) throw new BadRequestException('系统未配置剧本分段扩展模板');
+
+    const globalAssets = JSON.stringify({
+      characters: (result.assets?.characters || []).map((c: any) => ({ name: c.name, description: c.description })),
+      props: (result.assets?.props || []).map((p: any) => ({ name: p.name, description: p.description })),
+      scenes: (result.assets?.scenes || []).map((s: any) => ({ name: s.name, description: s.description })),
+    });
+
+    const current = (ep.segments || []).find((s: any) => String(s.segmentNo) === String(dto.segmentNo));
+    const episodeInfo = {
+      episodeNo: ep.episodeNo,
+      title: ep.title,
+      summary: ep.summary,
+      duration: ep.duration,
+      currentSegments: ep.segments || [],
+      regenerate: current
+        ? `用户对第 ${dto.segmentNo} 个片段不满意，请重新创作该片段：必须与同一集中其他片段的剧情连贯衔接，输出 1 个全新的片段（原片段剧情：${current.summary}）`
+        : '本集尚未有片段，请按正常流程拆分 1-2 个片段',
+    };
+
+    const prompt = expandTemplate.template
+      .replace('{{episodeInfo}}', JSON.stringify(episodeInfo))
+      .replace('{{globalAssets}}', globalAssets);
+
+    const raw = await this.aiService.chatCompletion(
+      [{ role: 'user', content: prompt }],
+      { temperature: 0.7, maxTokens: 4096 },
+    );
+    if (!raw || raw.trim() === '') throw new BadRequestException('AI 返回了空结果，请重试');
+
+    const parsed = this.parseStructured(raw);
+    const newSeg = parsed.segments?.[0];
+    if (!newSeg) throw new BadRequestException('AI 未返回有效的片段，请重试');
+
+    newSeg.segmentNo = Number(dto.segmentNo) || current?.segmentNo || 1;
+    if (!newSeg.duration) newSeg.duration = current?.duration || 5;
+
+    // 语言/资产兜底（与 analyze 一致）
+    const merged: any = { episodes: [{ segments: [newSeg] }], assets: result.assets || {} };
+    this.sanitizePrompts(merged);
+    this.mergeUnknownAssetRefs(merged);
+
+    const newAssets: any = {};
+    for (const list of ['characters', 'props', 'scenes']) {
+      const added = (merged.assets[list] || []).filter((a: any) =>
+        !(result.assets?.[list] || []).some((x: any) => x.name === a.name));
+      if (added.length) newAssets[list] = added;
+    }
+    if (!result.assets) result.assets = {};
+    for (const list of ['characters', 'props', 'scenes']) {
+      if (!result.assets[list]) result.assets[list] = [];
+      result.assets[list] = merged.assets[list] || result.assets[list];
+    }
+
+    return { segment: newSeg, newAssets };
+  }
+
   async getEpisodes(userId: number, projectId: number) {
     await this.getById(userId, projectId);
     return this.episodeRepo.find({

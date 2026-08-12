@@ -12,6 +12,7 @@
 - **④ 前端**：Create.tsx 集数默认 1 → **12**，上限 24（此前用户不填集数会产出 1 集剧本）。
 - **验证**：截断单测 **9/9**（完整 JSON/数组中间截断/字符串中间截断报错/多集截断保留前面/代码块包裹/字符串内大括号/嵌套片段级/垃圾输入/完整数组元素）；真实 LLM 端到端 **8 集 10/10**（64s）+ **12 集 10/10**（50-69s：1 次结构 + 4 批×3 并行；集数/每集片段/资产引用/prompt 双语/confirm 入库全对）；前端 tsc 全绿；测试用户已清。
 - **⑤ 输出语言修复（用户反馈：分析结果全英文）**：模板只约束了 prompt=英文、prompt_cn=中文，title/summary/description 等元数据无语言约束 → LLM 默认输出英文。修复（双保险）：模板 1/7 加语言规则「除 prompt 外所有文本字段一律中文，与大纲语言一致」（description 的「中英混合」改「中文」）；后端新增 `sanitizePrompts` 兜底——剥离 prompt 中的中文字符（实测 LLM 会把中文资产描述抄进英文 prompt，如「墨绿帆布包 slipping off shoulder」），剥离后为空回退 prompt_cn。语言验证 e2e **10/10**（title/genre/targetAudience/每集 title+summary/角色/道具/场景 name+description 全中文，prompt 纯英文无 CJK）。
+- **⑥ 片段重新生成（用户需求：对剧情不满意时重生成）**：编辑分析结果页每个片段卡片新增「重新生成」按钮 → 后端 `POST /api/drama/:id/regenerate-segment`（body `{episodeNo, segmentNo}`）——复用模板 7，喂入该集信息 + currentSegments + 全局 assets，temperature 0.7 提升多样性，输出 1 个新片段替换（保持 segmentNo/时长兜底）；语言/资产兜底与 analyze 一致（sanitizePrompts + mergeUnknownAssetRefs，新引用资产自动补入 assets 并随 `newAssets` 返回给前端）；**不写库**（编辑页整体保存草稿时入库）。验证 e2e **11/11**（新片段 5.6s/剧情连贯但内容不同/语言正确/保存草稿正常）。
 - ⚠️ 已知边界：阶段 1 结构被截断时集数会少于目标（parseStructured 保留前面完整集，日志 warn，前端可编辑）；24 集 = 1 + 8 批 ≈ 9 次 LLM 调用（约 90-120s）；模板 1/7 均在 `backend/seed-prompt-templates.sql`，admin 提示词模板管理页可改。
 - ⚠️ 血泪（重复教训）：PowerShell `Get-Content`/`Set-Content` 会把 UTF-8 中文转码损坏（**复制/修改含中文的 JS 脚本必须用 node 读写 utf8**）；内联 `node -e` 中文/引号必挂 → 一律写脚本文件；重跑 12 集测试时先检查脚本断言里写死的数字。
 
