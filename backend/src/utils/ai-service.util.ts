@@ -97,6 +97,11 @@ export class AIServiceUtil {
     return this.adminService.getConfigValue(key);
   }
 
+  /** Public config getter for consumers outside this util (e.g. video.processor) */
+  async getConfig(key: string): Promise<string | null> {
+    return this.getConfigValue(key);
+  }
+
   private isProviderOnCooldown(provider: string): boolean {
     const until = this.providerCooldowns.get(provider);
     return !!until && Date.now() < until;
@@ -1445,6 +1450,17 @@ export class AIServiceUtil {
 
   /** Generate TTS audio */
   async generateTTS(options: TTSOptions): Promise<ArrayBuffer> {
+    // 1. 阿里云百炼 CosyVoice（主链，2026-08-12 接入，额度 10,000 次/模型）
+    const tongyiKey = await this.getApiKey('tongyi_api_key');
+    if (tongyiKey) {
+      try {
+        return await this.generateTTSWithCosyVoice(tongyiKey, options);
+      } catch (err: any) {
+        this.logger.warn(`CosyVoice TTS failed, trying fallback: ${err.message}`);
+      }
+    }
+
+    // 2. OpenAI TTS（备选，openai_api_key / tts_api_key）
     const openaiKey = await this.getApiKey('openai_api_key');
     const ttsKey = await this.getApiKey('tts_api_key');
 
@@ -1455,6 +1471,79 @@ export class AIServiceUtil {
 
     this.logger.warn('No TTS API key configured. Returning empty audio.');
     return new ArrayBuffer(0);
+  }
+
+  /** CosyVoice 模型降级链（额度确认见 模型与额度统计.md / 三个短板改造方案.md）
+   *  注：cosyvoice-v1 不支持 HTTP 调用（仅 WebSocket），cosyvoice-v3.5-* 无系统音色（仅复刻/设计），均不列入 */
+  private readonly cosyvoiceModels: Array<{ model: string; voices: Record<string, string> }> = [
+    { model: 'cosyvoice-v2', voices: { male: 'longcheng_v2', female: 'longxiaochun_v2' } },
+    { model: 'cosyvoice-v3-flash', voices: { male: 'longcheng_v3', female: 'longxiaochun_v3' } },
+    { model: 'cosyvoice-v3-plus', voices: { male: 'longanyang', female: 'longanhuan' } },
+  ];
+
+  /** OpenAI 音色名 → CosyVoice 音色映射（历史调用传 alloy/nova 等） */
+  private mapCosyVoiceVoice(voice: string | undefined, modelVoices: Record<string, string>): string {
+    if (!voice) return modelVoices.male;
+    const lower = voice.toLowerCase();
+    // nova 是 OpenAI 女声，映射到温柔女声；其余（alloy/onyx/echo 等）用沉稳男声
+    if (lower === 'nova' || lower === 'shimmer' || lower === 'fable') {
+      return modelVoices.female;
+    }
+    return modelVoices.male;
+  }
+
+  /** Generate TTS using Alibaba Cloud Bailian CosyVoice (synchronous SpeechSynthesizer API) */
+  private async generateTTSWithCosyVoice(
+    apiKey: string,
+    options: TTSOptions,
+  ): Promise<ArrayBuffer> {
+    let lastError: Error | null = null;
+    for (const { model, voices } of this.cosyvoiceModels) {
+      try {
+        const voice = this.mapCosyVoiceVoice(options.voice, voices);
+        this.logger.log(`CosyVoice TTS: model=${model} voice=${voice} text=${(options.text || '').slice(0, 50)}...`);
+
+        const res = await axios.post(
+          'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer',
+          {
+            model,
+            input: {
+              text: (options.text || '').slice(0, 2000),
+              voice,
+              format: 'mp3',
+              sample_rate: 48000,
+              rate: options.speed || 1.0,
+            },
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 120000,
+          },
+        );
+
+        const audioUrl = res.data.output?.audio?.url;
+        if (!audioUrl) {
+          this.logger.error(`CosyVoice response: ${JSON.stringify(res.data).slice(0, 300)}`);
+          throw new Error('No audio URL returned from CosyVoice');
+        }
+
+        const audioRes = await axios.get(audioUrl, {
+          responseType: 'arraybuffer',
+          timeout: 60000,
+        });
+        const buf = audioRes.data as ArrayBuffer;
+        this.logger.log(`CosyVoice TTS ready (${model}): ${buf.byteLength} bytes`);
+        return buf;
+      } catch (err: any) {
+        lastError = err;
+        const body = err.response?.data?.error?.message || err.response?.data?.message || err.message || '';
+        this.logger.warn(`CosyVoice model ${model} failed: [${err.response?.status}] ${body}`);
+      }
+    }
+    throw lastError || new Error('CosyVoice TTS all models failed');
   }
 
   /** Generate TTS using OpenAI TTS */
@@ -1814,6 +1903,63 @@ export class AIServiceUtil {
     }
 
     throw new Error('所有多模态模型均不可用');
+  }
+
+  /**
+   * 视觉质检：检查生成视频的画面质量（手部变形/糊脸/闪帧等）与角色一致性。
+   * 复用 analyzeFrames 多模态链路（qwen3-vl-flash 优先）。
+   * @param frames 抽帧图片（本地 output 路径或公网 URL）
+   * @param options.referenceImage 角色参考图（可选，做一致性比对）
+   * @returns pass: 'pass' | 'flag' | 'unknown'（unknown=质检模型不可用，不阻断生成）
+   */
+  async visualCheck(
+    frames: string[],
+    options?: {
+      referenceImage?: string;
+      strictness?: 'strict' | 'normal' | 'loose';
+      subjectName?: string;
+    },
+  ): Promise<{ pass: 'pass' | 'flag' | 'unknown'; issues: string[]; consistency?: string; raw: string }> {
+    const unknown = { pass: 'unknown' as const, issues: [], raw: '' };
+    if (!frames || frames.length === 0) return unknown;
+
+    const strictness = options?.strictness || 'normal';
+    const strictRules: Record<string, string> = {
+      strict: '凡是存在任何肢体/面部/几何变形、任何画面瑕疵、任何与参考图不一致，一律判定 flag',
+      normal: '轻微的构图/光线瑕疵不算问题；明显的肢体变形、面部崩坏、手指异常、文字错乱必须 flag',
+      loose: '只对严重崩坏（人脸无法辨认、肢体严重扭曲、画面花屏）判定 flag，轻微瑕疵放行',
+    };
+
+    const systemPrompt = `你是一名专业的视频质量检测员。你的任务是对 AI 生成的视频抽帧画面做质检，判断画面是否存在明显缺陷。
+缺陷类型包括：手部或肢体变形（多指/断指/关节扭曲）、面部崩坏（五官错位/糊脸/表情怪异）、几何变形（铠甲/建筑/道具花纹扭曲）、画面异常（花屏/黑屏/闪帧/重影）、文字错乱（字幕乱码/贴图破损）。
+${options?.referenceImage ? `另外需要将画面主体与参考图进行一致性比对：主体是否为同一角色/同一款装甲/同一个人物设定。` : ''}
+${strictRules[strictness]}
+请严格只输出如下 JSON（不要输出任何其他内容）：
+{
+  "pass": "pass" 或 "flag",
+  "issues": ["缺陷描述1", "缺陷描述2"],
+  ${options?.referenceImage ? `"consistency": "一致" 或 "不一致（原因简述）"` : '"consistency": ""'}
+}`;
+
+    const userPrompt = `请对以下 ${frames.length} 张视频抽帧画面进行质检。${
+      options?.referenceImage ? `第 ${frames.length + 1} 张是角色参考图（用于一致性比对）。` : ''
+    }`;
+
+    const imageUrls = [...frames];
+    if (options?.referenceImage) imageUrls.push(options.referenceImage);
+
+    try {
+      const raw = await this.analyzeFrames(systemPrompt, userPrompt, imageUrls);
+      const cleaned = (raw || '').replace(/```(?:json)?\s*/gi, '').trim();
+      const parsed = JSON.parse(cleaned);
+      const pass = parsed.pass === 'flag' ? 'flag' : parsed.pass === 'pass' ? 'pass' : 'unknown';
+      const issues: string[] = Array.isArray(parsed.issues) ? parsed.issues.map(String).slice(0, 5) : [];
+      this.logger.log(`[质检] 结果 pass=${pass} issues=${JSON.stringify(issues)} consistency=${parsed.consistency || ''}`);
+      return { pass, issues, consistency: parsed.consistency || undefined, raw };
+    } catch (err: any) {
+      this.logger.warn(`[质检] 视觉模型调用失败（视为 unknown，不阻断生成）: ${err.message}`);
+      return unknown;
+    }
   }
 
   private async generateDescriptionFromText(imageUrls: string[]): Promise<string> {

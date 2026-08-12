@@ -11,11 +11,11 @@ export class DramaSegmentProcessor {
   constructor(private readonly dramaService: DramaService) {}
 
   @Process('generate')
-  async handleGenerate(job: Job<{ userId: number; segmentId: number }>) {
-    const { userId, segmentId } = job.data;
-    this.logger.log(`Processing segment generation job #${job.id} — segmentId=${segmentId}`);
+  async handleGenerate(job: Job<{ userId: number; segmentId: number; candidateCount?: number }>) {
+    const { userId, segmentId, candidateCount } = job.data;
+    this.logger.log(`Processing segment generation job #${job.id} — segmentId=${segmentId} candidateCount=${candidateCount || 1}`);
     try {
-      const result = await this.dramaService.executeSegmentGeneration(userId, segmentId);
+      const result = await this.dramaService.executeSegmentGeneration(userId, segmentId, candidateCount || 1);
       this.logger.log(`Segment ${segmentId} generated successfully: ${result.video_url}`);
       return result;
     } catch (err: any) {

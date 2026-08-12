@@ -318,6 +318,111 @@ export class FFmpegUtil {
   }
 
   /**
+   * Composite a video with narration + background music (three-track mixing).
+   * BGM rules: longer than video → trimmed + fade out; shorter → looped + fade out.
+   * Volume balance: narration 1.0 / BGM 0.15~0.25.
+   */
+  async compositeWithMusic(
+    videoPath: string,
+    narrationPath: string,
+    musicPath: string,
+    options?: {
+      musicVolume?: number;
+      narrationVolume?: number;
+      fadeOutSeconds?: number;
+      duration?: number;
+      outputPath?: string;
+      subtitlePath?: string;
+    },
+  ): Promise<string> {
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      throw new Error('视频合成失败: 视频文件不存在');
+    }
+    const hasNarration = narrationPath && fs.existsSync(narrationPath);
+    const hasMusic = musicPath && fs.existsSync(musicPath);
+    if (!hasMusic) {
+      this.logger.warn('No music file, falling back to narration-only merge');
+      return this.compositeVideoWithAudio(videoPath, narrationPath, options?.duration, options?.outputPath, options?.subtitlePath);
+    }
+    if (!hasNarration) {
+      this.logger.warn('No narration file, falling back to video+music merge');
+      return this.compositeVideoWithAudio(videoPath, musicPath, options?.duration, options?.outputPath, options?.subtitlePath);
+    }
+    if (!(await this.hasAudioTrack(musicPath))) {
+      this.logger.warn(`Music file has no audio track (${musicPath}), falling back to narration-only merge`);
+      return this.compositeVideoWithAudio(videoPath, narrationPath, options?.duration, options?.outputPath, options?.subtitlePath);
+    }
+
+    const outPath = options?.outputPath || path.join(
+      this.outputDir,
+      `composite_music_${Date.now()}.mp4`,
+    );
+
+    try {
+      let duration = options?.duration;
+      if (!duration) {
+        const info = await this.getVideoInfo(videoPath);
+        duration = info.duration || 5;
+      }
+
+      const musicVol = options?.musicVolume ?? 0.2;
+      const narrationVol = options?.narrationVolume ?? 1.0;
+      const fadeOut = Math.max(0, Math.min(options?.fadeOutSeconds ?? 2, duration - 0.5));
+      const hasFade = fadeOut > 0.1 && duration > 1;
+      const fadeStart = Math.max(0, duration - fadeOut);
+
+      const filterParts: string[] = [];
+      filterParts.push(`[1:a]volume=${narrationVol}[nar]`);
+      // BGM: 音量 → 循环（短于视频时）→ 裁剪到视频时长 → 末尾淡出
+      const fadePart = hasFade ? `,afade=t=out:st=${fadeStart}:d=${fadeOut}` : '';
+      filterParts.push(
+        `[2:a]volume=${musicVol},aloop=loop=-1:size=2000000000,atrim=0:${duration}${fadePart}[mus]`,
+      );
+      filterParts.push(
+        `[nar][mus]amix=inputs=2:duration=longest:dropout_transition=0,alimiter=limit=0.95[aout]`,
+      );
+      const filterGraph = filterParts.join(';');
+
+      const args: string[] = [
+        '-y',
+        '-i', videoPath,
+        '-i', narrationPath,
+        '-i', musicPath,
+        '-t', String(duration),
+        '-filter_complex', filterGraph,
+        '-map', '0:v',
+        '-map', '[aout]',
+      ];
+
+      const hasSubtitles = options?.subtitlePath && fs.existsSync(options.subtitlePath!);
+      if (hasSubtitles) {
+        const subForward = options!.subtitlePath!.replace(/\\/g, '/');
+        const subEscaped = subForward.replace(/:/g, '\\:');
+        args.push('-vf', `subtitles=${subEscaped}`);
+        args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
+      } else {
+        args.push('-c:v', 'copy');
+      }
+
+      args.push('-c:a', 'aac', '-b:a', '128k', outPath);
+
+      const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
+      this.logger.log(`FFmpeg music-merge command: ffmpeg ${displayCmd}`);
+
+      const { stderr } = await this.ff(`${displayCmd}`, { timeout: 120000 });
+      if (stderr) {
+        this.logger.debug(`FFmpeg stderr: ${stderr.slice(0, 200)}`);
+      }
+
+      this.logger.log(`Video+music composite complete: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`Video+music composite failed: ${err.message}`);
+      throw new Error(`视频+BGM合成失败: ${err.message}`);
+    }
+  }
+
+  /**
    * Create a subtitle file (SRT format) from text and timestamps
    */
   createSubtitleFile(
@@ -440,6 +545,26 @@ export class FFmpegUtil {
     const outPath = path.join(this.outputDir, `frame_${Date.now()}.jpg`);
     await this.ff(`-y -i "${videoPath}" -ss ${atSeconds} -vframes 1 "${outPath}"`);
     return outPath;
+  }
+
+  /**
+   * Extract multiple frames at given timestamps (returns image path array).
+   * Used for quality checking — 3~5 frames per video.
+   */
+  async extractFramesAt(videoPath: string, times: number[]): Promise<string[]> {
+    const outPaths: string[] = [];
+    for (const t of times) {
+      const safeT = Math.max(0, Number(t) || 0);
+      // 随机后缀防同毫秒多候选/多片段抽帧文件名碰撞互相覆盖
+      const outPath = path.join(this.outputDir, `frame_${Date.now()}_${Math.round(safeT * 10)}_${Math.floor(Math.random() * 10000)}.jpg`);
+      try {
+        await this.ff(`-y -i "${videoPath}" -ss ${safeT} -vframes 1 -q:v 3 "${outPath}"`, { timeout: 30000 });
+        if (fs.existsSync(outPath)) outPaths.push(outPath);
+      } catch (err: any) {
+        this.logger.warn(`extractFramesAt frame @${safeT}s failed: ${err.message}`);
+      }
+    }
+    return outPaths;
   }
 
   /**

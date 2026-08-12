@@ -20,6 +20,7 @@ import { DramaProject } from './modules/drama/drama-project.entity';
 import { DramaOutline } from './modules/drama/drama-outline.entity';
 import { DramaEpisode } from './modules/drama/drama-episode.entity';
 import { DramaSegment } from './modules/drama/drama-segment.entity';
+import { DramaSegmentCandidate } from './modules/drama/drama-segment-candidate.entity';
 import { DramaAsset } from './modules/drama/drama-asset.entity';
 import { GlobalAsset } from './modules/global-asset/global-asset.entity';
 import { ViralTemplate } from './modules/viral/viral-template.entity';
@@ -90,14 +91,14 @@ const logDir = path.resolve(process.cwd(), 'logs');
             extra: {
               charset: 'utf8mb4',
             },
-entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, MediaFile, GenerationTask, TaskEvent],
+entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaSegmentCandidate, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, MediaFile, GenerationTask, TaskEvent],
             synchronize: true,
           };
         }
         return {
           type: 'better-sqlite3',
           database: config.get('DB_PATH', './data/dev.db'),
-          entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, MediaFile, GenerationTask, TaskEvent],
+          entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaSegmentCandidate, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, MediaFile, GenerationTask, TaskEvent],
           synchronize: true,
         };
       },

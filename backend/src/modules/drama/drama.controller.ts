@@ -119,8 +119,23 @@ export class DramaController {
   }
 
   @Post('episodes/:episodeId/segments/:segmentId/generate')
-  generateSegment(@Req() req, @Param('segmentId') segmentId: number) {
-    return this.dramaService.generateSegment(req.user.id, segmentId);
+  generateSegment(@Req() req, @Param('segmentId') segmentId: number, @Body() body: { candidate_count?: number }) {
+    return this.dramaService.generateSegment(req.user.id, segmentId, body?.candidate_count || 1);
+  }
+
+  @Get('segments/:segmentId/candidates')
+  listSegmentCandidates(@Req() req, @Param('segmentId') segmentId: number) {
+    return this.dramaService.listSegmentCandidates(req.user.id, segmentId);
+  }
+
+  @Post('candidates/:candidateId/accept')
+  acceptSegmentCandidate(@Req() req, @Param('candidateId') candidateId: number) {
+    return this.dramaService.acceptSegmentCandidate(req.user.id, candidateId);
+  }
+
+  @Delete('candidates/:candidateId')
+  deleteSegmentCandidate(@Req() req, @Param('candidateId') candidateId: number) {
+    return this.dramaService.deleteSegmentCandidate(req.user.id, candidateId);
   }
 
   @Get('episodes/:episodeId/segments/:segmentId/status')

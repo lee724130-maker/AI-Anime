@@ -2,11 +2,11 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Typography, Button, Card, Tag, Space, Spin, message, Row, Col, Modal,
-  Alert, Input, Select, Progress,
+  Alert, Input, Select, Progress, Tooltip, Popconfirm,
 } from 'antd';
 import {
   ArrowLeftOutlined, ThunderboltOutlined, AimOutlined,
-  ScissorOutlined, CheckCircleOutlined, DownloadOutlined,
+  ScissorOutlined, CheckCircleOutlined, DownloadOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -21,6 +21,19 @@ interface Segment {
   character_refs: string | null; prop_refs: string | null; scene_refs: string | null;
   duration: number | null; status: string; video_url: string | null;
 }
+
+interface Candidate {
+  id: number; candidate_index: number; video_url: string | null;
+  status: string; quality: string | null;
+  quality_report: { issues?: string[]; consistency?: string } | null;
+  is_accepted: boolean; error_msg: string | null;
+}
+
+const QUALITY_BADGE: Record<string, { color: string; label: string }> = {
+  pass: { color: 'success', label: '✔ 合格' },
+  flag: { color: 'error', label: '✘ 变形' },
+  unknown: { color: 'default', label: '⚠ 未检' },
+};
 
 interface Episode {
   id: number; episode_no: number; title: string; summary: string | null;
@@ -44,6 +57,10 @@ export default function EpisodeDetailPage() {
   const [settingsModal, setSettingsModal] = useState<{ visible: boolean; style: string; ratio: string; resolution: string; audio_lang: string }>({ visible: false, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh' });
   const [segmentProgress, setSegmentProgress] = useState<Record<number, { message: string; percent: number }>>({});
   const [stitchProgress, setStitchProgress] = useState<{ message: string; percent: number } | null>(null);
+  const [candidates, setCandidates] = useState<Record<number, Candidate[]>>({});
+  const [candidateCounts, setCandidateCounts] = useState<Record<number, number>>({});
+  const [candLoading, setCandLoading] = useState<Set<number>>(new Set());
+  const [accepting, setAccepting] = useState<Set<number>>(new Set());
   const pollTimers = useRef<Map<number, any>>(new Map());
   const submittingRef = useRef<Set<number>>(new Set());
   const stitchPollTimer = useRef<any>(null);
@@ -54,6 +71,9 @@ export default function EpisodeDetailPage() {
       const { data } = await api.get(`/api/drama/episodes/${episodeId}`);
       setEpisode(data.episode);
       setSegments(data.segments || []);
+      (data.segments || []).forEach((s: any) => {
+        if (s.status === 'completed') loadCandidates(s.id);
+      });
     } catch { message.error('加载失败'); }
     setLoading(false);
   };
@@ -104,6 +124,7 @@ export default function EpisodeDetailPage() {
           setSegmentProgress(prev => ({ ...prev, [segId]: { message: '视频已生成', percent: 100 } }));
           setTimeout(() => finishPolling(segId), 1000);
           fetchData();
+          loadCandidates(segId);
         } else if (data.status === 'failed') {
           finishPolling(segId);
           message.error(`片段 #${segId} 生成失败`);
@@ -116,13 +137,54 @@ export default function EpisodeDetailPage() {
     pollTimers.current.set(segId, timer);
   };
 
+  const candLoadingRef = useRef<Set<number>>(new Set());
+
+  const loadCandidates = async (segId: number) => {
+    if (candLoadingRef.current.has(segId)) return;
+    candLoadingRef.current.add(segId);
+    setCandLoading(prev => new Set(prev).add(segId));
+    try {
+      const { data } = await api.get(`/api/drama/segments/${segId}/candidates`);
+      if (Array.isArray(data)) {
+        setCandidates(prev => ({ ...prev, [segId]: data }));
+      }
+    } catch { /* 候选加载失败不影响主流程 */ }
+    candLoadingRef.current.delete(segId);
+    setCandLoading(prev => { const s = new Set(prev); s.delete(segId); return s; });
+  };
+
+  const handleAcceptCandidate = async (candidateId: number, segId: number) => {
+    if (accepting.has(candidateId)) return;
+    setAccepting(prev => new Set(prev).add(candidateId));
+    try {
+      await api.post(`/api/drama/candidates/${candidateId}/accept`);
+      message.success('已采纳该候选');
+      await loadCandidates(segId);
+      fetchData();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '采纳失败');
+    }
+    setAccepting(prev => { const s = new Set(prev); s.delete(candidateId); return s; });
+  };
+
+  const handleDeleteCandidate = async (candidateId: number, segId: number) => {
+    try {
+      await api.delete(`/api/drama/candidates/${candidateId}`);
+      message.success('候选已移除');
+      await loadCandidates(segId);
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '删除失败');
+    }
+  };
+
   const handleGenerate = async (segId: number) => {
     if (submittingRef.current.has(segId)) return;
     submittingRef.current.add(segId);
     setSubmitting(prev => new Set(prev).add(segId));
     try {
-      await api.post(`/api/drama/episodes/${episodeId}/segments/${segId}/generate`);
-      message.info('已加入生成队列');
+      const count = candidateCounts[segId] || 1;
+      await api.post(`/api/drama/episodes/${episodeId}/segments/${segId}/generate`, { candidate_count: count });
+      message.info(`已加入生成队列（候选 ${count} 个）`);
       startPolling(segId);
     } catch (err: any) {
       message.error(err.response?.data?.message || '提交失败');
@@ -420,6 +482,27 @@ export default function EpisodeDetailPage() {
                   {scenes.map(s => <Tag key={s} color="green">{s}</Tag>)}
                 </Space>
 
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>候选数：</Text>
+                  <Select
+                    value={candidateCounts[seg.id] || 1}
+                    size="small" style={{ width: 64 }}
+                    disabled={isGenerating || submitting.has(seg.id) || seg.status === 'generating'}
+                    onChange={v => setCandidateCounts(prev => ({ ...prev, [seg.id]: v }))}
+                    options={[1, 2, 3].map(n => ({ label: `${n} 个`, value: n }))}
+                  />
+                  {seg.status === 'completed' && (
+                    <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
+                      loading={candLoading.has(seg.id)}
+                      onClick={() => {
+                        if (candidates[seg.id]) setCandidates(prev => ({ ...prev, [seg.id]: undefined as any }));
+                        loadCandidates(seg.id);
+                      }}>
+                      {(candidates[seg.id]?.length ?? 0) > 0 ? `候选 ${candidates[seg.id]!.length} 个 · 刷新` : '查看候选'}
+                    </Button>
+                  )}
+                </div>
+
                 {isGenerating && (
                   <div style={{ marginTop: 8 }}>
                     <Progress percent={prog?.percent ?? 0} size="small" style={{ marginBottom: 4 }} />
@@ -432,6 +515,64 @@ export default function EpisodeDetailPage() {
                     <video key={seg.video_url} src={getUrl(seg.video_url)} controls
                       style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
                       onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                  </div>
+                )}
+
+                {candidates[seg.id] && candidates[seg.id].length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>候选镜头（多候选择优）：</Text>
+                    <Row gutter={[6, 6]} style={{ marginTop: 6 }}>
+                      {candidates[seg.id].map(c => {
+                        const badge = QUALITY_BADGE[c.quality || ''] || QUALITY_BADGE.unknown;
+                        const report = c.quality_report;
+                        return (
+                          <Col key={c.id} xs={24}>
+                            <div style={{
+                              border: c.is_accepted ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
+                              borderRadius: 6, padding: 6, background: c.is_accepted ? '#f9f5ff' : '#fafafa',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                                <Tag color={c.is_accepted ? 'purple' : 'default'} style={{ marginRight: 0 }}>
+                                  #{c.candidate_index + 1}{c.is_accepted ? ' · 已采纳' : ''}
+                                </Tag>
+                                {c.status === 'failed' ? (
+                                  <Tag color="error" style={{ marginRight: 0 }}>✘ 生成失败</Tag>
+                                ) : (
+                                  <Tooltip title={
+                                    report && (report.issues?.length || report.consistency)
+                                      ? `质检报告：${[report.consistency, ...(report.issues || [])].filter(Boolean).join('；')}`
+                                      : '无质检详情'
+                                  }>
+                                    <Tag color={badge.color} style={{ marginRight: 0 }}>{badge.label}</Tag>
+                                  </Tooltip>
+                                )}
+                                <div style={{ flex: 1 }} />
+                                {c.status === 'completed' && !c.is_accepted && (
+                                  <Button type="primary" size="small" style={{ fontSize: 11, background: '#7c3aed', borderColor: '#7c3aed' }}
+                                    loading={accepting.has(c.id)}
+                                    onClick={() => handleAcceptCandidate(c.id, seg.id)}>
+                                    采纳
+                                  </Button>
+                                )}
+                                {!c.is_accepted && (
+                                  <Popconfirm title="移除该候选？" onConfirm={() => handleDeleteCandidate(c.id, seg.id)}
+                                    okText="移除" cancelText="取消">
+                                    <Button type="text" size="small" icon={<DeleteOutlined />} />
+                                  </Popconfirm>
+                                )}
+                              </div>
+                              {c.video_url ? (
+                                <video key={c.video_url} src={getUrl(c.video_url)} controls preload="metadata"
+                                  style={{ width: '100%', maxHeight: 180, borderRadius: 4, background: '#000' }}
+                                  onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                              ) : c.error_msg ? (
+                                <Text type="danger" style={{ fontSize: 11 }}>{c.error_msg}</Text>
+                              ) : null}
+                            </div>
+                          </Col>
+                        );
+                      })}
+                    </Row>
                   </div>
                 )}
               </Card>

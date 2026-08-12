@@ -30,6 +30,7 @@ data/
 *.mjs
 *.err
 seed-*.sql
+!backend/seed-prompt-templates.sql
 test-ffmpeg.js
 backend/api-test-results.md
 

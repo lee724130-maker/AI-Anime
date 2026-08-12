@@ -6,6 +6,7 @@ import { DramaProject } from './drama-project.entity';
 import { DramaOutline } from './drama-outline.entity';
 import { DramaEpisode } from './drama-episode.entity';
 import { DramaSegment } from './drama-segment.entity';
+import { DramaSegmentCandidate } from './drama-segment-candidate.entity';
 import { DramaAsset } from './drama-asset.entity';
 import { GlobalAsset } from '../global-asset/global-asset.entity';
 import { PromptTemplateService } from '../admin/prompt-template.service';
@@ -33,6 +34,8 @@ export class DramaService {
     private readonly segmentRepo: Repository<DramaSegment>,
     @InjectRepository(DramaAsset)
     private readonly assetRepo: Repository<DramaAsset>,
+    @InjectRepository(DramaSegmentCandidate)
+    private readonly candidateRepo: Repository<DramaSegmentCandidate>,
     @InjectRepository(GlobalAsset)
     private readonly globalAssetRepo: Repository<GlobalAsset>,
     private readonly aiService: AIServiceUtil,
@@ -95,12 +98,12 @@ export class DramaService {
     const templates = await this.templateService.find(undefined, undefined);
     const analyzeTemplate = templates.find((t: any) => t.name === '剧本分析模板');
     if (!analyzeTemplate) throw new BadRequestException('系统未配置剧本分析模板');
+    const expandTemplate = templates.find((t: any) => t.name === '剧本分段扩展模板');
+    if (!expandTemplate) throw new BadRequestException('系统未配置剧本分段扩展模板');
 
     // Credit charge: 剧情分析 5 分/次（预扣，失败退全款）
     const analyzeCost = await this.credits.dramaAnalyzeCost();
     await this.credits.assertEnough(userId, analyzeCost, '剧情分析');
-
-    const prompt = analyzeTemplate.template.replace('{{outline}}', project.outline);
 
     let outline = await this.outlineRepo.findOne({ where: { project_id: projectId } });
     if (!outline) {
@@ -112,28 +115,79 @@ export class DramaService {
     await this.outlineRepo.save(outline);
 
     try {
-      const rawResponse = await this.aiService.chatCompletion([
-        { role: 'user', content: prompt },
-      ], { temperature: 0.3, maxTokens: 8192 });
+      // ── 阶段 1：结构分析（标题/风格/每集概述/全局资产清单）──
+      const targetCount = Math.min(Math.max(project.episodes || 12, 1), 24);
+      const structurePrompt = analyzeTemplate.template
+        .replace('{{outline}}', project.outline)
+        .replace('{{episodeCount}}', String(targetCount));
 
-      if (!rawResponse || rawResponse.trim() === '') {
+      const rawStructure = await this.aiService.chatCompletion(
+        [{ role: 'user', content: structurePrompt }],
+        { temperature: 0.3, maxTokens: 8192 },
+      );
+      if (!rawStructure || rawStructure.trim() === '') {
         throw new Error('LLM 返回了空结果，请检查 API Key 是否已配置且可用');
       }
+      outline.raw_response = rawStructure;
 
-      outline.raw_response = rawResponse;
+      const structure = this.parseStructured(rawStructure);
+      this.validateAnalysis(structure);
+      const episodes = structure.episodes || [];
+      if (episodes.length > 0 && episodes.length !== (structure.episodeCount || 0)) {
+        structure.episodeCount = episodes.length;
+      }
+      if (episodes.length < targetCount) {
+        this.logger.warn(`剧本分析: 目标 ${targetCount} 集，LLM 实际输出 ${episodes.length} 集`);
+      }
 
-      const cleaned = this.cleanJson(rawResponse);
-      const parsed = JSON.parse(cleaned);
-      this.validateAnalysis(parsed);
+      // ── 阶段 2：逐批分段扩展（每批 3 集并行，避免单次输出超限）──
+      const globalAssets = JSON.stringify({
+        characters: (structure.assets?.characters || []).map((c: any) => ({ name: c.name, description: c.description })),
+        props: (structure.assets?.props || []).map((p: any) => ({ name: p.name, description: p.description })),
+        scenes: (structure.assets?.scenes || []).map((s: any) => ({ name: s.name, description: s.description })),
+      });
 
-      outline.structured_result = JSON.stringify(parsed);
+      const batchSize = 3;
+      for (let i = 0; i < episodes.length; i += batchSize) {
+        const batch = episodes.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (ep: any) => {
+            const expandPrompt = expandTemplate.template
+              .replace('{{episodeInfo}}', JSON.stringify({
+                episodeNo: ep.episodeNo, title: ep.title, summary: ep.summary, duration: ep.duration,
+              }))
+              .replace('{{globalAssets}}', globalAssets);
+            const raw = await this.aiService.chatCompletion(
+              [{ role: 'user', content: expandPrompt }],
+              { temperature: 0.3, maxTokens: 4096 },
+            );
+            if (!raw || raw.trim() === '') {
+              throw new Error('LLM 返回了空结果，请检查 API Key 是否已配置且可用');
+            }
+            const parsed = this.parseStructured(raw);
+            if (!parsed.episodeNo) parsed.episodeNo = ep.episodeNo;
+            return parsed;
+          }),
+        );
+        for (const r of batchResults) {
+          const ep = episodes.find((e: any) => String(e.episodeNo) === String(r.episodeNo));
+          if (ep) ep.segments = r.segments || [];
+        }
+      }
+
+      // 兜底：片段引用了但 assets 未定义的资产 → 自动补入（供前端展示/编辑）
+      this.mergeUnknownAssetRefs(structure);
+
+      this.validateAnalysis(structure);
+
+      outline.structured_result = JSON.stringify(structure);
       outline.status = 'completed';
       await this.outlineRepo.save(outline);
 
       project.status = 'analysis_done';
       await this.projectRepo.save(project);
 
-      return parsed;
+      return structure;
     } catch (err: any) {
       outline.status = 'failed';
       if (outline.raw_response) {
@@ -552,7 +606,64 @@ export class DramaService {
     return this.segmentRepo.find({ where: { episode_id: episodeId }, order: { segment_no: 'ASC' } });
   }
 
-  async generateSegment(userId: number, segmentId: number) {
+  /** 片段候选列表（含质检标记），候选 0 无记录时返回空数组 */
+  async listSegmentCandidates(userId: number, segmentId: number) {
+    const segment = await this.segmentRepo.findOne({ where: { id: segmentId } });
+    if (!segment) throw new NotFoundException('片段不存在');
+    const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
+    if (!episode) throw new NotFoundException('分集不存在');
+    await this.getById(userId, episode.project_id);
+    const rows = await this.candidateRepo.find({ where: { segment_id: segmentId }, order: { candidate_index: 'ASC' } });
+    return rows.map(r => ({
+      id: r.id,
+      candidate_index: r.candidate_index,
+      video_url: r.video_url,
+      status: r.status,
+      quality: r.quality,
+      quality_report: r.quality_report ? JSON.parse(r.quality_report) : null,
+      is_accepted: !!r.is_accepted,
+      error_msg: r.error_msg,
+    }));
+  }
+
+  /** 采纳候选：置 is_accepted=true（其余候选取消采纳），回写 segment.video_url */
+  async acceptSegmentCandidate(userId: number, candidateId: number) {
+    const cand = await this.candidateRepo.findOne({ where: { id: candidateId } });
+    if (!cand) throw new NotFoundException('候选不存在');
+    const segment = await this.segmentRepo.findOne({ where: { id: cand.segment_id } });
+    if (!segment) throw new NotFoundException('片段不存在');
+    const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
+    if (!episode) throw new NotFoundException('分集不存在');
+    await this.getById(userId, episode.project_id);
+    if (!cand.video_url) throw new BadRequestException('该候选没有视频文件');
+
+    await this.candidateRepo.update({ segment_id: cand.segment_id }, { is_accepted: false });
+    cand.is_accepted = true;
+    await this.candidateRepo.save(cand);
+
+    segment.video_url = cand.video_url;
+    await this.segmentRepo.save(segment);
+    this.logger.log(`片段 ${cand.segment_id} 采纳候选 ${cand.id}（idx=${cand.candidate_index}）→ ${cand.video_url}`);
+    return { accepted: true, video_url: cand.video_url };
+  }
+
+  /** 删除候选记录（文件保留，由 cleanup 兜底清理；已采纳候选禁止删除，防止主视频 404） */
+  async deleteSegmentCandidate(userId: number, candidateId: number) {
+    const cand = await this.candidateRepo.findOne({ where: { id: candidateId } });
+    if (!cand) throw new NotFoundException('候选不存在');
+    const segment = await this.segmentRepo.findOne({ where: { id: cand.segment_id } });
+    if (!segment) throw new NotFoundException('片段不存在');
+    const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
+    if (!episode) throw new NotFoundException('分集不存在');
+    await this.getById(userId, episode.project_id);
+    if (cand.is_accepted) throw new BadRequestException('已采纳的候选不能删除，请先采纳其他候选');
+    await this.candidateRepo.delete({ id: candidateId });
+    return { deleted: true };
+  }
+
+  /** 提交片段生成任务（candidateCount=候选数 1~3，默认 1） */
+  async generateSegment(userId: number, segmentId: number, candidateCount = 1) {
+    const count = Math.max(1, Math.min(3, Math.floor(candidateCount || 1)));
     const segment = await this.segmentRepo.findOne({ where: { id: segmentId } });
     if (!segment) throw new NotFoundException('片段不存在');
     const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
@@ -560,8 +671,8 @@ export class DramaService {
     await this.getById(userId, episode.project_id);
     if (!segment.prompt) throw new BadRequestException('片段没有提示词，请先编辑');
 
-    const job = await this.segmentQueue.add('generate', { userId, segmentId });
-    return { jobId: job.id, segmentId, status: 'queued' };
+    const job = await this.segmentQueue.add('generate', { userId, segmentId, candidateCount: count });
+    return { jobId: job.id, segmentId, status: 'queued', candidateCount: count };
   }
 
   async getSegmentStatus(userId: number, segmentId: number) {
@@ -583,7 +694,9 @@ export class DramaService {
     await this.segmentRepo.update(segmentId, { progress_message: message, progress_percent: percent });
   }
 
-  async executeSegmentGeneration(userId: number, segmentId: number) {
+  /** 片段生成执行（队列 worker 调用）：candidateCount 个候选，逐个容错，全部失败才退款 */
+  async executeSegmentGeneration(userId: number, segmentId: number, candidateCount = 1) {
+    const count = Math.max(1, Math.min(3, Math.floor(candidateCount || 1)));
     const segment = await this.segmentRepo.findOne({ where: { id: segmentId } });
     if (!segment) throw new NotFoundException('片段不存在');
     const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
@@ -591,20 +704,110 @@ export class DramaService {
     await this.getById(userId, episode.project_id);
     if (!segment.prompt) throw new BadRequestException('片段没有提示词，请先编辑');
 
-    // Credit charge: 片段生成固定价（480p=120/720p=240/1080p=360，按分集分辨率；预扣，失败退全款）
+    // Credit charge: 片段生成固定价（480p=120/720p=240/1080p=360）× 候选数（预扣，失败退全款）
     const segCost = await this.credits.dramaSegmentCost(episode.resolution);
-    await this.credits.assertEnough(userId, segCost, '片段生成');
-    this.logger.log(`[credits] 片段 ${segmentId} 预扣 ${segCost} 积分（分辨率 ${episode.resolution || '720p'}）`);
-
-    const epStyle = episode.style || 'anime';
-    const epRatio = episode.ratio || '9:16';
-    const epResolution = episode.resolution || '720p';
+    const totalCost = segCost * count;
+    await this.credits.assertEnough(userId, totalCost, '片段生成');
+    this.logger.log(`[credits] 片段 ${segmentId} 预扣 ${totalCost} 积分（候选数 ${count} × ${segCost}，分辨率 ${episode.resolution || '720p'}）`);
 
     segment.status = 'generating';
     await this.segmentRepo.save(segment);
 
+    // 重新生成 = 推倒重来：清空该片段的全部旧候选行（防 N 变小后旧候选残留混淆；
+    // 旧候选文件由 cleanup 引用保护+孤儿清理兜底）
+    const oldMainVideo = segment.video_url;
     try {
-      await this.updateSegmentProgress(segment.id, '正在解析资产引用...', 5);
+      const oldRows = await this.candidateRepo.find({ where: { segment_id: segmentId } });
+      if (oldRows.length > 0) {
+        await this.candidateRepo.delete({ segment_id: segmentId });
+        this.logger.log(`片段 ${segmentId} 清空 ${oldRows.length} 条旧候选记录，开始新一轮生成`);
+      }
+    } catch (cleanErr: any) {
+      this.logger.warn(`清空旧候选失败（继续生成）: ${cleanErr.message}`);
+    }
+
+    const candidates: any[] = [];
+    let sharedTts: { audioPath: string; ttsText: string } | null = null;
+    let mainVideoUrl = '';
+    let successCount = 0;
+
+    try {
+      for (let i = 0; i < count; i++) {
+        try {
+          const cand = await this.generateOneCandidate(segment, episode, i, count, sharedTts);
+          if (cand && cand.video_url) {
+            candidates.push({ candidate_index: i, video_url: cand.video_url, status: 'completed' });
+            if (!mainVideoUrl) mainVideoUrl = cand.video_url;
+            successCount++;
+          } else {
+            candidates.push({ candidate_index: i, status: 'failed' });
+          }
+          // 首个成功候选生成的 TTS 音频给后续候选复用（同文本同音色 → 音频相同）
+          if (cand?.audio_path && !sharedTts) {
+            sharedTts = { audioPath: cand.audio_path, ttsText: cand.tts_text || '' };
+          }
+        } catch (candErr: any) {
+          this.logger.warn(`[候选] 片段 ${segmentId} 候选 ${i + 1}/${count} 生成失败: ${candErr.message}`);
+          try {
+            // 失败候选也走 find-or-update（重新生成时不得产生重复行）
+            let row = await this.candidateRepo.findOne({ where: { segment_id: segmentId, candidate_index: i } });
+            if (!row) row = this.candidateRepo.create({ segment_id: segmentId, candidate_index: i });
+            row.status = 'failed';
+            row.error_msg = (candErr.message || '').slice(0, 1000);
+            await this.candidateRepo.save(row);
+          } catch { /* ignore */ }
+          candidates.push({ candidate_index: i, status: 'failed', error: candErr.message });
+        }
+      }
+
+      if (successCount === 0) throw new Error('所有候选均生成失败');
+
+      segment.video_url = mainVideoUrl;
+      segment.progress_message = '视频已生成';
+      segment.progress_percent = 100;
+      segment.status = 'completed';
+      await this.segmentRepo.save(segment);
+
+      // 清理旧的片段主视频（非任何候选文件）
+      if (oldMainVideo && oldMainVideo.startsWith('/static/')) {
+        const isCandidateFile = candidates.some(c => c.video_url === oldMainVideo);
+        if (!isCandidateFile) {
+          const oldPath = path.join(process.cwd(), 'output', path.basename(oldMainVideo));
+          try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch { /* ignore */ }
+        }
+      }
+
+      return { id: segment.id, video_url: mainVideoUrl, status: 'completed', candidates };
+    } catch (err: any) {
+      segment.status = 'failed';
+      await this.segmentRepo.save(segment);
+      // 片段生成失败 → 退全款（含候选数倍扣费）
+      await this.credits.refund(userId, totalCost).catch(() => undefined);
+      this.logger.log(`[credits] 片段 ${segmentId} 生成失败，已退还 ${totalCost} 积分`);
+      throw new BadRequestException(`片段生成失败: ${err.message}`);
+    }
+  }
+
+  /**
+   * 生成单个候选视频（含可选质检），结果写入 drama_segment_candidates 表。
+   * 多候选时 TTS 音频复用（sharedTts：首个候选生成后缓存，后续候选直接复用）。
+   */
+  private async generateOneCandidate(
+    segment: DramaSegment,
+    episode: DramaEpisode,
+    candidateIndex: number,
+    candidateCount: number,
+    sharedTts?: { audioPath: string; ttsText: string } | null,
+  ): Promise<{ candidate_index: number; video_url: string; status: string; audio_path?: string; tts_text?: string }> {
+    const label = `候选 ${candidateIndex + 1}/${candidateCount}`;
+    const progress = (msg: string, pct: number) => this.updateSegmentProgress(segment.id, `[${label}] ${msg}`, pct);
+    const epStyle = episode.style || 'anime';
+    const epRatio = episode.ratio || '9:16';
+    const epResolution = episode.resolution || '720p';
+    const qualityCheckEnabled = await this.isQualityCheckEnabled();
+
+    try {
+      await progress('正在解析资产引用...', 5);
 
       // Parse asset references
       let charNames: string[] = JSON.parse(segment.character_refs || '[]');
@@ -630,7 +833,7 @@ export class DramaService {
         ? await this.assetRepo.find({ where: { project_id: episode.project_id, name: In(allNames) } })
         : [];
 
-      await this.updateSegmentProgress(segment.id, '正在获取资产图片...', 15);
+      await progress('正在获取资产图片...', 15);
 
       // Auto-generate missing assets, collect media array
       const media: Array<{ type: string; url: string }> = [];
@@ -679,7 +882,7 @@ export class DramaService {
       }
       this.logger.log(`Media array ready: ${media.length} images from ${sceneNames.length + charNames.length + propNames.length} refs`);
 
-      await this.updateSegmentProgress(segment.id, '资产图片获取完成，正在构建提示词...', 25);
+      await progress('资产图片获取完成，正在构建提示词...', 25);
 
       // Build enhanced prompt with asset context
       const assetContext: string[] = [];
@@ -722,7 +925,7 @@ export class DramaService {
         this.logger.log(`[DEBUG] Segment ${segment.id} first media url: ${media[0].url?.slice(0, 80)}...`);
       }
 
-      await this.updateSegmentProgress(segment.id, '正在获取可用模型...', 35);
+      await progress('正在获取可用模型...', 35);
 
       // Auto-select model: R2V for multi-image, I2V for single, T2V as fallback
       const vidOptions: any = {
@@ -738,13 +941,13 @@ export class DramaService {
         // handle model selection based on media count and token availability
       }
 
-      await this.updateSegmentProgress(segment.id, '正在生成视频（调用AI模型）...', 45);
+      await progress('正在生成视频（调用AI模型）...', 45);
       const remoteUrl = await this.aiService.generateVideo(vidOptions, enhancedPrompt);
 
-      await this.updateSegmentProgress(segment.id, '视频生成成功，正在下载...', 70);
+      await progress('视频生成成功，正在下载...', 70);
       let videoUrl = await this.downloadToLocal(remoteUrl, `seg_${segment.id}`);
 
-      await this.updateSegmentProgress(segment.id, '正在校正画面比例...', 73);
+      await progress('正在校正画面比例...', 73);
       // FFmpeg ratio correction as fallback — ensures output matches target ratio
       // even if the I2V model locks to the reference image aspect ratio
       try {
@@ -763,26 +966,29 @@ export class DramaService {
         this.logger.warn(`Ratio correction failed for segment ${segment.id}: ${ratioErr.message} — using original`);
       }
 
-      await this.updateSegmentProgress(segment.id, '视频下载完成', 75);
+      await progress('视频下载完成', 75);
 
-      // TTS audio: if audio_lang is set, generate narration and merge
+      // TTS audio: if audio_lang is set, generate narration and merge (多候选共享音频)
+      let audioPath = sharedTts?.audioPath || '';
+      let ttsText = sharedTts?.ttsText || '';
       if (episode.audio_lang) {
         try {
-          // Pick text matching the target language
           let audioLang = episode.audio_lang;
-          // Legacy 'none' �� zh
+          // Legacy 'none' → zh
           if (audioLang === 'none') audioLang = 'zh';
-          let ttsText = '';
-          if (audioLang === 'zh' || audioLang === 'ja') {
-            ttsText = segment.prompt_cn || segment.summary || segment.prompt || '';
-          } else {
-            ttsText = segment.prompt || segment.summary || segment.prompt_cn || '';
+          if (!sharedTts) {
+            // Pick text matching the target language
+            if (audioLang === 'zh' || audioLang === 'ja') {
+              ttsText = segment.prompt_cn || segment.summary || segment.prompt || '';
+            } else {
+              ttsText = segment.prompt || segment.summary || segment.prompt_cn || '';
+            }
           }
           if (ttsText) {
-            await this.updateSegmentProgress(segment.id, '������������...', 78);
+            await progress('正在生成配音...', 78);
             // Translate the narration into the selected language so the
             // spoken dialogue actually matches the chosen audio_lang
-            if (audioLang === 'en' || audioLang === 'ja') {
+            if (!sharedTts && (audioLang === 'en' || audioLang === 'ja')) {
               try {
                 const langName = audioLang === 'en' ? 'English' : 'Japanese';
                 const translated = await this.aiService.chatCompletion([
@@ -798,17 +1004,21 @@ export class DramaService {
                 this.logger.warn(`TTS translation to ${audioLang} failed (using source text): ${transErr.message}`);
               }
             }
-            const voiceMap: Record<string, string> = { zh: 'nova', en: 'alloy', ja: 'nova' };
-            const voice = voiceMap[audioLang] || 'alloy';
-            const audioBuf = await this.aiService.generateTTS({
-              text: ttsText.slice(0, 500),
-              voice,
-              speed: 1.0,
-            });
-            if (audioBuf && audioBuf.byteLength > 0) {
-              const audioPath = path.join(process.cwd(), 'output', `tts_${segment.id}_${Date.now()}.mp3`);
-              fs.writeFileSync(audioPath, Buffer.from(audioBuf));
-              await this.updateSegmentProgress(segment.id, '配音生成完成，正在合成音视频...', 85);
+            if (!audioPath || !fs.existsSync(audioPath)) {
+              const voiceMap: Record<string, string> = { zh: 'nova', en: 'alloy', ja: 'nova' };
+              const voice = voiceMap[audioLang] || 'alloy';
+              const audioBuf = await this.aiService.generateTTS({
+                text: ttsText.slice(0, 500),
+                voice,
+                speed: 1.0,
+              });
+              if (audioBuf && audioBuf.byteLength > 0) {
+                audioPath = path.join(process.cwd(), 'output', `tts_${segment.id}_${Date.now()}.mp3`);
+                fs.writeFileSync(audioPath, Buffer.from(audioBuf));
+              }
+            }
+            if (audioPath && fs.existsSync(audioPath)) {
+              await progress('配音生成完成，正在合成音视频...', 85);
               const mergedPath = await this.ffmpeg.compositeVideoWithAudio(
                 videoUrl.startsWith('/static/')
                   ? path.join(process.cwd(), 'output', path.basename(videoUrl))
@@ -820,19 +1030,14 @@ export class DramaService {
               // Replace videoUrl with the audio-merged version
               const mergedBasename = path.basename(mergedPath);
               if (mergedBasename.startsWith('seg_')) {
-                await this.updateSegmentProgress(segment.id, '正在清理旧文件...', 90);
-                fs.unlinkSync(videoUrl.startsWith('/static/')
-                  ? path.join(process.cwd(), 'output', path.basename(videoUrl))
-                  : videoUrl);
-                try { fs.unlinkSync(audioPath); } catch { /* ignore */ }
+                try {
+                  fs.unlinkSync(videoUrl.startsWith('/static/')
+                    ? path.join(process.cwd(), 'output', path.basename(videoUrl))
+                    : videoUrl);
+                } catch { /* ignore */ }
                 const fullPath = path.isAbsolute(mergedPath) ? mergedPath : path.join(process.cwd(), 'output', mergedPath);
                 if (fs.existsSync(fullPath)) {
-                  segment.video_url = `/static/${mergedBasename}`;
-                  segment.progress_message = '视频已生成';
-                  segment.progress_percent = 100;
-                  segment.status = 'completed';
-                  await this.segmentRepo.save(segment);
-                  return { id: segment.id, video_url: segment.video_url, status: 'completed' };
+                  videoUrl = `/static/${mergedBasename}`;
                 }
               }
             }
@@ -842,28 +1047,85 @@ export class DramaService {
         }
       }
 
-      // Only delete old file after new one is successfully downloaded
-      if (segment.video_url && segment.video_url.startsWith('/static/')) {
-        await this.updateSegmentProgress(segment.id, '正在清理旧文件...', 90);
-        const oldPath = path.join(process.cwd(), 'output', path.basename(segment.video_url));
-        try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch { /* ignore */ }
+      // 视觉质检（可配置开关 quality_check_enabled，失败不阻断生成）
+      if (qualityCheckEnabled) {
+        const finalPath = videoUrl.startsWith('/static/')
+          ? path.join(process.cwd(), 'output', path.basename(videoUrl))
+          : videoUrl;
+        await this.saveCandidate(segment.id, candidateIndex, videoUrl, 'completed', null, null);
+        await this.qualityCheckSegment(segment.id, candidateIndex, finalPath, media);
+      } else {
+        await this.saveCandidate(segment.id, candidateIndex, videoUrl, 'completed', null, null);
       }
 
-      segment.video_url = videoUrl;
-      segment.progress_message = '视频已生成';
-      segment.progress_percent = 100;
-      segment.status = 'completed';
-      await this.segmentRepo.save(segment);
-      return { id: segment.id, video_url: videoUrl, status: 'completed', progress_message: '视频已生成', progress_percent: 100 };
-    } catch (err: any) {
-      segment.status = 'failed';
-      await this.segmentRepo.save(segment);
-      // 片段生成失败 → 退全款
-      await this.credits.refund(userId, segCost).catch(() => undefined);
-      this.logger.log(`[credits] 片段 ${segmentId} 生成失败，已退还 ${segCost} 积分`);
-      throw new BadRequestException(`片段生成失败: ${err.message}`);
+      return { candidate_index: candidateIndex, video_url: videoUrl, status: 'completed', audio_path: audioPath || undefined, tts_text: ttsText || undefined };
+    } catch (err) {
+      throw err;
     }
   }
+
+  /** 质检开关（system_configs.quality_check_enabled，未配置默认开启） */
+  private async isQualityCheckEnabled(): Promise<boolean> {
+    try {
+      const v = await this.aiService.getConfig('quality_check_enabled');
+      if (!v) return true;
+      return v === '1' || v.toLowerCase() === 'true';
+    } catch {
+      return true;
+    }
+  }
+
+  /** 片段质检：抽 3 帧 → qwen3-vl-flash → 结果写入候选表（失败标记 unknown，不阻断生成） */
+  private async qualityCheckSegment(segmentId: number, candidateIndex: number, videoPath: string, media: Array<{ type: string; url: string }>) {
+    try {
+      const frames = await this.ffmpeg.extractFramesAt(videoPath, await this.pickCheckTimes(videoPath));
+      if (frames.length === 0) {
+        this.logger.warn(`[质检] 片段 ${segmentId} 候选 ${candidateIndex} 抽帧失败，标记 unknown`);
+        await this.saveCandidate(segmentId, candidateIndex, null, 'completed', 'unknown', null);
+        return;
+      }
+      const strictnessRaw = await this.aiService.getConfig('quality_check_strictness');
+      const strictness = strictnessRaw === 'strict' || strictnessRaw === 'loose' ? strictnessRaw : 'normal';
+      const refImage = media.length > 0 ? media[0].url : undefined;
+      const result = await this.aiService.visualCheck(frames, { referenceImage: refImage, strictness: strictness as any });
+      await this.saveCandidate(segmentId, candidateIndex, null, 'completed', result.pass, JSON.stringify({ issues: result.issues, consistency: result.consistency }));
+      for (const f of frames) { try { fs.unlinkSync(f); } catch { /* ignore */ } }
+    } catch (qcErr: any) {
+      this.logger.warn(`[质检] 片段 ${segmentId} 候选 ${candidateIndex} 质检异常（标记 unknown，不阻断）: ${qcErr.message}`);
+      await this.saveCandidate(segmentId, candidateIndex, null, 'completed', 'unknown', null);
+    }
+  }
+
+  /** 按视频时长均匀取质检抽帧时间点（≤6s 取 3 帧，更长取 10%/50%/90%） */
+  private async pickCheckTimes(videoPath: string): Promise<number[]> {
+    try {
+      const info = await this.ffmpeg.getVideoInfo(videoPath);
+      const dur = info.duration || 5;
+      if (dur <= 3) return [1];
+      if (dur <= 6) return [1, dur / 2, Math.max(dur - 1, 0.5)].map(t => Number(t.toFixed(2)));
+      return [dur * 0.1, dur * 0.5, Math.max(dur * 0.9, dur - 1.5)].map(t => Number(t.toFixed(2)));
+    } catch {
+      return [1, 3, 5];
+    }
+  }
+
+  /** 写候选表（存在则更新，不存在则新建；videoUrl/quality 为空不覆盖已有值） */
+  private async saveCandidate(segmentId: number, candidateIndex: number, videoUrl: string | null, status: string, quality: string | null, qualityReport: string | null) {
+    try {
+      let row = await this.candidateRepo.findOne({ where: { segment_id: segmentId, candidate_index: candidateIndex } });
+      if (!row) {
+        row = this.candidateRepo.create({ segment_id: segmentId, candidate_index: candidateIndex });
+      }
+      row.status = status;
+      if (videoUrl) row.video_url = videoUrl;
+      if (quality) row.quality = quality;
+      if (qualityReport) row.quality_report = qualityReport;
+      await this.candidateRepo.save(row);
+    } catch (err: any) {
+      this.logger.warn(`[候选表] 写入失败 segment=${segmentId} idx=${candidateIndex}: ${err.message}`);
+    }
+  }
+
 
   async generateEpisodeSegments(userId: number, episodeId: number) {
     const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
@@ -1069,17 +1331,137 @@ export class DramaService {
     };
   }
 
-  private cleanJson(text: string): string {
-    let cleaned = text.trim();
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start !== -1 && end !== -1) {
-      cleaned = cleaned.slice(start, end + 1);
+  /** 字符串感知提取根 JSON 对象（跳过字符串内的大括号）；未闭合（被截断）时返回全部文本 */
+  private extractRootObject(text: string): string {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) return text.slice(0, i + 1);
+      } else if (ch === '[') depth++;
+      else if (ch === ']') depth--;
     }
-    if (!cleaned.startsWith('{')) {
+    return text;
+  }
+
+  /** 解析 LLM 结构化输出：直接解析失败时，尝试「截断渐进解析」——丢弃末尾不完整元素，保留前面完整数据 */
+  private parseStructured(text: string): any {
+    const raw = text.trim();
+    const start = raw.indexOf('{');
+    if (start === -1) {
       throw new Error(`响应中未找到 JSON 对象`);
     }
-    return cleaned;
+    const jsonText = this.extractRootObject(raw.slice(start));
+    try {
+      return JSON.parse(jsonText);
+    } catch {
+      /* 输出可能被 max_tokens 截断（JSON 不闭合），进入渐进兜底 */
+    }
+
+    // 正向扫描（跳过字符串内括号），收集所有「元素闭合点」
+    const closePoints: number[] = [];
+    const stack: string[] = [];
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < jsonText.length; i++) {
+      const ch = jsonText[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{' || ch === '[') stack.push(ch);
+      else if (ch === '}' || ch === ']') {
+        const top = stack[stack.length - 1];
+        if ((ch === '}' && top === '{') || (ch === ']' && top === '[')) {
+          stack.pop();
+          closePoints.push(i);
+          if (closePoints.length > 30) closePoints.shift();
+        }
+      }
+    }
+
+    // 从最近一个闭合点往前逐个尝试「截断 + 补全括号」解析（越接近截断点保留数据越多）
+    for (let k = closePoints.length - 1; k >= 0; k--) {
+      const slice = jsonText.slice(0, closePoints[k] + 1);
+      try {
+        const parsed = JSON.parse(this.repairTruncated(slice));
+        this.logger.warn(`LLM 输出被截断，已渐进解析出部分数据（截断点前完整元素 ${closePoints.length} 个）`);
+        return parsed;
+      } catch { /* 试下一个候选 */ }
+    }
+
+    const lastBrace = jsonText.lastIndexOf('}');
+    if (lastBrace > 0) {
+      try {
+        return JSON.parse(this.repairTruncated(jsonText.slice(0, lastBrace + 1)));
+      } catch { /* fallthrough */ }
+    }
+    throw new Error('AI 返回内容无法解析为有效 JSON（已尝试截断渐进解析）');
+  }
+
+  /** 为被截断的 JSON 片段补全未闭合的引号与括号 */
+  private repairTruncated(s: string): string {
+    const stack: string[] = [];
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === '{' || ch === '[') stack.push(ch);
+      else if (ch === '}' || ch === ']') {
+        const top = stack[stack.length - 1];
+        if ((ch === '}' && top === '{') || (ch === ']' && top === '[')) stack.pop();
+      }
+    }
+    let tail = '';
+    if (inString) tail += '"';
+    while (stack.length) {
+      tail += stack.pop() === '{' ? '}' : ']';
+    }
+    return s + tail;
+  }
+
+  /** 两阶段分析兜底：片段引用了但 assets 未定义的资产 → 自动补入（LLM 违约防御） */
+  private mergeUnknownAssetRefs(data: any) {
+    if (!data.assets) data.assets = {};
+    const lists: Array<'characters' | 'props' | 'scenes'> = ['characters', 'props', 'scenes'];
+    for (const list of lists) {
+      if (!data.assets[list]) data.assets[list] = [];
+    }
+    const defined = new Set<string>(lists.flatMap((l) => (data.assets[l] || []).map((a: any) => a.name)));
+    for (const ep of data.episodes || []) {
+      for (const seg of ep.segments || []) {
+        for (const list of lists) {
+          for (const name of seg[list] || []) {
+            if (!defined.has(name)) {
+              data.assets[list].push({ name, description: '', prompt: '', prompt_cn: '' });
+              defined.add(name);
+              this.logger.warn(`片段引用未定义资产「${name}」，已自动补入 assets`);
+            }
+          }
+        }
+      }
+    }
   }
 
   private validateAnalysis(data: any) {

@@ -6,6 +6,7 @@ import { DramaOutline } from './drama-outline.entity';
 import { DramaEpisode } from './drama-episode.entity';
 import { DramaSegment } from './drama-segment.entity';
 import { DramaAsset } from './drama-asset.entity';
+import { DramaSegmentCandidate } from './drama-segment-candidate.entity';
 import { GlobalAsset } from '../global-asset/global-asset.entity';
 import { DramaService } from './drama.service';
 import { DramaController } from './drama.controller';
@@ -16,7 +17,7 @@ import { CreditsModule } from '../credits/credits.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, GlobalAsset, PromptTemplate]),
+    TypeOrmModule.forFeature([DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaAsset, DramaSegmentCandidate, GlobalAsset, PromptTemplate]),
     BullModule.registerQueue({ name: 'drama-segment' }),
     UtilsModule,
     CreditsModule,

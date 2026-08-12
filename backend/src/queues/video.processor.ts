@@ -220,13 +220,47 @@ export class VideoProcessor {
         // We have a local video file — either composite with audio or use directly
         if (audioPath && fs.existsSync(audioPath)) {
           this.logger.log(`Compositing local video with audio...`);
-          finalOutput = await this.ffmpeg.compositeVideoWithAudio(
-            videoUrl,
-            audioPath,
-            videoDuration,
-            undefined,
-            subtitlePath || undefined,
-          );
+          // BGM mixing: read optional default_bgm_url config (admin system_configs),
+          // support both /static/ local files and http(s) remote URLs
+          let bgmPath = '';
+          try {
+            const bgmUrl = await this.aiService.getConfig('default_bgm_url');
+            if (bgmUrl) {
+              if (bgmUrl.startsWith('/static/')) {
+                bgmPath = path.join(process.cwd(), 'output', path.basename(bgmUrl));
+                if (!fs.existsSync(bgmPath)) bgmPath = '';
+              } else if (bgmUrl.startsWith('http://') || bgmUrl.startsWith('https://')) {
+                bgmPath = await this.downloadToTemp(bgmUrl, 'bgm');
+                if (bgmPath && (bgmPath.startsWith('http'))) bgmPath = '';
+              }
+              if (bgmPath) this.logger.log(`BGM mixing with: ${bgmPath}`);
+            }
+          } catch (bgmErr: any) {
+            this.logger.warn(`BGM resolve failed (will skip): ${bgmErr.message}`);
+            bgmPath = '';
+          }
+
+          if (bgmPath && fs.existsSync(bgmPath)) {
+            finalOutput = await this.ffmpeg.compositeWithMusic(
+              videoUrl,
+              audioPath,
+              bgmPath,
+              {
+                duration: videoDuration,
+                subtitlePath: subtitlePath || undefined,
+                musicVolume: 0.2,
+                fadeOutSeconds: 2,
+              },
+            );
+          } else {
+            finalOutput = await this.ffmpeg.compositeVideoWithAudio(
+              videoUrl,
+              audioPath,
+              videoDuration,
+              undefined,
+              subtitlePath || undefined,
+            );
+          }
         } else {
           this.logger.log(`No audio available — using video directly`);
           finalOutput = videoUrl;
