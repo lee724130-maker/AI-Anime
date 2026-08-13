@@ -29,6 +29,7 @@ export class GenerateController {
     model?: string;
     voiceover?: boolean;
     voiceover_text?: string;
+    tts_voice?: string;
   }) {
     return this.generateService.textToVideo(req.user.id, body);
   }
@@ -45,6 +46,7 @@ export class GenerateController {
     model?: string;
     voiceover?: boolean;
     voiceover_text?: string;
+    tts_voice?: string;
   }) {
     return this.generateService.imageToVideo(req.user.id, body);
   }
@@ -60,8 +62,13 @@ export class GenerateController {
   }
 
   @Post('smart-plan')
-  smartPlan(@Req() req, @Body() body: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number }) {
+  smartPlan(@Req() req, @Body() body: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number; voiceoverType?: string }) {
     return this.generateService.smartPlan(req.user.id, body);
+  }
+
+  @Get('tts-voices')
+  ttsVoices() {
+    return this.generateService.getTTSVoices();
   }
 
   @Get('tasks')

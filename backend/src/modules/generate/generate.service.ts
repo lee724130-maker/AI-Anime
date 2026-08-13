@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+﻿import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectEntityManager } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 import { AIServiceUtil } from '../../utils/ai-service.util';
@@ -301,6 +301,7 @@ export class GenerateService {
     model?: string;
     voiceover?: boolean;
     voiceover_text?: string;
+    tts_voice?: string;
   }) {
     const { prompt, model } = dto;
     if (!prompt) throw new BadRequestException('请输入描述');
@@ -344,6 +345,7 @@ export class GenerateService {
     model?: string;
     voiceover?: boolean;
     voiceover_text?: string;
+    tts_voice?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -373,7 +375,7 @@ export class GenerateService {
         try {
           const ttsText = (dto.voiceover_text || prompt || '').slice(0, 500);
           if (ttsText) {
-            const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+            const voice = dto.tts_voice || (/[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy');
             const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
             if (audioBuf && audioBuf.byteLength > 0) {
               const outputDir = path.resolve(process.cwd(), 'output');
@@ -437,6 +439,7 @@ export class GenerateService {
     model?: string;
     voiceover?: boolean;
     voiceover_text?: string;
+    tts_voice?: string;
   }) {
     const { image_url, media, model } = dto;
     if (!image_url && (!media || media.length === 0)) throw new BadRequestException('请提供参考图片');
@@ -483,6 +486,7 @@ export class GenerateService {
     model?: string;
     voiceover?: boolean;
     voiceover_text?: string;
+    tts_voice?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -515,7 +519,7 @@ export class GenerateService {
         try {
           const ttsText = (dto.voiceover_text || prompt || '').slice(0, 500);
           if (ttsText) {
-            const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+            const voice = dto.tts_voice || (/[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy');
             const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
             if (audioBuf && audioBuf.byteLength > 0) {
               const outputDir = path.resolve(process.cwd(), 'output');
@@ -860,10 +864,11 @@ ${this.styleInstruction(style)}
   }
 
   // ─── 智能规划主入口：三路分发 ─────────────────────────
-  async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number }) {
+  async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number; voiceoverType?: string }) {
     const { prompt, images, style } = dto;
     const mode = dto.mode || 't2i';
     const duration = Number(dto.duration) > 0 ? Number(dto.duration) : undefined;
+    const voiceoverType = dto.voiceoverType === 'narration' ? 'narration' : 'character';
     if (!prompt || prompt.trim().length < 2) {
       throw new BadRequestException('请提供至少2个字的描述');
     }
@@ -878,11 +883,11 @@ ${this.styleInstruction(style)}
           break;
         case 't2v':
           enhancedPrompt = await this.handleT2v(prompt, images, style);
-          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration).catch(() => undefined);
+          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration, voiceoverType).catch(() => undefined);
           break;
         case 'i2v':
           enhancedPrompt = await this.handleI2v(prompt, images, style);
-          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration).catch(() => undefined);
+          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration, voiceoverType).catch(() => undefined);
           break;
         default:
           enhancedPrompt = await this.handleT2i(prompt, images, style);
@@ -893,6 +898,7 @@ ${this.styleInstruction(style)}
         voiceover,
         original_prompt: prompt,
         mode,
+        voiceover_type: voiceoverType,
       };
     } catch (err: any) {
       this.logger.error(`[${mode}] 智能规划失败: ${err.message}`);
@@ -901,30 +907,46 @@ ${this.styleInstruction(style)}
   }
 
   /**
-   * Generate role dialogue (台词) matching the planned video description and
+   * Generate voiceover text matching the planned video description,
    * capped by the video duration (中文语速约 4 字/秒，留朗读余量).
+   * type: 'character' = 角色台词（第一人称），'narration' = 旁白解说（第三人称）
    */
-  private async buildVoiceover(creativePrompt: string, finalPrompt: string, duration?: number): Promise<string> {
+  private async buildVoiceover(creativePrompt: string, finalPrompt: string, duration?: number, type: 'character' | 'narration' = 'character'): Promise<string> {
     const seconds = Number(duration) > 0 ? Math.round(Number(duration)) : 5;
     const maxChars = Math.max(10, Math.floor(seconds * 4));
 
-    const sys = `你是一个短剧台词编剧，为 AI 配音写"角色说出口的台词"。用户会给你「画面描述」和「视频时长」，请写一段与画面匹配的台词。
+    const roleRule = type === 'narration'
+      ? `1. 写第三人称旁白/解说词（画外音）：以讲述者视角介绍画面，如"这座城在晨光中苏醒""他推开那扇尘封多年的门"
+2. 旁白语言要有画面感和感染力，可带疑问与悬念，像纪录片/短视频解说
+3. 禁止第一人称角色台词，禁止模拟角色"说出口的话"`
+      : `1. 画面描述中有人物/角色时：以该角色口吻写台词（第一人称，像角色在现场说话，可以是对话或独白）
+2. 画面中没有人、只有主体（猫/产品/景物等）时：写一句该主体"拟人化"说出口的台词，或角色面向镜头说的口播金句`;
+
+    const sys = `你是一个短剧台词编剧，为 AI 配音写"${type === 'narration' ? '旁白解说词' : '角色台词'}"。用户会给你「画面描述」和「视频时长」，请写一段与画面匹配的${type === 'narration' ? '旁白' : '台词'}。
 
 规则（必须全部满足）：
-1. 画面描述中有人物/角色时：以该角色口吻写台词（第一人称，像角色在现场说话，可以是对话或独白）
-2. 画面中没有人、只有主体（猫/产品/景物等）时：写一句该主体"拟人化"说出口的台词，或角色面向镜头说的口播金句
-3. 台词必须紧扣画面内容（主体、场景、动作、氛围都要呼应），不得写画面里没有的东西
-4. 禁止旁白/解说式描述：禁止"看这只猫""只见""这座城"这类第三人称画外音，必须是角色说出口的话
-5. 口语自然、有情绪、像真人说话，可用短句和问句
-6. 字数上限：视频约 ${seconds} 秒，中文语速约每秒 4 字，台词最多 ${maxChars} 字（宁可短，不要读不完）
-7. 纯中文，直接输出台词，不要引号、不要"台词："等前缀、不要任何解释`;
+${roleRule}
+3. 内容必须紧扣画面（主体、场景、动作、氛围都要呼应），不得写画面里没有的东西
+4. 口语自然、有情绪、像真人说话，可用短句和问句
+5. 字数上限：视频约 ${seconds} 秒，中文语速约每秒 4 字，最多 ${maxChars} 字（宁可短，不要读不完）
+6. 纯中文，直接输出，不要引号、不要"台词："等前缀、不要任何解释`;
 
     const result = await this.aiService.chatCompletion([
       { role: 'system', content: sys },
-      { role: 'user', content: `画面描述：\n${finalPrompt}\n\n请写一段不超过 ${maxChars} 字的角色台词。` },
+      { role: 'user', content: `画面描述：\n${finalPrompt}\n\n请写一段不超过 ${maxChars} 字的${type === 'narration' ? '旁白解说词' : '角色台词'}。` },
     ], { temperature: 0.7, maxTokens: 500 });
 
     return (result || '').trim();
+  }
+
+  /** 可用配音音色列表（CosyVoice 实测） */
+  async getTTSVoices() {
+    return this.aiService.cosyvoiceVoiceCatalog.map((v) => ({
+      id: v.id,
+      name: v.name,
+      gender: v.gender,
+      style: v.style,
+    }));
   }
 
   async deleteTask(userId: number, taskId: number) {

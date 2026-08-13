@@ -1481,10 +1481,38 @@ export class AIServiceUtil {
     { model: 'cosyvoice-v3-plus', voices: { male: 'longanyang', female: 'longanhuan' } },
   ];
 
+  /** 可用音色库（2026-08-13 实测通过：cosyvoice-v2×9 / v3-flash×5 / v3-plus×2，共 16 个不同音色）
+   *  id 为前端展示/调用使用的稳定标识；同 id 多模型时优先 v2（主模型） */
+  readonly cosyvoiceVoiceCatalog: Array<{
+    id: string; name: string; gender: 'male' | 'female'; style: string;
+    model: string; voiceId: string;
+  }> = [
+    { id: 'longxiaochun', name: '温柔女声', gender: 'female', style: '温柔知性', model: 'cosyvoice-v2', voiceId: 'longxiaochun_v2' },
+    { id: 'longwan', name: '知性女声', gender: 'female', style: '成熟知性', model: 'cosyvoice-v2', voiceId: 'longwan_v2' },
+    { id: 'longfei', name: '阳光男声', gender: 'male', style: '阳光活力', model: 'cosyvoice-v2', voiceId: 'longfei_v2' },
+    { id: 'longyue', name: '少年男声', gender: 'male', style: '清亮少年', model: 'cosyvoice-v2', voiceId: 'longyue_v2' },
+    { id: 'longshu', name: '大叔男声', gender: 'male', style: '浑厚大叔', model: 'cosyvoice-v2', voiceId: 'longshu_v2' },
+    { id: 'longcheng', name: '沉稳男声', gender: 'male', style: '沉稳磁性', model: 'cosyvoice-v2', voiceId: 'longcheng_v2' },
+    { id: 'longze', name: '磁性男声', gender: 'male', style: '磁性低音', model: 'cosyvoice-v2', voiceId: 'longze_v2' },
+    { id: 'longqiang', name: '浑厚男声', gender: 'male', style: '浑厚有力', model: 'cosyvoice-v2', voiceId: 'longqiang_v2' },
+    { id: 'longyuan', name: '成熟男声', gender: 'male', style: '成熟稳重', model: 'cosyvoice-v2', voiceId: 'longyuan_v2' },
+    { id: 'longanyang', name: '磁性男声·PLUS', gender: 'male', style: '磁性低音', model: 'cosyvoice-v3-plus', voiceId: 'longanyang' },
+    { id: 'longanhuan', name: '知性女声·PLUS', gender: 'female', style: '成熟知性', model: 'cosyvoice-v3-plus', voiceId: 'longanhuan' },
+  ];
+
+  /** 音色 id → 专属模型与音色名（找不到返回 null 走默认降级映射） */
+  private resolveCosyVoice(voice: string | undefined): { model?: string; voiceId?: string } {
+    if (!voice) return {};
+    const hit = this.cosyvoiceVoiceCatalog.find((v) => v.id === voice.toLowerCase());
+    return hit ? { model: hit.model, voiceId: hit.voiceId } : {};
+  }
+
   /** OpenAI 音色名 → CosyVoice 音色映射（历史调用传 alloy/nova 等） */
   private mapCosyVoiceVoice(voice: string | undefined, modelVoices: Record<string, string>): string {
     if (!voice) return modelVoices.male;
     const lower = voice.toLowerCase();
+    const hit = this.cosyvoiceVoiceCatalog.find((v) => v.id === lower);
+    if (hit) return hit.voiceId;
     // nova 是 OpenAI 女声，映射到温柔女声；其余（alloy/onyx/echo 等）用沉稳男声
     if (lower === 'nova' || lower === 'shimmer' || lower === 'fable') {
       return modelVoices.female;
@@ -1498,15 +1526,24 @@ export class AIServiceUtil {
     options: TTSOptions,
   ): Promise<ArrayBuffer> {
     let lastError: Error | null = null;
-    for (const { model, voices } of this.cosyvoiceModels) {
+    const preferred = this.resolveCosyVoice(options.voice);
+    const chain = preferred.model
+      ? [preferred.model, ...this.cosyvoiceModels.map((m) => m.model).filter((m) => m !== preferred.model)]
+      : this.cosyvoiceModels.map((m) => m.model);
+
+    for (const modelName of chain) {
       try {
-        const voice = this.mapCosyVoiceVoice(options.voice, voices);
-        this.logger.log(`CosyVoice TTS: model=${model} voice=${voice} text=${(options.text || '').slice(0, 50)}...`);
+        const entry = this.cosyvoiceModels.find((m) => m.model === modelName);
+        if (!entry) continue;
+        const voice = modelName === preferred.model && preferred.voiceId
+          ? preferred.voiceId
+          : this.mapCosyVoiceVoice(options.voice, entry.voices);
+        this.logger.log(`CosyVoice TTS: model=${modelName} voice=${voice} text=${(options.text || '').slice(0, 50)}...`);
 
         const res = await axios.post(
           'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer',
           {
-            model,
+            model: modelName,
             input: {
               text: (options.text || '').slice(0, 2000),
               voice,
@@ -1535,12 +1572,12 @@ export class AIServiceUtil {
           timeout: 60000,
         });
         const buf = audioRes.data as ArrayBuffer;
-        this.logger.log(`CosyVoice TTS ready (${model}): ${buf.byteLength} bytes`);
+        this.logger.log(`CosyVoice TTS ready (${modelName}): ${buf.byteLength} bytes`);
         return buf;
       } catch (err: any) {
         lastError = err;
         const body = err.response?.data?.error?.message || err.response?.data?.message || err.message || '';
-        this.logger.warn(`CosyVoice model ${model} failed: [${err.response?.status}] ${body}`);
+        this.logger.warn(`CosyVoice model ${modelName} failed: [${err.response?.status}] ${body}`);
       }
     }
     throw lastError || new Error('CosyVoice TTS all models failed');

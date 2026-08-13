@@ -102,6 +102,12 @@ export default function GeneratePage() {
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
   const [previewVideoVisible, setPreviewVideoVisible] = useState(false);
   const [creditRules, setCreditRules] = useState<any>(null);
+  const [voiceList, setVoiceList] = useState<any[]>([]);
+
+  const voiceOptions = voiceList.map((v: any) => ({
+    label: `${v.name}（${v.gender === 'female' ? '女' : '男'}·${v.style}）`,
+    value: v.id,
+  }));
 
   const [assetTab, setAssetTab] = useState<'character' | 'scene' | 'prop'>('character');
   const [assetSource, setAssetSource] = useState<'upload' | 'library'>('library');
@@ -129,6 +135,7 @@ export default function GeneratePage() {
   useEffect(() => {
     fetchHistory();
     api.get('/api/generate/credit-rules').then(({ data }) => setCreditRules(data)).catch(() => setCreditRules(null));
+    api.get('/api/generate/tts-voices').then(({ data }) => setVoiceList(data || [])).catch(() => setVoiceList([]));
   }, []);
 
   // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新
@@ -203,6 +210,7 @@ export default function GeneratePage() {
     }
     const style = form.getFieldValue('style') || 'realistic';
     const duration = form.getFieldValue('duration') || 5;
+    const voiceoverType = form.getFieldValue('voiceover_type') || 'character';
     const loadingText = mode === 't2i' ? 'AI 正在规划图片描述...' : 'AI 正在规划视频描述...';
     const hideLoading = message.loading(loadingText, 0);
     try {
@@ -212,6 +220,7 @@ export default function GeneratePage() {
         mode,
         style,
         duration,
+        voiceoverType,
       });
       const patch: any = { prompt: data.prompt };
       if (mode !== 't2i' && data.voiceover) {
@@ -431,9 +440,20 @@ export default function GeneratePage() {
             </Form.Item>
             <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
               {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
-                <Form.Item name="voiceover_text" label="配音内容（可留空，默认朗读提示词）">
-                  <TextArea rows={2} placeholder="例如：这是一段关于城市夜景的短片，清晨的街道渐渐苏醒..." />
-                </Form.Item>
+                <>
+                  <Form.Item name="voiceover_type" label="配音类型" initialValue="character">
+                    <Radio.Group>
+                      <Radio.Button value="character">🎭 角色台词</Radio.Button>
+                      <Radio.Button value="narration">📢 旁白解说</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item name="tts_voice" label="音色" initialValue="longxiaochun">
+                    <Select style={{ width: 240 }} options={voiceOptions} placeholder="选择音色" />
+                  </Form.Item>
+                  <Form.Item name="voiceover_text" label="配音内容（可留空）">
+                    <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
+                  </Form.Item>
+                </>
               )}
             </Form.Item>
             <Form.Item>
