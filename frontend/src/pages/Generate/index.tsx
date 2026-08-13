@@ -211,7 +211,11 @@ export default function GeneratePage() {
         mode,
         style,
       });
-      form.setFieldsValue({ prompt: data.prompt });
+      const patch: any = { prompt: data.prompt };
+      if (mode !== 't2i' && data.voiceover) {
+        patch.voiceover_text = data.voiceover;
+      }
+      form.setFieldsValue(patch);
       hideLoading();
       if (data.has_image_analysis) {
         message.success('智能规划完成（已结合图片分析）！');

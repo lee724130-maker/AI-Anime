@@ -869,6 +869,7 @@ ${this.styleInstruction(style)}
 
     try {
       let enhancedPrompt: string | undefined;
+      let voiceover: string | undefined;
 
       switch (mode) {
         case 't2i':
@@ -876,9 +877,11 @@ ${this.styleInstruction(style)}
           break;
         case 't2v':
           enhancedPrompt = await this.handleT2v(prompt, images, style);
+          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt).catch(() => undefined);
           break;
         case 'i2v':
           enhancedPrompt = await this.handleI2v(prompt, images, style);
+          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt).catch(() => undefined);
           break;
         default:
           enhancedPrompt = await this.handleT2i(prompt, images, style);
@@ -886,6 +889,7 @@ ${this.styleInstruction(style)}
 
       return {
         prompt: enhancedPrompt || prompt,
+        voiceover,
         original_prompt: prompt,
         mode,
       };
@@ -893,6 +897,27 @@ ${this.styleInstruction(style)}
       this.logger.error(`[${mode}] 智能规划失败: ${err.message}`);
       return { prompt, original_prompt: prompt, mode };
     }
+  }
+
+  /**
+   * Generate a Chinese voiceover narration matching the planned video description,
+   * so the AI 配音 has proper content without the user writing it by hand.
+   */
+  private async buildVoiceover(creativePrompt: string, finalPrompt: string): Promise<string> {
+    const sys = `你是一个短视频旁白文案专家。根据视频画面描述，生成一段自然流畅的中文旁白（画外音解说），用于 AI 配音朗读。
+
+要求：
+1. 基于画面描述的内容展开解说，紧扣画面要素（主体、场景、动作、氛围）
+2. 语气自然口语化，适合短视频/广告/故事类旁白
+3. 80-150 字，直接输出文案，不要解释、不要引号、不要任何前缀
+4. 只用中文，禁止出现英文单词`;
+
+    const result = await this.aiService.chatCompletion([
+      { role: 'system', content: sys },
+      { role: 'user', content: `用户创意：${creativePrompt}\n\n画面描述：${finalPrompt}` },
+    ], { temperature: 0.7, maxTokens: 500 });
+
+    return (result || '').trim();
   }
 
   async deleteTask(userId: number, taskId: number) {
