@@ -1579,8 +1579,32 @@ export class AIServiceUtil {
   /** Chat completion using configured LLM provider */
   async chatCompletion(
     messages: Array<{ role: string; content: string }>,
-    options?: { temperature?: number; maxTokens?: number },
+    options?: { temperature?: number; maxTokens?: number; model?: string },
   ): Promise<string> {
+    // 显式指定模型（不走降级链，调用方负责兜底）——用于批量机械任务指定快模型
+    if (options?.model) {
+      const key = options.model.startsWith('GLM')
+        ? await this.getApiKey('zai_api_key')
+        : await this.getApiKey('tongyi_api_key');
+      if (key) {
+        try {
+          return await this.chatWithOpenAI(
+            key,
+            options.model.startsWith('GLM')
+              ? 'https://api.z.ai/api/paas/v4/chat/completions'
+              : 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+            options.model,
+            messages,
+            options,
+          );
+        } catch (err: any) {
+          this.logger.warn(`chatCompletion 指定模型 ${options.model} 失败: ${err.message}`);
+          throw err;
+        }
+      }
+      throw new Error(`模型 ${options.model} 对应的 API Key 未配置`);
+    }
+
     const provider = await this.getConfigValue('llm_provider') || 'auto';
 
     if (provider === 'aliyun') {
@@ -1654,6 +1678,7 @@ export class AIServiceUtil {
     }
 
     // Auto mode - try each configured provider in priority order
+    // 2026-08-13：qwen-plus 优先（速度优先，实测 GLM-4.5-Air 免费档请求排队 60-120s 过慢），GLM 作降级兜底
     const aliyunKey = await this.getApiKey('tongyi_api_key');
     const zhipuKey = await this.getApiKey('zai_api_key');
     const volcKey = await this.getApiKey('volcengine_api_key');
@@ -1729,7 +1754,12 @@ export class AIServiceUtil {
           timeout: 300000,
         },
       );
-      return response.data.choices?.[0]?.message?.content || '';
+      const content = response.data.choices?.[0]?.message?.content;
+      // 空内容视为失败：触发上层降级链（实测 GLM-4.5-Air 并发限流时返回 200+空 content，不抛错则不会降级）
+      if (!content || !content.trim()) {
+        throw new Error(`模型 ${model} 返回空内容（finish=${response.data.choices?.[0]?.finish_reason || 'unknown'}），可能被限流`);
+      }
+      return content;
     } catch (err: any) {
       this.logger.error(`LLM call failed: ${err.message}`);
       throw err;
@@ -1750,8 +1780,9 @@ export class AIServiceUtil {
       const key = await this.getApiKey('tongyi_api_key');
       if (key) {
         const visionModels = [
-          'qwen3-vl-flash',
+          'qwen3.5-omni-plus',
           'qwen3.5-omni-plus-2026-03-15',
+          'qwen3-vl-flash',
           'qwen3-omni-flash-realtime-2025-09-15',
           'qwen3-omni-flash-realtime',
           'qwen3-vl-plus',
@@ -1839,8 +1870,9 @@ export class AIServiceUtil {
       const key = await this.getApiKey('tongyi_api_key');
       if (key) {
         const visionModels = [
-          'qwen3-vl-flash',
+          'qwen3.5-omni-plus',
           'qwen3.5-omni-plus-2026-03-15',
+          'qwen3-vl-flash',
           'qwen3-omni-flash-realtime-2025-09-15',
           'qwen3-omni-flash-realtime',
           'qwen3-vl-plus',

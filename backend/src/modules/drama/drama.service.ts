@@ -161,6 +161,7 @@ export class DramaService {
         scenes: (structure.assets?.scenes || []).map((s: any) => ({ name: s.name, description: s.description })),
       });
 
+      // 每批 3 集并行（阶段 2 显式走 qwen-plus，3 并发生产已验证；GLM 并发上限问题仅在阶段 1 单发，不受影响）
       const batchSize = 3;
       for (let i = 0; i < episodes.length; i += batchSize) {
         const batch = episodes.slice(i, i + batchSize);
@@ -174,7 +175,8 @@ export class DramaService {
               + `\n\n画面风格要求：${styleName}（prompt 中必须体现该风格词汇）`;
             const raw = await this.aiService.chatCompletion(
               [{ role: 'user', content: expandPrompt }],
-              { temperature: 0.3, maxTokens: 4096 },
+              // 阶段 2 属批量机械扩展：显式用 qwen-plus（快、已验证质量足够），阶段 1 的智能结构走 GLM-4.5-Air
+              { temperature: 0.3, maxTokens: 4096, model: 'qwen-plus' },
             );
             if (!raw || raw.trim() === '') {
               throw new Error('LLM 返回了空结果，请检查 API Key 是否已配置且可用');
