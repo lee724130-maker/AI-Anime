@@ -48,6 +48,9 @@ export class ViralProject {
   @Column({ name: 'target_duration', type: 'int', nullable: true })
   target_duration: number | null;
 
+  @Column({ name: 'voiceover_enabled', default: true })
+  voiceover_enabled: boolean;
+
   @Column({ length: 10, default: '9:16' })
   ratio: string;
 

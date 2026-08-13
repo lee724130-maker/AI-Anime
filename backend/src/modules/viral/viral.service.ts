@@ -1054,6 +1054,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       scenes: tpl.scenes,
       media_refs: dto.media_refs || undefined,
       target_duration: dto.target_duration || null,
+      voiceover_enabled: dto.voiceover_enabled ?? true,
       ratio: dto.ratio || '9:16',
       resolution: dto.resolution || '720p',
       style: dto.style || 'anime',
@@ -1312,6 +1313,28 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
                 this.logger.warn(`Scene ${i} duration align failed, keep raw: ${alignErr.message}`);
               }
             }
+            // Voiceover: TTS narration merged into the scene video (each scene speaks its own description)
+            if (project.voiceover_enabled !== false) {
+              try {
+                const ttsText = [scene.name, description].filter(Boolean).join('，').slice(0, 200);
+                if (ttsText) {
+                  const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+                  const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
+                  if (audioBuf && audioBuf.byteLength > 0) {
+                    const ttsPath = path.join(workDir, `scene_${i}_tts.mp3`);
+                    fs.writeFileSync(ttsPath, Buffer.from(audioBuf));
+                    const voicedPath = path.join(workDir, `scene_${i}_voiced.mp4`);
+                    const merged = await this.ffmpeg.compositeVideoWithAudio(alignedPath, ttsPath, sceneDur, voicedPath);
+                    if (fs.existsSync(merged)) {
+                      alignedPath = merged;
+                      this.logger.log(`Scene ${i} voiceover merged (${ttsText.length} chars)`);
+                    }
+                  }
+                }
+              } catch (voErr: any) {
+                this.logger.warn(`Scene ${i} voiceover failed, keep silent: ${voErr.message}`);
+              }
+            }
             // Persist scene video outside workDir (workDir gets cleaned in finally,
             // but project.scenes stores videoPath for later re-merge on regenerate)
             const persistedScene = path.join(this.outputDir, `viral_scene_${projectId}_${i}.mp4`);
@@ -1360,13 +1383,19 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         mergedPath = successfulPaths[0];
       }
 
-      // Step 3: Add background music if specified
+      // Step 3: Add background music if specified (keep voiceover track when present)
       const audioConfig = template.audio ? JSON.parse(template.audio) : null;
       if (audioConfig?.bgm_url) {
         try {
           const audioPath = await this.downloadToLocal(audioConfig.bgm_url, workDir, 'bgm');
           if (audioPath) {
-            mergedPath = await this.ffmpeg.compositeVideoWithAudio(mergedPath, audioPath);
+            const hasVoiceTrack = project.voiceover_enabled !== false && await this.ffmpeg.hasAudioTrack(mergedPath);
+            if (hasVoiceTrack) {
+              mergedPath = await this.ffmpeg.mixBgmPreserveAudio(mergedPath, audioPath);
+              this.logger.log('BGM mixed under voiceover track');
+            } else {
+              mergedPath = await this.ffmpeg.compositeVideoWithAudio(mergedPath, audioPath);
+            }
           }
         } catch (err: any) {
           this.logger.warn(`Background music failed: ${err.message}`);
@@ -1544,6 +1573,28 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
             this.logger.warn(`Scene ${sceneIndex} duration align failed, keep raw: ${alignErr.message}`);
           }
         }
+        // Voiceover: TTS narration merged into the regenerated scene video
+        if (project.voiceover_enabled !== false) {
+          try {
+            const ttsText = [scene.name, description].filter(Boolean).join('，').slice(0, 200);
+            if (ttsText) {
+              const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+              const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
+              if (audioBuf && audioBuf.byteLength > 0) {
+                const ttsPath = path.join(workDir, `scene_${sceneIndex}_tts.mp3`);
+                fs.writeFileSync(ttsPath, Buffer.from(audioBuf));
+                const voicedPath = path.join(workDir, `scene_${sceneIndex}_voiced.mp4`);
+                const merged = await this.ffmpeg.compositeVideoWithAudio(alignedPath, ttsPath, sceneDur, voicedPath);
+                if (fs.existsSync(merged)) {
+                  alignedPath = merged;
+                  this.logger.log(`Scene ${sceneIndex} voiceover merged (${ttsText.length} chars)`);
+                }
+              }
+            }
+          } catch (voErr: any) {
+            this.logger.warn(`Scene ${sceneIndex} voiceover failed, keep silent: ${voErr.message}`);
+          }
+        }
         // Persist scene video outside workDir so it survives for later re-merges
         const persistedScene = path.join(this.outputDir, `viral_scene_${projectId}_${sceneIndex}.mp4`);
         try {
@@ -1571,14 +1622,19 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         try {
           let mergedPath = await this.ffmpeg.mergeVideos(completedPaths);
 
-          // Re-apply background music (consistent with startGeneration)
+          // Re-apply background music (consistent with startGeneration, keep voiceover track)
           const template = await this.templateRepo.findOne({ where: { id: project.template_id } });
           const audioConfig = template?.audio ? JSON.parse(template.audio) : null;
           if (audioConfig?.bgm_url) {
             try {
               const audioPath = await this.downloadToLocal(audioConfig.bgm_url, workDir, 'bgm');
               if (audioPath) {
-                mergedPath = await this.ffmpeg.compositeVideoWithAudio(mergedPath, audioPath);
+                const hasVoiceTrack = project.voiceover_enabled !== false && await this.ffmpeg.hasAudioTrack(mergedPath);
+                if (hasVoiceTrack) {
+                  mergedPath = await this.ffmpeg.mixBgmPreserveAudio(mergedPath, audioPath);
+                } else {
+                  mergedPath = await this.ffmpeg.compositeVideoWithAudio(mergedPath, audioPath);
+                }
               }
             } catch (err: any) {
               this.logger.warn(`Background music failed: ${err.message}`);

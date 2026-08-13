@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, InputNumber, Form, message, Divider, Image, Select, Tooltip } from 'antd';
+import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, InputNumber, Form, message, Divider, Image, Select, Tooltip, Switch } from 'antd';
 import { ArrowLeftOutlined, ThunderboltOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import GlobalAssetPicker from './components/GlobalAssetPicker';
@@ -61,7 +61,7 @@ export default function ViralTemplateDetail() {
       setSubmitting(true);
 
       const variables = Object.entries(values)
-        .filter(([key]) => !['project_name', 'project_ratio', 'project_resolution', 'project_style', 'project_language', 'project_target_duration'].includes(key))
+        .filter(([key]) => !['project_name', 'project_ratio', 'project_resolution', 'project_style', 'project_language', 'project_target_duration', 'project_voiceover_enabled'].includes(key))
         .map(([key, value]) => ({ key, value }));
 
       const { data } = await api.post('/api/viral/projects', {
@@ -70,6 +70,7 @@ export default function ViralTemplateDetail() {
         variables: JSON.stringify(variables),
         media_refs: selectedImages.length > 0 ? JSON.stringify(selectedImages) : undefined,
         target_duration: values.project_target_duration ? Number(values.project_target_duration) : undefined,
+        voiceover_enabled: values.project_voiceover_enabled ?? true,
         ratio: values.project_ratio || '9:16',
         resolution: values.project_resolution || '720p',
         style: values.project_style || 'realistic',
@@ -229,6 +230,11 @@ export default function ViralTemplateDetail() {
                     <InputNumber
                       min={1} max={60} placeholder="留空 = 模板默认" style={{ width: '100%', borderRadius: 8 }}
                     />
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item name="project_voiceover_enabled" label="生成配音（AI 朗读每个场景的描述作为旁白）" valuePropName="checked" initialValue={true}>
+                    <Switch checkedChildren="开" unCheckedChildren="关" />
                   </Form.Item>
                 </Col>
               </Row>

@@ -423,6 +423,84 @@ export class FFmpegUtil {
   }
 
   /**
+   * Mix a BGM track into a video that ALREADY has its own audio (e.g. TTS voiceover).
+   * The existing track is kept at full volume, BGM is ducked to `musicVolume`.
+   * Falls back to compositeVideoWithAudio when the video has no audio track.
+   */
+  async mixBgmPreserveAudio(
+    videoPath: string,
+    musicPath: string,
+    options?: {
+      musicVolume?: number;
+      duration?: number;
+      outputPath?: string;
+    },
+  ): Promise<string> {
+    if (!videoPath || !fs.existsSync(videoPath)) {
+      throw new Error('视频合成失败: 视频文件不存在');
+    }
+    if (!musicPath || !fs.existsSync(musicPath)) {
+      this.logger.warn('No BGM file, returning video as-is');
+      return videoPath;
+    }
+    if (!(await this.hasAudioTrack(videoPath))) {
+      this.logger.warn('Video has no audio track, falling back to plain audio replacement');
+      return this.compositeVideoWithAudio(videoPath, musicPath, options?.duration, options?.outputPath);
+    }
+
+    const outPath = options?.outputPath || path.join(
+      this.outputDir,
+      `mix_bgm_${Date.now()}.mp4`,
+    );
+
+    try {
+      let duration = options?.duration;
+      if (!duration) {
+        const info = await this.getVideoInfo(videoPath);
+        duration = info.duration || 5;
+      }
+
+      const musicVol = options?.musicVolume ?? 0.2;
+      const fadeOut = Math.max(0, Math.min(2, duration - 0.5));
+      const fadeStart = Math.max(0, duration - fadeOut);
+
+      const filterGraph =
+        `[1:a]volume=${musicVol},aloop=loop=-1:size=2000000000,atrim=0:${duration}` +
+        (fadeOut > 0.1 && duration > 1 ? `,afade=t=out:st=${fadeStart}:d=${fadeOut}` : '') +
+        `[mus];` +
+        `[0:a][mus]amix=inputs=2:duration=first:dropout_transition=0,alimiter=limit=0.95[aout]`;
+
+      const args: string[] = [
+        '-y',
+        '-i', videoPath,
+        '-i', musicPath,
+        '-t', String(duration),
+        '-filter_complex', filterGraph,
+        '-map', '0:v',
+        '-map', '[aout]',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        outPath,
+      ];
+
+      const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
+      this.logger.log(`FFmpeg BGM-preserve command: ffmpeg ${displayCmd}`);
+
+      const { stderr } = await this.ff(`${displayCmd}`, { timeout: 120000 });
+      if (stderr) {
+        this.logger.debug(`FFmpeg stderr: ${stderr.slice(0, 200)}`);
+      }
+
+      this.logger.log(`BGM-preserve composite complete: ${outPath}`);
+      return outPath;
+    } catch (err: any) {
+      this.logger.error(`BGM-preserve composite failed: ${err.message}`);
+      throw new Error(`视频+BGM混音失败: ${err.message}`);
+    }
+  }
+
+  /**
    * Create a subtitle file (SRT format) from text and timestamps
    */
   createSubtitleFile(

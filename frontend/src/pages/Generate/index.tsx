@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Tabs, Form, Select, Input, Button, Card, Tag,
-  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert, Progress,
+  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert, Progress, Switch,
 } from 'antd';
 import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, UserOutlined, EnvironmentOutlined, AppstoreOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, FullscreenOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import api from '../../services/api';
@@ -420,6 +420,16 @@ export default function GeneratePage() {
                 <Select style={{ width: 110 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </Space>
+            <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
+              <Switch checkedChildren="开" unCheckedChildren="关" />
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
+              {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
+                <Form.Item name="voiceover_text" label="配音内容（可留空，默认朗读提示词）">
+                  <TextArea rows={2} placeholder="例如：这是一段关于城市夜景的短片，清晨的街道渐渐苏醒..." />
+                </Form.Item>
+              )}
+            </Form.Item>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>自动分配T2V模型</Tag>
@@ -608,6 +618,16 @@ export default function GeneratePage() {
                 <Select style={{ width: 110 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </Space>
+            <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
+              <Switch checkedChildren="开" unCheckedChildren="关" />
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
+              {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
+                <Form.Item name="voiceover_text" label="配音内容（可留空，默认朗读提示词）">
+                  <TextArea rows={2} placeholder="例如：这是关于角色的一段故事..." />
+                </Form.Item>
+              )}
+            </Form.Item>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>自动分配{selectedLibraryAssets.length > 1 ? 'R2V' : 'I2V'}模型</Tag>

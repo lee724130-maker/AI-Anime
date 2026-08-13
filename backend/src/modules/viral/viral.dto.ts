@@ -133,6 +133,9 @@ export class CreateProjectDto {
   @IsOptional() @IsInt() @Min(1) @Max(60)
   target_duration?: number;
 
+  @IsOptional() @IsBoolean()
+  voiceover_enabled?: boolean;
+
   @IsOptional() @IsString()
   ratio?: string;
 

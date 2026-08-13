@@ -27,6 +27,8 @@ export class GenerateController {
     ratio?: string;
     duration?: number;
     model?: string;
+    voiceover?: boolean;
+    voiceover_text?: string;
   }) {
     return this.generateService.textToVideo(req.user.id, body);
   }
@@ -41,6 +43,8 @@ export class GenerateController {
     ratio?: string;
     duration?: number;
     model?: string;
+    voiceover?: boolean;
+    voiceover_text?: string;
   }) {
     return this.generateService.imageToVideo(req.user.id, body);
   }

@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository, InjectEntityManager } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 import { AIServiceUtil } from '../../utils/ai-service.util';
+import { FFmpegUtil } from '../../utils/ffmpeg.util';
 import { ModelConfigService } from '../admin/model-config.service';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import { MediaFile } from '../media/media-file.entity';
@@ -25,6 +26,7 @@ export class GenerateService {
 
   constructor(
     private readonly aiService: AIServiceUtil,
+    private readonly ffmpeg: FFmpegUtil,
     private readonly modelConfigService: ModelConfigService,
     @InjectRepository(MediaFile)
     private readonly mediaRepo: Repository<MediaFile>,
@@ -297,6 +299,8 @@ export class GenerateService {
     ratio?: string;
     duration?: number;
     model?: string;
+    voiceover?: boolean;
+    voiceover_text?: string;
   }) {
     const { prompt, model } = dto;
     if (!prompt) throw new BadRequestException('请输入描述');
@@ -338,6 +342,8 @@ export class GenerateService {
     ratio?: string;
     duration?: number;
     model?: string;
+    voiceover?: boolean;
+    voiceover_text?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -359,8 +365,38 @@ export class GenerateService {
         void this.updateProgress(task, Math.min(85, Math.max(30, p)));
       });
 
-      const localUrl = await this.downloadToLocal(videoUrl, `vid_${task.id}`);
+      let localUrl = await this.downloadToLocal(videoUrl, `vid_${task.id}`);
       await this.updateProgress(task, 92);
+
+      // Voiceover: TTS narration merged into the generated video
+      if (dto.voiceover) {
+        try {
+          const ttsText = (dto.voiceover_text || prompt || '').slice(0, 500);
+          if (ttsText) {
+            const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+            const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
+            if (audioBuf && audioBuf.byteLength > 0) {
+              const outputDir = path.resolve(process.cwd(), 'output');
+              const ttsPath = path.join(outputDir, `tts_${task.id}_${Date.now()}.mp3`);
+              fs.writeFileSync(ttsPath, Buffer.from(audioBuf));
+              const localAbs = localUrl.startsWith('/static/')
+                ? path.join(outputDir, path.basename(localUrl))
+                : localUrl;
+              const voicedPath = await this.ffmpeg.compositeVideoWithAudio(
+                localAbs, ttsPath, duration || 5,
+                path.join(outputDir, `vid_${task.id}_voiced_${Date.now()}.mp4`),
+              );
+              if (voicedPath && fs.existsSync(voicedPath)) {
+                localUrl = `/static/${path.basename(voicedPath)}`;
+                this.logger.log(`任务 ${task.id} 文生视频配音完成`);
+              }
+            }
+          }
+        } catch (voErr: any) {
+          this.logger.warn(`任务 ${task.id} 配音失败，保留无声版本: ${voErr.message}`);
+        }
+      }
+
       const file = await this.mediaRepo.save({
         user_id: userId,
         task_id: task.id,
@@ -399,6 +435,8 @@ export class GenerateService {
     ratio?: string;
     duration?: number;
     model?: string;
+    voiceover?: boolean;
+    voiceover_text?: string;
   }) {
     const { image_url, media, model } = dto;
     if (!image_url && (!media || media.length === 0)) throw new BadRequestException('请提供参考图片');
@@ -443,6 +481,8 @@ export class GenerateService {
     ratio?: string;
     duration?: number;
     model?: string;
+    voiceover?: boolean;
+    voiceover_text?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -467,8 +507,38 @@ export class GenerateService {
         void this.updateProgress(task, Math.min(85, Math.max(30, p)));
       });
 
-      const localUrl = await this.downloadToLocal(videoUrl, `i2v_${task.id}`);
+      let localUrl = await this.downloadToLocal(videoUrl, `i2v_${task.id}`);
       await this.updateProgress(task, 92);
+
+      // Voiceover: TTS narration merged into the generated video
+      if (dto.voiceover) {
+        try {
+          const ttsText = (dto.voiceover_text || prompt || '').slice(0, 500);
+          if (ttsText) {
+            const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+            const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
+            if (audioBuf && audioBuf.byteLength > 0) {
+              const outputDir = path.resolve(process.cwd(), 'output');
+              const ttsPath = path.join(outputDir, `tts_${task.id}_${Date.now()}.mp3`);
+              fs.writeFileSync(ttsPath, Buffer.from(audioBuf));
+              const localAbs = localUrl.startsWith('/static/')
+                ? path.join(outputDir, path.basename(localUrl))
+                : localUrl;
+              const voicedPath = await this.ffmpeg.compositeVideoWithAudio(
+                localAbs, ttsPath, duration || 5,
+                path.join(outputDir, `i2v_${task.id}_voiced_${Date.now()}.mp4`),
+              );
+              if (voicedPath && fs.existsSync(voicedPath)) {
+                localUrl = `/static/${path.basename(voicedPath)}`;
+                this.logger.log(`任务 ${task.id} 图生视频配音完成`);
+              }
+            }
+          }
+        } catch (voErr: any) {
+          this.logger.warn(`任务 ${task.id} 配音失败，保留无声版本: ${voErr.message}`);
+        }
+      }
+
       const file = await this.mediaRepo.save({
         user_id: userId,
         task_id: task.id,
