@@ -356,7 +356,10 @@ export class DramaService {
 
     const prompt = expandTemplate.template
       .replace('{{episodeInfo}}', JSON.stringify(episodeInfo))
-      .replace('{{globalAssets}}', globalAssets);
+      .replace('{{globalAssets}}', globalAssets)
+      + `\n\n画面风格要求：${project.target_style === 'realistic'
+        ? '写实风格（realistic，真实拍摄质感，严禁动漫/插画/二次元词汇，prompt 必须体现写实词汇）'
+        : '动漫风格（anime style，日系动画质感，prompt 必须体现 anime style）'}`;
 
     const raw = await this.aiService.chatCompletion(
       [{ role: 'user', content: prompt }],
