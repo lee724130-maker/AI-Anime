@@ -686,6 +686,7 @@ export class DramaService {
     if (!episode) throw new NotFoundException('分集不存在');
     await this.getById(userId, episode.project_id);
     const rows = await this.candidateRepo.find({ where: { segment_id: segmentId }, order: { candidate_index: 'ASC' } });
+    const mainUrl = segment.video_url;
     return rows.map(r => ({
       id: r.id,
       candidate_index: r.candidate_index,
@@ -694,6 +695,7 @@ export class DramaService {
       quality: r.quality,
       quality_report: r.quality_report ? JSON.parse(r.quality_report) : null,
       is_accepted: !!r.is_accepted,
+      is_main: !!r.video_url && !!mainUrl && r.video_url === mainUrl,
       error_msg: r.error_msg,
     }));
   }

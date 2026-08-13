@@ -26,7 +26,7 @@ interface Candidate {
   id: number; candidate_index: number; video_url: string | null;
   status: string; quality: string | null;
   quality_report: { issues?: string[]; consistency?: string } | null;
-  is_accepted: boolean; error_msg: string | null;
+  is_accepted: boolean; is_main: boolean; error_msg: string | null;
 }
 
 const QUALITY_BADGE: Record<string, { color: string; label: string }> = {
@@ -520,20 +520,23 @@ export default function EpisodeDetailPage() {
 
                 {candidates[seg.id] && candidates[seg.id].length > 0 && (
                   <div style={{ marginTop: 10 }}>
-                    <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>候选镜头（多候选择优）：</Text>
+                    <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
+                      视频版本（主视频 = 当前正式版；备选可预览后「采纳替换」）：
+                    </Text>
                     <Row gutter={[6, 6]} style={{ marginTop: 6 }}>
                       {candidates[seg.id].map(c => {
                         const badge = QUALITY_BADGE[c.quality || ''] || QUALITY_BADGE.unknown;
                         const report = c.quality_report;
+                        const altNo = candidates[seg.id].filter(x => !x.is_main).indexOf(c) + 1;
                         return (
                           <Col key={c.id} xs={24}>
                             <div style={{
-                              border: c.is_accepted ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
-                              borderRadius: 6, padding: 6, background: c.is_accepted ? '#f9f5ff' : '#fafafa',
+                              border: c.is_main ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
+                              borderRadius: 6, padding: 6, background: c.is_main ? '#f9f5ff' : '#fafafa',
                             }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-                                <Tag color={c.is_accepted ? 'purple' : 'default'} style={{ marginRight: 0 }}>
-                                  #{c.candidate_index + 1}{c.is_accepted ? ' · 已采纳' : ''}
+                                <Tag color={c.is_main ? 'purple' : 'default'} style={{ marginRight: 0 }}>
+                                  {c.is_main ? '主视频' : `备选 ${altNo}`}
                                 </Tag>
                                 {c.status === 'failed' ? (
                                   <Tag color="error" style={{ marginRight: 0 }}>✘ 生成失败</Tag>
@@ -547,15 +550,15 @@ export default function EpisodeDetailPage() {
                                   </Tooltip>
                                 )}
                                 <div style={{ flex: 1 }} />
-                                {c.status === 'completed' && !c.is_accepted && (
+                                {c.status === 'completed' && !c.is_main && (
                                   <Button type="primary" size="small" style={{ fontSize: 11, background: '#7c3aed', borderColor: '#7c3aed' }}
                                     loading={accepting.has(c.id)}
                                     onClick={() => handleAcceptCandidate(c.id, seg.id)}>
-                                    采纳
+                                    采纳替换
                                   </Button>
                                 )}
-                                {!c.is_accepted && (
-                                  <Popconfirm title="移除该候选？" onConfirm={() => handleDeleteCandidate(c.id, seg.id)}
+                                {!c.is_main && (
+                                  <Popconfirm title="移除该备选？" onConfirm={() => handleDeleteCandidate(c.id, seg.id)}
                                     okText="移除" cancelText="取消">
                                     <Button type="text" size="small" icon={<DeleteOutlined />} />
                                   </Popconfirm>
@@ -568,6 +571,13 @@ export default function EpisodeDetailPage() {
                               ) : c.error_msg ? (
                                 <Text type="danger" style={{ fontSize: 11 }}>{c.error_msg}</Text>
                               ) : null}
+                              <div style={{ marginTop: 3 }}>
+                                {c.is_main ? (
+                                  <Text type="secondary" style={{ fontSize: 11 }}>当前正式版本（与片段上方视频内容相同）</Text>
+                                ) : (
+                                  <Text type="secondary" style={{ fontSize: 11 }}>备选版本 · 预览满意后可「采纳替换」为主视频</Text>
+                                )}
+                              </div>
                             </div>
                           </Col>
                         );
