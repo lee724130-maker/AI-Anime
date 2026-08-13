@@ -14,7 +14,8 @@
 - **⑤ 输出语言修复（用户反馈：分析结果全英文）**：模板只约束了 prompt=英文、prompt_cn=中文，title/summary/description 等元数据无语言约束 → LLM 默认输出英文。修复（双保险）：模板 1/7 加语言规则「除 prompt 外所有文本字段一律中文，与大纲语言一致」（description 的「中英混合」改「中文」）；后端新增 `sanitizePrompts` 兜底——剥离 prompt 中的中文字符（实测 LLM 会把中文资产描述抄进英文 prompt，如「墨绿帆布包 slipping off shoulder」），剥离后为空回退 prompt_cn。语言验证 e2e **10/10**（title/genre/targetAudience/每集 title+summary/角色/道具/场景 name+description 全中文，prompt 纯英文无 CJK）。
 - **⑥ 片段重新生成（用户需求：对剧情不满意时重生成）**：编辑分析结果页每个片段卡片新增「重新生成」按钮 → 后端 `POST /api/drama/:id/regenerate-segment`（body `{episodeNo, segmentNo}`）——复用模板 7，喂入该集信息 + currentSegments + 全局 assets，temperature 0.7 提升多样性，输出 1 个新片段替换（保持 segmentNo/时长兜底）；语言/资产兜底与 analyze 一致（sanitizePrompts + mergeUnknownAssetRefs，新引用资产自动补入 assets 并随 `newAssets` 返回给前端）；**不写库**（编辑页整体保存草稿时入库）。验证 e2e **11/11**（新片段 5.6s/剧情连贯但内容不同/语言正确/保存草稿正常）。
 - ⚠️ 已知边界：阶段 1 结构被截断时集数会少于目标（parseStructured 保留前面完整集，日志 warn，前端可编辑）；24 集 = 1 + 8 批 ≈ 9 次 LLM 调用（约 90-120s）；模板 1/7 均在 `backend/seed-prompt-templates.sql`，admin 提示词模板管理页可改。
-- ⚠️ 血泪（重复教训）：PowerShell `Get-Content`/`Set-Content` 会把 UTF-8 中文转码损坏（**复制/修改含中文的 JS 脚本必须用 node 读写 utf8**）；内联 `node -e` 中文/引号必挂 → 一律写脚本文件；重跑 12 集测试时先检查脚本断言里写死的数字。
+- **⑦ 候选区「主视频/备选」区分（用户反馈：选候选数 2 却看到 3 个视频，分不清哪个是正式版）**：实为 1 个正式视频 + 2 个候选的正常设计，但无标识造成困惑。优化（commit `913dee6`）：后端 `listSegmentCandidates` 加 `is_main`（`video_url === segment.video_url`，采纳翻转自然跟随）；前端候选卡片区分展示——主视频 = 紫色边框「主视频」tag + 说明「当前正式版本（与片段上方视频内容相同）」，备选 = 「备选 N」tag + 「预览满意后可采纳替换」；主视频卡片**不显示采纳/删除按钮**（采纳替换/移除仅备选可操作）；区块标题改「视频版本」。验证：接口 is_main 初始/采纳后翻转全对；UI 主视频+备选 1 标签正确、采纳按钮仅 1 个、0 JS 错误；测试用户/归属已还原。
+- ⚠️ 血泪（重复教训）：PowerShell `Get-Content`/`Set-Content` 会把 UTF-8 中文转码损坏（**复制/修改含中文的 JS 脚本必须用 node 读写 utf8**）；内联 `node -e` 中文/引号必挂 → 一律写脚本文件；重跑 12 集测试时先检查脚本断言里写死的数字。Redis 注入验证码的过期时间格式：后端 `persistCode` 存的是**毫秒**（`code|Date.now()+5min`），注入秒会被 `Number(exp) > Date.now()` 判过期 → 409「验证码错误或已过期」。
 
 ---
 
