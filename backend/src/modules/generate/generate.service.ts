@@ -904,17 +904,18 @@ ${this.styleInstruction(style)}
    * so the AI 配音 has proper content without the user writing it by hand.
    */
   private async buildVoiceover(creativePrompt: string, finalPrompt: string): Promise<string> {
-    const sys = `你是一个短视频旁白文案专家。根据视频画面描述，生成一段自然流畅的中文旁白（画外音解说），用于 AI 配音朗读。
+    const sys = `你是一个短视频解说词编剧，负责为AI配音写台词。用户会给你「画面描述」，你要写一段与之对应的话外音解说词。
 
-要求：
-1. 基于画面描述的内容展开解说，紧扣画面要素（主体、场景、动作、氛围）
-2. 语气自然口语化，适合短视频/广告/故事类旁白
-3. 80-150 字，直接输出文案，不要解释、不要引号、不要任何前缀
-4. 只用中文，禁止出现英文单词`;
+要求（必须全部满足）：
+1. 严格对照画面描述，画面里出现的主体、场景、动作、细节（如"橘猫""天台""黄昏""油漆桶"）都要在台词里提到，不得写画面里不存在的内容
+2. 用短视频口播解说词的结构：开场点题（一句话抓住观众）→ 主体介绍 → 细节展开 → 情绪或行动收尾
+3. 语气口语化、有节奏感，可用短句、问句制造张力
+4. 禁止写成散文或纯景物描写，必须是有内容的"解说词/台词"（像抖音解说、广告旁白）
+5. 80-150字，纯中文，不要引号、不要"旁白：""解说："等前缀、不要任何解释`;
 
     const result = await this.aiService.chatCompletion([
       { role: 'system', content: sys },
-      { role: 'user', content: `用户创意：${creativePrompt}\n\n画面描述：${finalPrompt}` },
+      { role: 'user', content: `画面描述：\n${finalPrompt}` },
     ], { temperature: 0.7, maxTokens: 500 });
 
     return (result || '').trim();
