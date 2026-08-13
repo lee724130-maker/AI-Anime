@@ -59,6 +59,8 @@ export default function EpisodeDetailPage() {
   const [stitchProgress, setStitchProgress] = useState<{ message: string; percent: number } | null>(null);
   const [candidates, setCandidates] = useState<Record<number, Candidate[]>>({});
   const [candidateCounts, setCandidateCounts] = useState<Record<number, number>>({});
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [playingCand, setPlayingCand] = useState<number | null>(null);
   const [candLoading, setCandLoading] = useState<Set<number>>(new Set());
   const [accepting, setAccepting] = useState<Set<number>>(new Set());
   const pollTimers = useRef<Map<number, any>>(new Map());
@@ -79,6 +81,13 @@ export default function EpisodeDetailPage() {
   };
 
   useEffect(() => { fetchData(); }, [episodeId]);
+
+  useEffect(() => {
+    if (segments.length && (selectedId === null || !segments.find(s => s.id === selectedId))) {
+      setSelectedId(segments[0].id);
+      setPlayingCand(null);
+    }
+  }, [segments, selectedId]);
 
   const clearAllTimers = () => {
     for (const timer of pollTimers.current.values()) { clearInterval(timer); }
@@ -160,6 +169,7 @@ export default function EpisodeDetailPage() {
       await api.post(`/api/drama/candidates/${candidateId}/accept`);
       message.success('已采纳该候选');
       await loadCandidates(segId);
+      setPlayingCand(null);
       fetchData();
     } catch (err: any) {
       message.error(err.response?.data?.message || '采纳失败');
@@ -171,6 +181,7 @@ export default function EpisodeDetailPage() {
     try {
       await api.delete(`/api/drama/candidates/${candidateId}`);
       message.success('候选已移除');
+      setPlayingCand(prev => (prev === candidateId ? null : prev));
       await loadCandidates(segId);
     } catch (err: any) {
       message.error(err.response?.data?.message || '删除失败');
@@ -336,6 +347,27 @@ export default function EpisodeDetailPage() {
   const completedCount = segments.filter(s => s.status === 'completed').length;
   const allCompleted = completedCount === segments.length && segments.length > 0;
 
+  const selectedSeg = segments.find(s => s.id === selectedId) || segments[0] || null;
+  const segStatusColor = (seg: Segment) => seg.status === 'completed' ? 'success' : generating.has(seg.id) || seg.status === 'generating' ? 'processing' : seg.status === 'failed' ? 'error' : 'default';
+  const segStatusLabel = (seg: Segment) => seg.status === 'completed' ? '✅已完成' : generating.has(seg.id) || seg.status === 'generating' ? '⏳生成中' : seg.status === 'failed' ? '❌失败' : '待生成';
+  const cands = selectedSeg ? (candidates[selectedSeg.id] || []) : [];
+  const isGenerating = !!selectedSeg && (generating.has(selectedSeg.id) || selectedSeg.status === 'generating');
+  const prog = selectedSeg ? segmentProgress[selectedSeg.id] : undefined;
+  const chars = selectedSeg ? parseRefs(selectedSeg.character_refs) : [];
+  const props = selectedSeg ? parseRefs(selectedSeg.prop_refs) : [];
+  const scenes = selectedSeg ? parseRefs(selectedSeg.scene_refs) : [];
+  const playingUrl = (() => {
+    if (!selectedSeg) return '';
+    const c = cands.find(x => x.id === playingCand && x.status === 'completed' && x.video_url);
+    return c ? c.video_url : (selectedSeg.video_url || '');
+  })();
+  const playingLabel = (() => {
+    if (!selectedSeg) return '';
+    const c = cands.find(x => x.id === playingCand);
+    if (c && !c.is_main && c.video_url) return `片段${selectedSeg.segment_no} · 备选 ${cands.filter(x => !x.is_main).indexOf(c) + 1}`;
+    return `片段${selectedSeg.segment_no} · 主视频`;
+  })();
+
   return (
     <div>
       <Space style={{ marginBottom: 16 }}>
@@ -407,8 +439,235 @@ export default function EpisodeDetailPage() {
         </Card>
       )}
 
+      {!allCompleted && segments.length > 0 && (
+        <Alert type="info" showIcon title="所有片段完成后即可合成整集视频"
+          style={{ marginBottom: 16, borderRadius: 8 }} />
+      )}
+
+      {selectedSeg && (
+        <Row gutter={[12, 12]}>
+          <Col flex="auto" style={{ minWidth: 0 }}>
+            <Card style={{ borderRadius: 12, marginBottom: 12 }} styles={{ body: { padding: 10 } }}>
+              {playingUrl ? (
+                <div style={{
+                  width: '100%', height: 480, background: '#000',
+                  borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <video key={playingUrl} src={getUrl(playingUrl)} controls
+                    style={{ height: '100%', maxWidth: '100%', objectFit: 'contain', background: '#000' }}
+                    onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                </div>
+              ) : (
+                <div style={{
+                  width: '100%', height: 480, background: '#f5f5f5', borderRadius: 8,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8,
+                }}>
+                  <Text type="secondary">该片段暂无视频</Text>
+                  <Button type="primary" icon={<ThunderboltOutlined />} loading={isGenerating || submitting.has(selectedSeg.id)}
+                    disabled={isGenerating || submitting.has(selectedSeg.id)}
+                    style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                    onClick={() => handleGenerate(selectedSeg.id)}>
+                    生成视频
+                  </Button>
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <Tag color="purple">片段{selectedSeg.segment_no}</Tag>
+                <Tag color={segStatusColor(selectedSeg)}>
+                  {segStatusLabel(selectedSeg)}
+                </Tag>
+                {selectedSeg.duration && <Text type="secondary" style={{ fontSize: 12 }}>{selectedSeg.duration} 秒</Text>}
+                <div style={{ flex: 1 }} />
+                <Text type="secondary" style={{ fontSize: 12 }}>正在播放：{playingLabel}</Text>
+              </div>
+            </Card>
+
+            <Card size="small" style={{ borderRadius: 12, marginBottom: 12 }}
+              title={
+                <Space size={6}>
+                  <Text strong>片段{selectedSeg.segment_no} · 详情</Text>
+                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>{selectedSeg.summary}</Text>
+                </Space>
+              }>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                <Button type="primary" icon={<ThunderboltOutlined />} loading={isGenerating || submitting.has(selectedSeg.id)}
+                  disabled={isGenerating || submitting.has(selectedSeg.id)}
+                  style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                  onClick={() => handleGenerate(selectedSeg.id)}>
+                  生成视频
+                </Button>
+                <Button icon={<CheckCircleOutlined />} loading={planning.has(selectedSeg.id)}
+                  onClick={() => handlePlan(selectedSeg.id)}>
+                  智能规划
+                </Button>
+                <Button icon={<AimOutlined />} onClick={() => handleEditPrompt(selectedSeg)}>
+                  编辑提示词
+                </Button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>时长</Text>
+                  <Select value={selectedSeg.duration || 5} size="small" style={{ width: 72 }}
+                    onChange={v => handleDurationChange(selectedSeg.id, v)}
+                    options={Array.from({ length: 13 }, (_, i) => ({ label: `${i + 3}秒`, value: i + 3 }))} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>候选数</Text>
+                  <Select
+                    value={candidateCounts[selectedSeg.id] || 1}
+                    size="small" style={{ width: 64 }}
+                    disabled={isGenerating || submitting.has(selectedSeg.id) || selectedSeg.status === 'generating'}
+                    onChange={v => setCandidateCounts(prev => ({ ...prev, [selectedSeg.id]: v }))}
+                    options={[1, 2, 3].map(n => ({ label: `${n} 个`, value: n }))} />
+                </div>
+              </div>
+
+              {isGenerating && (
+                <div style={{ marginBottom: 8 }}>
+                  <Progress percent={prog?.percent ?? 0} size="small" style={{ marginBottom: 4 }} />
+                  <Text type="secondary" style={{ fontSize: 12 }}>{prog?.message || '正在提交任务...'}</Text>
+                </div>
+              )}
+
+              {(selectedSeg.prompt_cn || selectedSeg.prompt) && (
+                <div onClick={() => handleEditPrompt(selectedSeg)} style={{ cursor: 'pointer', marginBottom: 8 }}>
+                  <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#595959' }}>
+                    {selectedSeg.prompt_cn || selectedSeg.prompt}
+                  </Text>
+                </div>
+              )}
+              <Space size={4} wrap>
+                {chars.map(c => <Tag key={c} color="blue">{c}</Tag>)}
+                {props.map(p => <Tag key={p} color="orange">{p}</Tag>)}
+                {scenes.map(s => <Tag key={s} color="green">{s}</Tag>)}
+              </Space>
+            </Card>
+          </Col>
+
+          <Col flex="340px">
+            <Card size="small" style={{ borderRadius: 12 }}
+              title={
+                <Space size={6}>
+                  <Text strong>视频版本</Text>
+                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>点击切换中间播放器</Text>
+                </Space>
+              }
+              extra={
+                selectedSeg.status === 'completed' ? (
+                  <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
+                    loading={candLoading.has(selectedSeg.id)}
+                    onClick={() => loadCandidates(selectedSeg.id)}>
+                    {cands.length > 0 ? `刷新 (${cands.length})` : '查看候选'}
+                  </Button>
+                ) : null
+              }>
+              {cands.length === 0 ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>暂无版本，点击「生成视频」后展示正式版与备选</Text>
+              ) : (
+                <div style={{ maxHeight: 560, overflowY: 'auto' }}>
+                  {cands.map(c => {
+                    const badge = QUALITY_BADGE[c.quality || ''] || QUALITY_BADGE.unknown;
+                    const report = c.quality_report;
+                    const altNo = cands.filter(x => !x.is_main).indexOf(c) + 1;
+                    const isPlaying = c.is_main ? playingCand === null : playingCand === c.id;
+                    return (
+                      <div key={c.id}
+                        onClick={() => { if (c.status === 'completed' && c.video_url) setPlayingCand(c.is_main ? null : c.id); }}
+                        style={{
+                          border: isPlaying ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
+                          borderRadius: 8, padding: 8, marginBottom: 8,
+                          background: isPlaying ? '#f9f5ff' : '#fff',
+                          cursor: c.video_url ? 'pointer' : 'default',
+                        }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                          <Tag color={c.is_main ? 'purple' : 'default'} style={{ marginRight: 0 }}>
+                            {c.is_main ? '主视频' : `备选 ${altNo}`}
+                          </Tag>
+                          {c.status === 'failed' ? (
+                            <Tag color="error" style={{ marginRight: 0 }}>✘ 生成失败</Tag>
+                          ) : (
+                            <Tooltip title={
+                              report && (report.issues?.length || report.consistency)
+                                ? `质检报告：${[report.consistency, ...(report.issues || [])].filter(Boolean).join('；')}`
+                                : '无质检详情'
+                            }>
+                              <Tag color={badge.color} style={{ marginRight: 0 }}>{badge.label}</Tag>
+                            </Tooltip>
+                          )}
+                          {isPlaying && c.video_url && <Tag color="purple" style={{ marginRight: 0 }}>播放中</Tag>}
+                          <div style={{ flex: 1 }} />
+                          {c.status === 'completed' && !c.is_main && (
+                            <Button type="primary" size="small" style={{ fontSize: 11, background: '#7c3aed', borderColor: '#7c3aed' }}
+                              loading={accepting.has(c.id)}
+                              onClick={(e) => { e.stopPropagation(); handleAcceptCandidate(c.id, selectedSeg.id); }}>
+                              采纳替换
+                            </Button>
+                          )}
+                          {!c.is_main && (
+                            <Popconfirm title="移除该备选？" onConfirm={() => handleDeleteCandidate(c.id, selectedSeg.id)}
+                              okText="移除" cancelText="取消">
+                              <Button type="text" size="small" icon={<DeleteOutlined />}
+                                onClick={(e) => e.stopPropagation()} />
+                            </Popconfirm>
+                          )}
+                        </div>
+                        {c.video_url ? (
+                          <video src={getUrl(c.video_url)} preload="metadata"
+                            style={{ width: '100%', maxHeight: 120, borderRadius: 4, background: '#000', display: 'block' }}
+                            onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                        ) : c.error_msg ? (
+                          <Text type="danger" style={{ fontSize: 11 }}>{c.error_msg}</Text>
+                        ) : null}
+                        <div style={{ marginTop: 4 }}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            {c.is_main ? '当前正式版本' : '备选版本 · 预览满意后可采纳替换'}
+                          </Text>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      <Card size="small" title={
+        <Space size={6}>
+          <Text strong>片段列表</Text>
+          <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>点击切换中间播放器</Text>
+        </Space>
+      } style={{ borderRadius: 12, marginTop: 12 }}>
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+          {segments.map(seg => {
+            const active = seg.id === selectedId;
+            return (
+              <div key={seg.id} onClick={() => { setSelectedId(seg.id); setPlayingCand(null); }}
+                style={{
+                  flex: '0 0 190px', border: active ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
+                  borderRadius: 8, padding: 8, background: active ? '#f9f5ff' : '#fafafa', cursor: 'pointer',
+                }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  <Tag color={active ? 'purple' : 'default'} style={{ marginRight: 0 }}>片段{seg.segment_no}</Tag>
+                  <Tag color={segStatusColor(seg)} style={{ marginRight: 0 }}>{segStatusLabel(seg)}</Tag>
+                </div>
+                {seg.summary && (
+                  <Text type="secondary" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 12, lineHeight: 1.4 }}>
+                    {seg.summary}
+                  </Text>
+                )}
+                {seg.video_url && (
+                  <video src={getUrl(seg.video_url)} preload="metadata"
+                    style={{ width: '100%', maxHeight: 80, borderRadius: 4, background: '#000', marginTop: 4, display: 'block' }}
+                    onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
       {episode.video_url && (
-        <Card title="本集成片" style={{ borderRadius: 12, marginBottom: 16 }}
+        <Card title="本集成片" style={{ borderRadius: 12, marginTop: 12 }}
           extra={
             <a href={getUrl(episode.video_url)} download target="_blank">
               <Button icon={<DownloadOutlined />}>下载</Button>
@@ -418,178 +677,6 @@ export default function EpisodeDetailPage() {
             style={{ width: '100%', maxHeight: 400, borderRadius: 8 }} />
         </Card>
       )}
-
-      {!allCompleted && segments.length > 0 && (
-        <Alert type="info" showIcon title="所有片段完成后即可合成整集视频"
-          style={{ marginBottom: 16, borderRadius: 8 }} />
-      )}
-
-      <Row gutter={[12, 12]}>
-        {segments.map(seg => {
-          const isGenerating = generating.has(seg.id);
-          const prog = segmentProgress[seg.id];
-          const chars = parseRefs(seg.character_refs);
-          const props = parseRefs(seg.prop_refs);
-          const scenes = parseRefs(seg.scene_refs);
-          return (
-            <Col key={seg.id} xs={24} sm={12} lg={8}>
-              <Card
-                size="small"
-                style={{ borderRadius: 8 }}
-                 title={
-                  <Space>
-                    <Tag color="purple">片段{seg.segment_no}</Tag>
-                    <Select value={seg.duration || 5} size="small" style={{ width: 72 }}
-                      onChange={v => handleDurationChange(seg.id, v)}
-                      options={Array.from({ length: 13 }, (_, i) => ({ label: `${i + 3}秒`, value: i + 3 }))} />
-                    <Tag color={seg.status === 'completed' ? 'success' : isGenerating || seg.status === 'generating' ? 'processing' : seg.status === 'failed' ? 'error' : 'default'}>
-                      {seg.status === 'completed' ? '✅已完成' : isGenerating || seg.status === 'generating' ? '⏳生成中' : seg.status === 'failed' ? '❌失败' : '待生成'}
-                    </Tag>
-                  </Space>
-                }
-                actions={[
-                  <Button type="text" size="small" icon={<ThunderboltOutlined />}
-                    loading={isGenerating || submitting.has(seg.id)}
-                    disabled={isGenerating || submitting.has(seg.id)}
-                    onClick={() => handleGenerate(seg.id)}>
-                    生成视频
-                  </Button>,
-                  <Button type="text" size="small" icon={<CheckCircleOutlined />}
-                    loading={planning.has(seg.id)} onClick={() => handlePlan(seg.id)}>
-                    智能规划
-                  </Button>,
-                  <Button type="text" size="small" icon={<AimOutlined />}
-                    onClick={() => handleEditPrompt(seg)}>
-                    编辑提示词
-                  </Button>,
-                ]}
-              >
-                {seg.summary && (
-                  <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 6, lineHeight: 1.4 }}>
-                    {seg.summary}
-                  </Text>
-                )}
-                {(seg.prompt_cn || seg.prompt) && (
-                  <div onClick={() => handleEditPrompt(seg)} style={{ cursor: 'pointer' }}>
-                    <Text style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 12, marginBottom: 6, lineHeight: 1.4, color: '#595959' }}>
-                      {(seg.prompt_cn || seg.prompt)}
-                    </Text>
-                  </div>
-                )}
-                <Space size={4} wrap>
-                  {chars.map(c => <Tag key={c} color="blue">{c}</Tag>)}
-                  {props.map(p => <Tag key={p} color="orange">{p}</Tag>)}
-                  {scenes.map(s => <Tag key={s} color="green">{s}</Tag>)}
-                </Space>
-
-                <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>候选数：</Text>
-                  <Select
-                    value={candidateCounts[seg.id] || 1}
-                    size="small" style={{ width: 64 }}
-                    disabled={isGenerating || submitting.has(seg.id) || seg.status === 'generating'}
-                    onChange={v => setCandidateCounts(prev => ({ ...prev, [seg.id]: v }))}
-                    options={[1, 2, 3].map(n => ({ label: `${n} 个`, value: n }))}
-                  />
-                  {seg.status === 'completed' && (
-                    <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
-                      loading={candLoading.has(seg.id)}
-                      onClick={() => {
-                        if (candidates[seg.id]) setCandidates(prev => ({ ...prev, [seg.id]: undefined as any }));
-                        loadCandidates(seg.id);
-                      }}>
-                      {(candidates[seg.id]?.length ?? 0) > 0 ? `候选 ${candidates[seg.id]!.length} 个 · 刷新` : '查看候选'}
-                    </Button>
-                  )}
-                </div>
-
-                {isGenerating && (
-                  <div style={{ marginTop: 8 }}>
-                    <Progress percent={prog?.percent ?? 0} size="small" style={{ marginBottom: 4 }} />
-                    <Text type="secondary" style={{ fontSize: 12 }}>{prog?.message || '正在提交任务...'}</Text>
-                  </div>
-                )}
-
-                {seg.video_url && (
-                  <div style={{ marginTop: 8, position: 'relative', width: '100%', aspectRatio: '16/9', background: '#000', borderRadius: 4, overflow: 'hidden' }}>
-                    <video key={seg.video_url} src={getUrl(seg.video_url)} controls
-                      style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
-                      onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
-                  </div>
-                )}
-
-                {candidates[seg.id] && candidates[seg.id].length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <Text type="secondary" style={{ fontSize: 12, fontWeight: 600 }}>
-                      视频版本（主视频 = 当前正式版；备选可预览后「采纳替换」）：
-                    </Text>
-                    <Row gutter={[6, 6]} style={{ marginTop: 6 }}>
-                      {candidates[seg.id].map(c => {
-                        const badge = QUALITY_BADGE[c.quality || ''] || QUALITY_BADGE.unknown;
-                        const report = c.quality_report;
-                        const altNo = candidates[seg.id].filter(x => !x.is_main).indexOf(c) + 1;
-                        return (
-                          <Col key={c.id} xs={24}>
-                            <div style={{
-                              border: c.is_main ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
-                              borderRadius: 6, padding: 6, background: c.is_main ? '#f9f5ff' : '#fafafa',
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-                                <Tag color={c.is_main ? 'purple' : 'default'} style={{ marginRight: 0 }}>
-                                  {c.is_main ? '主视频' : `备选 ${altNo}`}
-                                </Tag>
-                                {c.status === 'failed' ? (
-                                  <Tag color="error" style={{ marginRight: 0 }}>✘ 生成失败</Tag>
-                                ) : (
-                                  <Tooltip title={
-                                    report && (report.issues?.length || report.consistency)
-                                      ? `质检报告：${[report.consistency, ...(report.issues || [])].filter(Boolean).join('；')}`
-                                      : '无质检详情'
-                                  }>
-                                    <Tag color={badge.color} style={{ marginRight: 0 }}>{badge.label}</Tag>
-                                  </Tooltip>
-                                )}
-                                <div style={{ flex: 1 }} />
-                                {c.status === 'completed' && !c.is_main && (
-                                  <Button type="primary" size="small" style={{ fontSize: 11, background: '#7c3aed', borderColor: '#7c3aed' }}
-                                    loading={accepting.has(c.id)}
-                                    onClick={() => handleAcceptCandidate(c.id, seg.id)}>
-                                    采纳替换
-                                  </Button>
-                                )}
-                                {!c.is_main && (
-                                  <Popconfirm title="移除该备选？" onConfirm={() => handleDeleteCandidate(c.id, seg.id)}
-                                    okText="移除" cancelText="取消">
-                                    <Button type="text" size="small" icon={<DeleteOutlined />} />
-                                  </Popconfirm>
-                                )}
-                              </div>
-                              {c.video_url ? (
-                                <video key={c.video_url} src={getUrl(c.video_url)} controls preload="metadata"
-                                  style={{ width: '100%', maxHeight: 180, borderRadius: 4, background: '#000' }}
-                                  onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
-                              ) : c.error_msg ? (
-                                <Text type="danger" style={{ fontSize: 11 }}>{c.error_msg}</Text>
-                              ) : null}
-                              <div style={{ marginTop: 3 }}>
-                                {c.is_main ? (
-                                  <Text type="secondary" style={{ fontSize: 11 }}>当前正式版本（与片段上方视频内容相同）</Text>
-                                ) : (
-                                  <Text type="secondary" style={{ fontSize: 11 }}>备选版本 · 预览满意后可「采纳替换」为主视频</Text>
-                                )}
-                              </div>
-                            </div>
-                          </Col>
-                        );
-                      })}
-                    </Row>
-                  </div>
-                )}
-              </Card>
-            </Col>
-          );
-        })}
-      </Row>
 
       <Modal title="编辑提示词" open={editModal.visible} onOk={handleEditSave}
         onCancel={() => setEditModal({ visible: false, seg: null, value: '' })}
