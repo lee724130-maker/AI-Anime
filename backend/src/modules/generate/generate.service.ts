@@ -860,9 +860,10 @@ ${this.styleInstruction(style)}
   }
 
   // ─── 智能规划主入口：三路分发 ─────────────────────────
-  async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string; style?: string }) {
+  async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number }) {
     const { prompt, images, style } = dto;
     const mode = dto.mode || 't2i';
+    const duration = Number(dto.duration) > 0 ? Number(dto.duration) : undefined;
     if (!prompt || prompt.trim().length < 2) {
       throw new BadRequestException('请提供至少2个字的描述');
     }
@@ -877,11 +878,11 @@ ${this.styleInstruction(style)}
           break;
         case 't2v':
           enhancedPrompt = await this.handleT2v(prompt, images, style);
-          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt).catch(() => undefined);
+          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration).catch(() => undefined);
           break;
         case 'i2v':
           enhancedPrompt = await this.handleI2v(prompt, images, style);
-          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt).catch(() => undefined);
+          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration).catch(() => undefined);
           break;
         default:
           enhancedPrompt = await this.handleT2i(prompt, images, style);
@@ -900,22 +901,27 @@ ${this.styleInstruction(style)}
   }
 
   /**
-   * Generate a Chinese voiceover narration matching the planned video description,
-   * so the AI 配音 has proper content without the user writing it by hand.
+   * Generate role dialogue (台词) matching the planned video description and
+   * capped by the video duration (中文语速约 4 字/秒，留朗读余量).
    */
-  private async buildVoiceover(creativePrompt: string, finalPrompt: string): Promise<string> {
-    const sys = `你是一个短视频解说词编剧，负责为AI配音写台词。用户会给你「画面描述」，你要写一段与之对应的话外音解说词。
+  private async buildVoiceover(creativePrompt: string, finalPrompt: string, duration?: number): Promise<string> {
+    const seconds = Number(duration) > 0 ? Math.round(Number(duration)) : 5;
+    const maxChars = Math.max(10, Math.floor(seconds * 4));
 
-要求（必须全部满足）：
-1. 严格对照画面描述，画面里出现的主体、场景、动作、细节（如"橘猫""天台""黄昏""油漆桶"）都要在台词里提到，不得写画面里不存在的内容
-2. 用短视频口播解说词的结构：开场点题（一句话抓住观众）→ 主体介绍 → 细节展开 → 情绪或行动收尾
-3. 语气口语化、有节奏感，可用短句、问句制造张力
-4. 禁止写成散文或纯景物描写，必须是有内容的"解说词/台词"（像抖音解说、广告旁白）
-5. 80-150字，纯中文，不要引号、不要"旁白：""解说："等前缀、不要任何解释`;
+    const sys = `你是一个短剧台词编剧，为 AI 配音写"角色说出口的台词"。用户会给你「画面描述」和「视频时长」，请写一段与画面匹配的台词。
+
+规则（必须全部满足）：
+1. 画面描述中有人物/角色时：以该角色口吻写台词（第一人称，像角色在现场说话，可以是对话或独白）
+2. 画面中没有人、只有主体（猫/产品/景物等）时：写一句该主体"拟人化"说出口的台词，或角色面向镜头说的口播金句
+3. 台词必须紧扣画面内容（主体、场景、动作、氛围都要呼应），不得写画面里没有的东西
+4. 禁止旁白/解说式描述：禁止"看这只猫""只见""这座城"这类第三人称画外音，必须是角色说出口的话
+5. 口语自然、有情绪、像真人说话，可用短句和问句
+6. 字数上限：视频约 ${seconds} 秒，中文语速约每秒 4 字，台词最多 ${maxChars} 字（宁可短，不要读不完）
+7. 纯中文，直接输出台词，不要引号、不要"台词："等前缀、不要任何解释`;
 
     const result = await this.aiService.chatCompletion([
       { role: 'system', content: sys },
-      { role: 'user', content: `画面描述：\n${finalPrompt}` },
+      { role: 'user', content: `画面描述：\n${finalPrompt}\n\n请写一段不超过 ${maxChars} 字的角色台词。` },
     ], { temperature: 0.7, maxTokens: 500 });
 
     return (result || '').trim();

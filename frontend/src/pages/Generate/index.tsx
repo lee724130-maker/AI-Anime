@@ -202,6 +202,7 @@ export default function GeneratePage() {
       return;
     }
     const style = form.getFieldValue('style') || 'realistic';
+    const duration = form.getFieldValue('duration') || 5;
     const loadingText = mode === 't2i' ? 'AI 正在规划图片描述...' : 'AI 正在规划视频描述...';
     const hideLoading = message.loading(loadingText, 0);
     try {
@@ -210,6 +211,7 @@ export default function GeneratePage() {
         images: images.length > 0 ? images : undefined,
         mode,
         style,
+        duration,
       });
       const patch: any = { prompt: data.prompt };
       if (mode !== 't2i' && data.voiceover) {

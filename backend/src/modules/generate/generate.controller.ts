@@ -60,7 +60,7 @@ export class GenerateController {
   }
 
   @Post('smart-plan')
-  smartPlan(@Req() req, @Body() body: { prompt: string; images?: string[]; mode?: string; style?: string }) {
+  smartPlan(@Req() req, @Body() body: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number }) {
     return this.generateService.smartPlan(req.user.id, body);
   }
 
