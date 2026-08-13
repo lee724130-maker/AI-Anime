@@ -67,7 +67,11 @@ export class DramaService {
     return project;
   }
 
-  async create(userId: number, data: Partial<DramaProject>) {
+  async create(userId: number, data: Partial<DramaProject> & { style?: string }) {
+    if (data.style) {
+      data.target_style = data.style;
+      delete (data as any).style;
+    }
     const project = this.projectRepo.create({ ...data, user_id: userId });
     return this.projectRepo.save(project);
   }
@@ -117,8 +121,14 @@ export class DramaService {
     try {
       // ── 阶段 1：结构分析（标题/风格/每集概述/全局资产清单）──
       const targetCount = Math.min(Math.max(project.episodes || 12, 1), 24);
+      const styleName = project.target_style === 'realistic' ? '写实风格（realistic，真实拍摄质感，严禁动漫/插画/二次元词汇）' : '动漫风格（anime style，日系动画质感）';
+      const projectReq = [
+        project.genre ? `题材：${project.genre}` : '',
+        project.target_style ? `风格：${styleName}` : '',
+        `目标集数：${targetCount} 集`,
+      ].filter(Boolean).join('；');
       const structurePrompt = analyzeTemplate.template
-        .replace('{{outline}}', project.outline)
+        .replace('{{outline}}', `${projectReq}\n\n剧本大纲：\n${project.outline}`)
         .replace('{{episodeCount}}', String(targetCount));
 
       const rawStructure = await this.aiService.chatCompletion(
@@ -132,6 +142,10 @@ export class DramaService {
 
       const structure = this.parseStructured(rawStructure);
       this.validateAnalysis(structure);
+      // 用户指定的风格优先（创建项目时可选动漫/写实），未指定才用 LLM 判断
+      if (project.target_style) {
+        structure.style = project.target_style;
+      }
       const episodes = structure.episodes || [];
       if (episodes.length > 0 && episodes.length !== (structure.episodeCount || 0)) {
         structure.episodeCount = episodes.length;
@@ -156,7 +170,8 @@ export class DramaService {
               .replace('{{episodeInfo}}', JSON.stringify({
                 episodeNo: ep.episodeNo, title: ep.title, summary: ep.summary, duration: ep.duration,
               }))
-              .replace('{{globalAssets}}', globalAssets);
+              .replace('{{globalAssets}}', globalAssets)
+              + `\n\n画面风格要求：${styleName}（prompt 中必须体现该风格词汇）`;
             const raw = await this.aiService.chatCompletion(
               [{ role: 'user', content: expandPrompt }],
               { temperature: 0.3, maxTokens: 4096 },
@@ -166,8 +181,7 @@ export class DramaService {
             }
             const parsed = this.parseStructured(raw);
             if (!parsed.episodeNo) parsed.episodeNo = ep.episodeNo;
-            return parsed;
-          }),
+            return parsed;          }),
         );
         for (const r of batchResults) {
           const ep = episodes.find((e: any) => String(e.episodeNo) === String(r.episodeNo));
@@ -238,6 +252,7 @@ export class DramaService {
     project.title = result.title || project.title;
     project.genre = result.genre || project.genre;
     project.episodes = result.episodeCount || project.episodes;
+    if (result.style) project.target_style = result.style;
     project.status = 'analysis_done';
     await this.projectRepo.save(project);
 
@@ -249,6 +264,7 @@ export class DramaService {
         title: ep.title || `第${i + 1}集`,
         summary: ep.summary || '',
         duration: ep.duration || 60,
+        style: result.style || project.target_style || 'anime',
       })
     );
     const savedEpisodes = await this.episodeRepo.save(episodes);

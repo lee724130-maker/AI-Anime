@@ -36,7 +36,7 @@ export default function DramaCreatePage() {
       <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>填写基本信息和大纲，AI 将自动分析并生成短剧结构</Text>
 
       <Form form={form} layout="vertical" onFinish={handleSubmit}
-        initialValues={{ episodes: 12 }}
+        initialValues={{ episodes: 12, style: 'anime' }}
         style={{ maxWidth: 700 }}>
         <Form.Item name="title" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
           <Input placeholder="例如：我的第一部 AI 短剧" size="large" />
@@ -52,6 +52,12 @@ export default function DramaCreatePage() {
           </Form.Item>
           <Form.Item name="episodes" label="集数">
             <InputNumber min={1} max={24} style={{ width: 80 }} />
+          </Form.Item>
+          <Form.Item name="style" label="风格">
+            <Select style={{ width: 140 }}>
+              <Select.Option value="anime">动漫</Select.Option>
+              <Select.Option value="realistic">写实</Select.Option>
+            </Select>
           </Form.Item>
         </Space>
         <Form.Item>

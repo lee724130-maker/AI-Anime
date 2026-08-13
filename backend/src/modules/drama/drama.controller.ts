@@ -15,7 +15,7 @@ export class DramaController {
   @Post()
   create(@Req() req, @Body() body: Partial<{
     title: string; description: string; outline: string;
-    genre: string; episodes: number;
+    genre: string; episodes: number; style: string;
   }>) {
     return this.dramaService.create(req.user.id, body);
   }
