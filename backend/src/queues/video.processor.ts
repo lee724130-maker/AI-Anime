@@ -393,14 +393,17 @@ export class VideoProcessor {
     } catch (error: any) {
       this.logger.error(`❌ Video task #${taskId} failed: ${error.message}`);
       const task = await this.videoService.findOne(taskId, userId);
+      const attemptsTotal = (job.opts.attempts || 1);
       const retryCount = (task as any).retry_count || 0;
-      if (retryCount < 3) {
+      if (job.attemptsMade < attemptsTotal - 1) {
+        // 还有重试机会：置回 pending，Bull 将按 backoff 自动重跑
         await this.videoService.updateStatus(taskId, { status: 'pending', retry_count: retryCount + 1, progress: 0 });
-        this.logger.log(`Retrying task #${taskId} (attempt ${retryCount + 1}/3)`);
+        this.logger.log(`Video task #${taskId} will retry (attempt ${job.attemptsMade + 1}/${attemptsTotal})`);
         throw error;
       } else {
+        // 最后一次尝试也失败：终态 failed + 回写场景
         await this.videoService.updateStatus(taskId, { status: 'failed', error_msg: error.message, completed_at: new Date(), progress: 100 });
-        this.logger.error(`Task #${taskId} failed after ${retryCount} retries`);
+        this.logger.error(`Task #${taskId} failed after ${attemptsTotal} attempts`);
         // Update script scene if applicable
         if (sceneIndex !== undefined && scriptId) {
           try {

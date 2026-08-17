@@ -38,13 +38,13 @@ export class ViralController {
   // ───── Templates ─────
 
   @Get('templates')
-  listTemplates(@Query() query: ListTemplateQuery) {
-    return this.service.listTemplates(query);
+  listTemplates(@Req() req, @Query() query: ListTemplateQuery) {
+    return this.service.listTemplates(query, req.user?.id);
   }
 
   @Get('templates/:id')
-  getTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.service.getTemplateById(id);
+  getTemplate(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.getTemplateById(id, req.user?.id);
   }
 
   @Post('templates')

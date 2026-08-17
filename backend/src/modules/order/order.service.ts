@@ -68,6 +68,10 @@ export class OrderService {
   }
 
   async mockPay(userId: number, orderId: number) {
+    // 模拟支付仅限本地开发使用；生产环境禁止（防止白嫖积分）
+    if (process.env.NODE_ENV === 'production') {
+      throw new BadRequestException('支付功能尚未开通，敬请期待');
+    }
     const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } });
     if (!order) throw new NotFoundException('订单不存在');
     if (order.status === 'paid') return order;

@@ -8,7 +8,8 @@ import CoverThumb from '../Viral/CoverThumb';
 const { Title, Text } = Typography;
 
 const templateCover = (t: CanvasTemplate): string | null => {
-  const n = (t.nodes || []).find((x: any) => x.source?.url || x.url);
+  const nodes = Array.isArray(t.nodes) ? t.nodes : [];
+  const n = nodes.find((x: any) => x && (x.source?.url || x.url));
   return n ? (n.source?.url || n.url) : null;
 };
 

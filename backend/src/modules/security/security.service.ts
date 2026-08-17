@@ -37,7 +37,8 @@ export class SecurityService {
   }
 
   private isLocal(ip: string): boolean {
-    return !ip || ip === 'unknown' || ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip.startsWith('10.') || ip.startsWith('192.168.');
+    // 仅豁免回环地址；10./192.168. 等内网段不豁免——否则伪造 XFF 头即可绕过封禁与注册限流
+    return !ip || ip === 'unknown' || ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
   }
 
   async isBanned(req: any): Promise<boolean> {
@@ -106,7 +107,9 @@ export class SecurityService {
   }
 
   async ban(ip: string) {
-    if (!ip || !ip.includes('.')) throw new BadRequestException('IP 无效');
+    if (!ip || !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new BadRequestException('IP 格式无效');
+    const parts = ip.split('.').map(Number);
+    if (parts.some((p) => p < 0 || p > 255)) throw new BadRequestException('IP 格式无效');
     const redis = await this.redis();
     if (!redis) throw new BadRequestException('Redis 不可用');
     await redis.sAdd('banned_ips', ip);

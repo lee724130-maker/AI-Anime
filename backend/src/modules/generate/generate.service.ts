@@ -590,23 +590,33 @@ export class GenerateService {
     if (!task) throw new BadRequestException('任务不存在');
     if (task.status !== 'failed') throw new BadRequestException('只能重试失败的任务');
 
+    // 复用原任务行直接重新执行：不创建新任务、不重复扣费
+    //（失败时已退款且 credits_charged=true，runXxx 成功不再扣、失败不再退）
     const input = JSON.parse(task.input_data || '{}');
-    task.status = 'pending';
+    task.status = 'processing';
     task.error_msg = '';
     task.progress = 0;
     task.completed_at = undefined as any;
     await this.taskRepo.save(task);
 
     if (task.type === 'image') {
-      return this.textToImage(userId, input);
-    }
-    if (task.type === 'video') {
+      void this.enqueue(() => this.runTextToImage(userId, task.id, input)).catch((err: any) => {
+        this.logger.error(`[后台] 重试文生图任务 ${task.id} 异常: ${err.message}`);
+      });
+    } else if (task.type === 'video') {
       if (input.image_url) {
-        return this.imageToVideo(userId, input);
+        void this.enqueue(() => this.runImageToVideo(userId, task.id, input)).catch((err: any) => {
+          this.logger.error(`[后台] 重试图生视频任务 ${task.id} 异常: ${err.message}`);
+        });
+      } else {
+        void this.enqueue(() => this.runTextToVideo(userId, task.id, input)).catch((err: any) => {
+          this.logger.error(`[后台] 重试文生视频任务 ${task.id} 异常: ${err.message}`);
+        });
       }
-      return this.textToVideo(userId, input);
+    } else {
+      throw new BadRequestException('不支持的任务类型');
     }
-    throw new BadRequestException('不支持的任务类型');
+    return { taskId: task.id, status: 'processing' };
   }
 
   async smartDescribe(userId: number, dto: { images: string[] }) {

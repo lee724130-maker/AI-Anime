@@ -50,9 +50,11 @@ export class CleanupService implements OnModuleDestroy {
       const entries = fs.readdirSync(this.outputDir, { withFileTypes: true });
       for (const e of entries) {
         const fullPath = path.join(this.outputDir, e.name);
+        // 引用集合统一转小写存储，比较时同样转小写（Linux 文件系统大小写敏感）
+        const lowerName = e.name.toLowerCase();
         if (e.isDirectory()) {
           if (!TEMP_DIR_PREFIXES.some((p) => e.name.startsWith(p))) continue;
-          if (referenced.dirs.has(e.name)) continue; // referenced → never delete
+          if (referenced.dirs.has(lowerName)) continue; // referenced → never delete
           try {
             const stat = fs.statSync(fullPath);
             if (now - stat.mtimeMs >= TEMP_DIR_AGE) {
@@ -64,7 +66,7 @@ export class CleanupService implements OnModuleDestroy {
           continue;
         }
         if (!e.isFile() || !STALE_FILE_EXT.test(e.name)) continue;
-        if (referenced.files.has(e.name)) continue; // referenced → never delete
+        if (referenced.files.has(lowerName)) continue; // referenced → never delete
         try {
           const stat = fs.statSync(fullPath);
           const isSource = e.name.startsWith('viral_source_');

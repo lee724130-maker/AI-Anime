@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like } from 'typeorm';
-import { execSync, exec } from 'child_process';
+import { execSync, exec, spawnSync } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -70,6 +70,9 @@ const LANG_NAMES: Record<string, string> = {
 @Injectable()
 export class ViralService {
   private readonly logger = new Logger(ViralService.name);
+
+  /** 进行中的项目生成集合（防连点/重复提交导致重复扣费与重复生成） */
+  private runningProjects = new Set<number>();
   private readonly outputDir: string;
 
   constructor(
@@ -90,11 +93,17 @@ export class ViralService {
   async listTemplates(query: {
     category?: string; keyword?: string; sort?: string;
     page?: number; limit?: number;
-  }) {
+  }, userId?: number) {
     const { category, keyword, sort, page = 1, limit = 20 } = query;
-    const where: any = { status: 'active' };
-    if (category && category !== 'all') where.category = category;
-    if (keyword) where.name = Like(`%${keyword}%`);
+    // 可见性：系统模板（user_id IS NULL）对所有人可见；私有模板仅本人可见
+    const where: any[] = [{ status: 'active', user_id: null as any }];
+    if (userId) where.push({ status: 'active', user_id: userId });
+    if (category && category !== 'all') {
+      where.forEach(w => w.category = category);
+    }
+    if (keyword) {
+      where.forEach(w => w.name = Like(`%${keyword}%`));
+    }
 
     const order: any = sort === 'popular' ? { usage_count: 'DESC' } : { created_at: 'DESC' };
 
@@ -123,9 +132,13 @@ export class ViralService {
     return { items: parsed, total, page, limit };
   }
 
-  async getTemplateById(id: number) {
+  async getTemplateById(id: number, userId?: number) {
     const tpl = await this.templateRepo.findOne({ where: { id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    // 私有模板仅本人（或管理员）可见
+    if (tpl.user_id && (!userId || tpl.user_id !== userId)) {
+      throw new NotFoundException('模板不存在');
+    }
     let cover: string | null = tpl.thumbnail || null;
     if (!cover && tpl.reference_frames) {
       try {
@@ -241,6 +254,12 @@ export class ViralService {
     if (!tpl) throw new NotFoundException('模板不存在');
     assertTemplateWritable(tpl, user, '模板');
 
+    // 引用保护：该模板已被项目使用时不删除（防止项目成片/场景引用悬空）
+    const refCount = await this.projectRepo.count({ where: { template_id: id } });
+    if (refCount > 0) {
+      throw new BadRequestException(`该模板已被 ${refCount} 个项目使用，请先删除相关项目后再删除模板`);
+    }
+
     // Clean up associated frame image directories and persisted source video
     try {
       if (tpl.reference_frames) {
@@ -277,6 +296,10 @@ export class ViralService {
   async duplicateTemplate(id: number, userId: number) {
     const tpl = await this.templateRepo.findOne({ where: { id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    // 私有模板仅本人可复制
+    if (tpl.user_id && tpl.user_id !== userId) {
+      throw new NotFoundException('模板不存在');
+    }
 
     const copy = this.templateRepo.create({
       name: `${tpl.name} (副本)`,
@@ -325,8 +348,9 @@ export class ViralService {
     }
 
     // Only Douyin & Bilibili links are allowed (local MP4 links / other
-    // platforms rejected for now; upload the local file instead)
-    if (!/^https?:\/\/([a-z0-9-]+\.)?(douyin\.com|iesdouyin\.com|bilibili\.com|b23\.tv)(\/|$)/i.test(finalUrl)) {
+    // platforms rejected for now; upload the local file instead).
+    // Full-match whitelist: scheme + (sub.)domain + path of alphanumerics / - _ / . ? = & (anchored to end)
+    if (!/^https?:\/\/([a-z0-9-]+\.)?(douyin\.com|iesdouyin\.com|bilibili\.com|b23\.tv)(\/[a-zA-Z0-9\-_/?=&.%#]*)?$/i.test(finalUrl)) {
       throw new BadRequestException('暂不支持该链接，仅支持抖音、B站视频链接；也可以直接上传本地视频');
     }
 
@@ -636,17 +660,23 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
 
   private async downloadVideo(url: string, outputPath: string): Promise<{ duration: number; title: string } | null> {
     // Try yt-dlp first (handles Douyin, YouTube, Bilibili, etc.)
+    // Security: pass args as array (no shell), never interpolate the URL into a command string
     try {
-      const ytOutput = execSync(`yt-dlp -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" -o "${outputPath}" --print-json "${url}"`, {
-        timeout: 120000,
-        stdio: 'pipe',
-      });
-      if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
+      const yt = spawnSync('yt-dlp', [
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '-o', outputPath,
+        '--print-json',
+        url,
+      ], { timeout: 120000, encoding: 'utf8' });
+      if (yt.status === 0 && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
         try {
-          const ytMeta = JSON.parse(ytOutput.toString());
+          const ytMeta = JSON.parse(yt.stdout);
           this.logger.log(`yt-dlp 下载成功: ${ytMeta.title || ''} (${ytMeta.duration || 0}s)`);
           return { duration: ytMeta.duration || 0, title: ytMeta.title || '' };
         } catch { return null; }
+      }
+      if (yt.status !== 0) {
+        this.logger.warn(`yt-dlp 下载失败: ${(yt.stderr || '').slice(0, 200)}`);
       }
     } catch (err: any) {
       this.logger.warn(`yt-dlp 下载失败: ${err.message}，尝试 Playwright 降级`);
@@ -1151,11 +1181,24 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
   // ───── Generation ─────
 
   async startGeneration(projectId: number, userId: number) {
-    // Deployment guard: refuse when the disk is nearly full
-    assertDiskSpace(this.outputDir, MIN_DISK_FREE_BYTES);
-
+    // 防重复生成：同一项目正在生成时拒绝（连点/刷新重试双扣费）
+    if (this.runningProjects.has(projectId)) {
+      throw new BadRequestException('项目正在生成中，请稍候');
+    }
     const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
     if (!project) throw new NotFoundException('项目不存在');
+    if (project.status === 'processing') {
+      throw new BadRequestException('项目正在生成中，请稍候');
+    }
+    this.runningProjects.add(projectId);
+
+    // Deployment guard: refuse when the disk is nearly full
+    try {
+      assertDiskSpace(this.outputDir, MIN_DISK_FREE_BYTES);
+    } catch (e) {
+      this.runningProjects.delete(projectId);
+      throw e;
+    }
 
     const template = await this.templateRepo.findOne({ where: { id: project.template_id } });
     if (!template) throw new NotFoundException('关联模板不存在');
@@ -1418,6 +1461,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       project.scenes = JSON.stringify(sceneResults);
       await this.projectRepo.save(project);
     } finally {
+      this.runningProjects.delete(projectId);
       // 生成失败（所有场景失败/异常）→ 退全款；成功（含部分场景成功）不退
       if (project.status === 'failed') {
         await this.credits.refund(userId, genCost).catch(() => undefined);
@@ -1431,8 +1475,12 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
   }
 
   async regenerateScene(projectId: number, userId: number, sceneIndex: number) {
+    if (this.runningProjects.has(projectId)) {
+      throw new BadRequestException('项目正在生成中，请稍候');
+    }
     const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
     if (!project) throw new NotFoundException('项目不存在');
+    this.runningProjects.add(projectId);
 
     let scenes: any[];
     let variables: any[];
@@ -1523,6 +1571,8 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       }
     }
 
+    // 记录生成前状态：失败时恢复，避免项目永久卡在 processing
+    const prevStatus = project.status;
     project.status = 'processing';
     await this.projectRepo.save(project);
 
@@ -1649,16 +1699,24 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           project.status = 'completed';
           await this.projectRepo.save(project);
         } catch {
-          project.status = 'processing';
+          // 重新合并失败：恢复原状态（保留旧成片），不卡 processing
+          project.status = prevStatus === 'processing' ? 'failed' : prevStatus;
           await this.projectRepo.save(project);
         }
+      } else {
+        // 场景成功但无可合并视频：恢复原状态，避免卡 processing
+        project.status = prevStatus === 'processing' ? 'failed' : prevStatus;
+        await this.projectRepo.save(project);
       }
     } catch (err: any) {
       scenes[sceneIndex].status = 'failed';
       scenes[sceneIndex].error = err.message.substring(0, 200);
       project.scenes = JSON.stringify(scenes);
+      // 场景生成失败：恢复原状态（有旧成片则回 completed，否则 failed）
+      project.status = prevStatus === 'processing' ? 'failed' : prevStatus;
       await this.projectRepo.save(project);
     } finally {
+      this.runningProjects.delete(projectId);
       // 该场景重新生成失败 → 退全款
       if (scenes[sceneIndex]?.status === 'failed') {
         await this.credits.refund(userId, regCost).catch(() => undefined);

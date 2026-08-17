@@ -24,7 +24,10 @@ import { Script } from '../modules/script/script.entity';
         },
       }),
     }),
-    BullModule.registerQueue({ name: 'video' }),
+    BullModule.registerQueue({
+      name: 'video',
+      defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: true },
+    }),
     BullModule.registerQueue({ name: 'drama-segment' }),
     TypeOrmModule.forFeature([Character, Script]),
     VideoModule,

@@ -38,12 +38,20 @@ export default function VideoCreatePage() {
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
+  const safeParseList = (v: string | null | undefined): any[] => {
+    if (!v) return [];
+    try {
+      const arr = JSON.parse(v);
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  };
+
   const resolutions = selectedModel?.supported_resolutions
-    ? JSON.parse(selectedModel.supported_resolutions)
+    ? safeParseList(selectedModel.supported_resolutions)
     : ['480p', '720p', '1080p'];
 
   const ratios = selectedModel?.supported_ratios
-    ? JSON.parse(selectedModel.supported_ratios)
+    ? safeParseList(selectedModel.supported_ratios)
     : ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'];
 
   const durationOptions = [];
@@ -157,8 +165,8 @@ export default function VideoCreatePage() {
                 if (match) {
                   const current = form.getFieldsValue();
                   const updates: any = {};
-                  const res = match.supported_resolutions ? JSON.parse(match.supported_resolutions) : null;
-                  const rat = match.supported_ratios ? JSON.parse(match.supported_ratios) : null;
+                  const res = match.supported_resolutions ? safeParseList(match.supported_resolutions) : null;
+                  const rat = match.supported_ratios ? safeParseList(match.supported_ratios) : null;
                   if (res && !res.includes(current.resolution)) updates.resolution = res[0];
                   if (rat && !rat.includes(current.ratio)) updates.ratio = rat[0];
                   const minD = match.min_duration || 5;

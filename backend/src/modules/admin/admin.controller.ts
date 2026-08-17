@@ -9,6 +9,7 @@ import {
   Param,
   Req,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -57,7 +58,8 @@ export class AdminController {
     @Query('page') page: number,
     @Query('limit') limit: number,
     @Query('status') status: string,
-  ) { return this.adminService.getGenerationLogs(page || 1, limit || 20, status); }
+    @Query('keyword') keyword: string,
+  ) { return this.adminService.getGenerationLogs(page || 1, limit || 20, status, keyword); }
 
   // ── User Management ──
   @Get('users')
@@ -121,9 +123,11 @@ export class AdminController {
   }
 
   // ── Model Configs ──
+  // capability 分支供普通用户 Video 页选择模型（公开只读）；无参全量列表仅管理员
   @Get('models')
-  getModels(@Query('capability') capability: string) {
+  getModels(@Req() req: any, @Query('capability') capability: string) {
     if (capability) return this.modelConfigService.findActive(capability);
+    if (!req.user || req.user.role !== 'admin') throw new ForbiddenException('无权限访问');
     return this.modelConfigService.list(1, 100);
   }
 
@@ -151,8 +155,10 @@ export class AdminController {
     return this.modelConfigService.delete(id);
   }
 
-  // ── Prompt Templates (public query + admin CRUD) ──
+  // ── Prompt Templates (公开查询 + admin CRUD) ──
+  // 提示词模板含内部生成指令，仅管理员可读
   @Get('prompt-templates')
+  @Roles('admin')
   getPromptTemplates(@Query('provider') provider: string, @Query('capability') capability: string) {
     return this.promptTemplateService.find(provider, capability);
   }

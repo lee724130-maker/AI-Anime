@@ -46,12 +46,13 @@ export default function VideoListPage() {
   const [sortBy, setSortBy] = useState('created_at');
   const navigate = useNavigate();
 
-  const fetchVideos = async () => {
+  const fetchVideos = async (qs?: string) => {
     try {
+      const kw = qs !== undefined ? qs : searchText;
       const params: any = {};
       if (filter !== 'all') params.status = filter;
       if (resolutionFilter) params.resolution = resolutionFilter;
-      if (searchText) params.search = searchText;
+      if (kw) params.search = kw;
       if (sortBy) params.sort_by = sortBy;
       const { data } = await api.get('/api/video/list', { params });
       setVideos(data.items || []);
@@ -241,10 +242,10 @@ export default function VideoListPage() {
               prefix={<SearchOutlined />}
               value={searchText}
               onChange={e => setSearchText(e.target.value)}
-              onPressEnter={fetchVideos}
+              onPressEnter={() => fetchVideos()}
               style={{ width: 160 }}
               allowClear
-              onClear={() => { setSearchText(''); setTimeout(fetchVideos, 0); }}
+              onClear={() => { setSearchText(''); fetchVideos(''); }}
             />
             <Select value={resolutionFilter} onChange={v => setResolutionFilter(v)}
               options={RESOLUTION_OPTIONS} style={{ width: 90 }} />

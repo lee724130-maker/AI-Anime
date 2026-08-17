@@ -23,6 +23,9 @@ import axios from 'axios';
 export class DramaService {
   private readonly logger = new Logger(DramaService.name);
 
+  /** 进行中的片段生成集合（防连点/重复提交导致重复扣费与重复生成） */
+  private runningSegments = new Set<number>();
+
   constructor(
     @InjectRepository(DramaProject)
     private readonly projectRepo: Repository<DramaProject>,
@@ -84,14 +87,38 @@ export class DramaService {
 
   async delete(userId: number, id: number) {
     const project = await this.getById(userId, id);
-    await this.assetRepo.delete({ project_id: id });
+
+    // 收集本地产物（/static/ 文件），删除数据后一并清理磁盘
+    const localFiles: string[] = [];
+    const outputDir = path.resolve(process.cwd(), 'output');
+    const collectStatic = (url?: string | null) => {
+      if (url && url.startsWith('/static/')) localFiles.push(url);
+    };
     const episodes = await this.episodeRepo.find({ where: { project_id: id } });
     for (const ep of episodes) {
+      collectStatic(ep.video_url);
+      const segments = await this.segmentRepo.find({ where: { episode_id: ep.id } });
+      for (const seg of segments) {
+        collectStatic(seg.video_url);
+        const candidates = await this.candidateRepo.find({ where: { segment_id: seg.id } });
+        for (const c of candidates) collectStatic(c.video_url);
+      }
       await this.segmentRepo.delete({ episode_id: ep.id });
     }
+    const assets = await this.assetRepo.find({ where: { project_id: id } });
+    for (const a of assets) collectStatic(a.image_url);
+
+    await this.assetRepo.delete({ project_id: id });
     await this.episodeRepo.delete({ project_id: id });
     await this.outlineRepo.delete({ project_id: id });
     await this.projectRepo.remove(project);
+
+    for (const url of localFiles) {
+      const p = path.join(outputDir, path.basename(url));
+      if (p.startsWith(outputDir)) {
+        try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch { /* ignore */ }
+      }
+    }
     return { deleted: true };
   }
 
@@ -110,6 +137,9 @@ export class DramaService {
     await this.credits.assertEnough(userId, analyzeCost, '剧情分析');
 
     let outline = await this.outlineRepo.findOne({ where: { project_id: projectId } });
+    if (outline && outline.status === 'analyzing') {
+      throw new BadRequestException('剧本正在分析中，请稍候');
+    }
     if (!outline) {
       outline = this.outlineRepo.create({ project_id: projectId, outline: project.outline, status: 'analyzing' });
     } else {
@@ -393,7 +423,8 @@ export class DramaService {
       result.assets[list] = merged.assets[list] || result.assets[list];
     }
 
-    return { segment: newSeg, newAssets };
+    // 深拷贝：避免 newAssets 与 result.assets 共享引用（前端保存时相互污染）
+    return { segment: newSeg, newAssets: JSON.parse(JSON.stringify(newAssets)) };
   }
 
   async getEpisodes(userId: number, projectId: number) {
@@ -417,11 +448,12 @@ export class DramaService {
     return { episode, segments };
   }
 
-  async updateEpisodeSettings(userId: number, episodeId: number, data: { style?: string; ratio?: string; resolution?: string; audio_lang?: string }) {
+  async updateEpisodeSettings(userId: number, episodeId: number, data: { style?: string; ratio?: string; resolution?: string; audio_lang?: string; tts_voice?: string | null }) {
     const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
     if (!episode) throw new NotFoundException('分集不存在');
     const project = await this.projectRepo.findOne({ where: { id: episode.project_id, user_id: userId } });
     if (!project) throw new NotFoundException('短剧项目不存在');
+    if (data.tts_voice === '') data.tts_voice = null;
     Object.assign(episode, data);
     return this.episodeRepo.save(episode);
   }
@@ -791,6 +823,10 @@ export class DramaService {
 
   /** 片段生成执行（队列 worker 调用）：candidateCount 个候选，逐个容错，全部失败才退款 */
   async executeSegmentGeneration(userId: number, segmentId: number, candidateCount = 1) {
+    // 防重复生成：同一片段已在生成中（连点/队列重试）直接拒绝，避免双倍扣费与重复产物
+    if (this.runningSegments.has(segmentId)) {
+      throw new BadRequestException('该片段正在生成中，请稍候');
+    }
     const count = Math.max(1, Math.min(3, Math.floor(candidateCount || 1)));
     const segment = await this.segmentRepo.findOne({ where: { id: segmentId } });
     if (!segment) throw new NotFoundException('片段不存在');
@@ -798,6 +834,10 @@ export class DramaService {
     if (!episode) throw new NotFoundException('分集不存在');
     await this.getById(userId, episode.project_id);
     if (!segment.prompt) throw new BadRequestException('片段没有提示词，请先编辑');
+    if (segment.status === 'generating') {
+      throw new BadRequestException('该片段正在生成中，请稍候');
+    }
+    this.runningSegments.add(segmentId);
 
     // Credit charge: 片段生成固定价（480p=120/720p=240/1080p=360）× 候选数（预扣，失败退全款）
     const segCost = await this.credits.dramaSegmentCost(episode.resolution);
@@ -872,8 +912,10 @@ export class DramaService {
         }
       }
 
+      this.runningSegments.delete(segmentId);
       return { id: segment.id, video_url: mainVideoUrl, status: 'completed', candidates };
     } catch (err: any) {
+      this.runningSegments.delete(segmentId);
       segment.status = 'failed';
       await this.segmentRepo.save(segment);
       // 片段生成失败 → 退全款（含候选数倍扣费）
@@ -1101,7 +1143,7 @@ export class DramaService {
             }
             if (!audioPath || !fs.existsSync(audioPath)) {
               const voiceMap: Record<string, string> = { zh: 'nova', en: 'alloy', ja: 'nova' };
-              const voice = voiceMap[audioLang] || 'alloy';
+              const voice = (episode as any).tts_voice || voiceMap[audioLang] || 'alloy';
               const audioBuf = await this.aiService.generateTTS({
                 text: ttsText.slice(0, 500),
                 voice,
@@ -1319,6 +1361,10 @@ export class DramaService {
   async executeStitch(userId: number, episodeId: number) {
     const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
     if (!episode) throw new NotFoundException('分集不存在');
+    await this.getById(userId, episode.project_id);
+    if (episode.stitch_status === 'stitching') {
+      throw new BadRequestException('该分集正在合成中，请稍候');
+    }
 
     episode.stitch_status = 'stitching';
     await this.episodeRepo.save(episode);
@@ -1415,9 +1461,10 @@ export class DramaService {
     }
   }
 
-  async getEpisodeStitchStatus(episodeId: number) {
+  async getEpisodeStitchStatus(userId: number, episodeId: number) {
     const episode = await this.episodeRepo.findOne({ where: { id: episodeId } });
     if (!episode) throw new NotFoundException('分集不存在');
+    await this.getById(userId, episode.project_id);
     return {
       stitch_status: episode.stitch_status,
       stitch_progress_message: episode.stitch_progress_message,

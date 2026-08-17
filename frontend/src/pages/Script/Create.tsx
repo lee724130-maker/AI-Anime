@@ -71,12 +71,18 @@ export default function ScriptCreatePage() {
   const onFinish = async (values: { title: string; content: string }) => {
     setSaving(true);
     try {
-      const { data } = await api.post('/api/script', values);
-      setScriptId(data.id);
-      setScript(data);
-      message.success('剧本创建成功');
-    } catch {
-      message.error('创建失败');
+      if (scriptId) {
+        const { data } = await api.put(`/api/script/${scriptId}`, values);
+        setScript(data);
+        message.success('剧本已保存');
+      } else {
+        const { data } = await api.post('/api/script', values);
+        setScriptId(data.id);
+        setScript(data);
+        message.success('剧本创建成功');
+      }
+    } catch (err: any) {
+      message.error(err.response?.data?.message || (scriptId ? '保存失败' : '创建失败'));
     } finally {
       setSaving(false);
     }

@@ -164,13 +164,13 @@ export class DramaController {
   }
 
   @Get('episodes/:episodeId/stitch-status')
-  getStitchStatus(@Param('episodeId') episodeId: number) {
-    return this.dramaService.getEpisodeStitchStatus(episodeId);
+  getStitchStatus(@Req() req, @Param('episodeId') episodeId: number) {
+    return this.dramaService.getEpisodeStitchStatus(req.user.id, episodeId);
   }
 
   @Put('episodes/:episodeId/settings')
   updateEpisodeSettings(@Req() req, @Param('episodeId') episodeId: number,
-    @Body() body: { style?: string; ratio?: string; resolution?: string; audio_lang?: string }) {
+    @Body() body: { style?: string; ratio?: string; resolution?: string; audio_lang?: string; tts_voice?: string }) {
     return this.dramaService.updateEpisodeSettings(req.user.id, episodeId, body);
   }
 
@@ -179,7 +179,8 @@ export class DramaController {
     try {
       return await this.dramaService.getModelInfo();
     } catch (err: any) {
-      return { error: err.message, stack: err.stack?.split('\n').slice(0,5).join('\n') };
+      // 只返回错误信息，不返回内部堆栈
+      return { error: err.message };
     }
   }
 

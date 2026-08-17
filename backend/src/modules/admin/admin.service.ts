@@ -216,7 +216,7 @@ export class AdminService {
     return record?.config_value || null;
   }
 
-  async getGenerationLogs(page: number, limit: number, status?: string) {
+  async getGenerationLogs(page: number, limit: number, status?: string, keyword?: string) {
     const qb = this.videoRepo.createQueryBuilder('v')
       .leftJoinAndSelect('v.script', 'script')
       .leftJoinAndSelect('v.user', 'user')
@@ -224,8 +224,13 @@ export class AdminService {
       .skip((page - 1) * limit)
       .take(limit);
 
+    qb.where('1 = 1');
     if (status && status !== 'all') {
-      qb.where('v.status = :status', { status });
+      qb.andWhere('v.status = :status', { status });
+    }
+    if (keyword && keyword.trim()) {
+      const q = `%${keyword.trim()}%`;
+      qb.andWhere('(v.task_id LIKE :q OR user.username LIKE :q OR script.title LIKE :q)', { q });
     }
 
     const [items, total] = await qb.getManyAndCount();
@@ -273,12 +278,16 @@ export class AdminService {
   }
 
   async toggleBan(userId: number, banned: boolean, adminId?: number) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException('用户不存在');
-    user.status = banned ? 0 : 1;
-    const saved = await this.userRepo.save(user);
+    // 禁止封禁管理员账号，防止管理后台自锁
+    const target = await this.userRepo.findOne({ where: { id: userId } });
+    if (!target) throw new NotFoundException('用户不存在');
+    if (target.role === 'admin') {
+      throw new BadRequestException('管理员账号不可封禁');
+    }
+    target.status = banned ? 0 : 1;
+    const saved = await this.userRepo.save(target);
     if (adminId) {
-      await this.log(adminId, banned ? '封禁用户' : '解封用户', `用户ID: ${userId}, 用户名: ${user.username}`, 'user', userId);
+      await this.log(adminId, banned ? '封禁用户' : '解封用户', `用户ID: ${userId}, 用户名: ${target.username}`, 'user', userId);
     }
     return saved;
   }

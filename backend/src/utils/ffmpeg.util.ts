@@ -146,6 +146,9 @@ export class FFmpegUtil {
 
     this.logger.log(`Compositing ${validImagePaths.length} images into ${outputPath}`);
 
+    // concatFile: 多图合成时的临时拼接清单（方法级声明，finally 清理）
+    let concatFile = '';
+
     try {
       // Build FFmpeg command using array-based arguments (safer than string building)
       const args: string[] = ['-y'];
@@ -155,13 +158,21 @@ export class FFmpegUtil {
         // Single image → treat as static video with duration
         args.push('-loop', '1', '-i', validImagePaths[0], '-t', String(duration || 5));
       } else {
-        // Multiple images → create image sequence via concat file
-        const concatFile = path.join(this.outputDir, 'concat.txt');
-        const concatContent = validImagePaths
-          .map((p) => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
-          .join('\n');
-        fs.writeFileSync(concatFile, concatContent);
-        args.push('-f', 'concat', '-safe', '0', '-i', concatFile);
+        // Multiple images → create image sequence via concat file (unique name
+        // per call to avoid concurrent overwrites between parallel tasks)
+        try {
+          concatFile = path.join(this.outputDir, `concat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.txt`);
+          const concatContent = validImagePaths
+            .map((p) => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`)
+            .join('\n');
+          fs.writeFileSync(concatFile, concatContent);
+          args.push('-f', 'concat', '-safe', '0', '-i', concatFile);
+        } catch {
+          if (concatFile && fs.existsSync(concatFile)) {
+            try { fs.unlinkSync(concatFile); } catch { /* ignore */ }
+          }
+          throw new Error('视频合成失败: 无法创建 concat 文件');
+        }
       }
 
       // Input audio
@@ -238,6 +249,11 @@ export class FFmpegUtil {
     } catch (err: any) {
       this.logger.error(`FFmpeg composite failed: ${err.message}`);
       throw new Error(`视频合成失败: ${err.message}`);
+    } finally {
+      // 删除临时 concat 文件（多图合成使用）
+      if (concatFile && fs.existsSync(concatFile)) {
+        try { fs.unlinkSync(concatFile); } catch { /* ignore */ }
+      }
     }
   }
 
