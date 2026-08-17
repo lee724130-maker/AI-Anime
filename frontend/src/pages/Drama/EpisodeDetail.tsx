@@ -38,7 +38,7 @@ const QUALITY_BADGE: Record<string, { color: string; label: string }> = {
 interface Episode {
   id: number; episode_no: number; title: string; summary: string | null;
   duration: number | null; video_url: string | null; stitch_status: string;
-  style: string | null; ratio: string | null; resolution: string | null; audio_lang: string | null;
+  style: string | null; ratio: string | null; resolution: string | null; audio_lang: string | null; tts_voice: string | null;
 }
 
 export default function EpisodeDetailPage() {
@@ -54,7 +54,8 @@ export default function EpisodeDetailPage() {
   const [batchProgress, setBatchProgress] = useState<{ total: number; completed: number } | null>(null);
   const [planning, setPlanning] = useState<Set<number>>(new Set());
   const [editModal, setEditModal] = useState<{ visible: boolean; seg: Segment | null; value: string }>({ visible: false, seg: null, value: '' });
-  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; style: string; ratio: string; resolution: string; audio_lang: string }>({ visible: false, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh' });
+  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; style: string; ratio: string; resolution: string; audio_lang: string; tts_voice: string }>({ visible: false, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh', tts_voice: '' });
+  const [voices, setVoices] = useState<Array<{ id: string; name: string; gender: string; style: string }>>([]);
   const [segmentProgress, setSegmentProgress] = useState<Record<number, { message: string; percent: number }>>({});
   const [stitchProgress, setStitchProgress] = useState<{ message: string; percent: number } | null>(null);
   const [candidates, setCandidates] = useState<Record<number, Candidate[]>>({});
@@ -81,6 +82,10 @@ export default function EpisodeDetailPage() {
   };
 
   useEffect(() => { fetchData(); }, [episodeId]);
+
+  useEffect(() => {
+    api.get('/api/generate/tts-voices').then((res) => setVoices(res.data || [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (segments.length && (selectedId === null || !segments.find(s => s.id === selectedId))) {
@@ -292,14 +297,17 @@ export default function EpisodeDetailPage() {
       ratio: episode.ratio || '9:16',
       resolution: episode.resolution || '720p',
       audio_lang: episode.audio_lang && episode.audio_lang !== 'none' ? episode.audio_lang : 'zh',
+      tts_voice: episode.tts_voice || '',
     });
   };
 
   const saveSettings = async () => {
-    const { style, ratio, resolution, audio_lang } = settingsModal;
+    const { style, ratio, resolution, audio_lang, tts_voice } = settingsModal;
     if (!episode) return;
     try {
-      await api.put(`/api/drama/episodes/${episode.id}/settings`, { style, ratio, resolution, audio_lang });
+      const payload: any = { style, ratio, resolution, audio_lang };
+      if (tts_voice) payload.tts_voice = tts_voice;
+      await api.put(`/api/drama/episodes/${episode.id}/settings`, payload);
       message.success('设置已保存');
       setSettingsModal(prev => ({ ...prev, visible: false }));
       fetchData();
@@ -722,6 +730,12 @@ export default function EpisodeDetailPage() {
                 { label: '英文', value: 'en' },
                 { label: '日文', value: 'ja' },
               ]} />
+          </div>
+          <div>
+            <Text strong>配音音色</Text>
+            <Select value={settingsModal.tts_voice} onChange={v => setSettingsModal(prev => ({ ...prev, tts_voice: v }))}
+              style={{ width: '100%', marginTop: 4 }} allowClear placeholder="默认（按语言自动）"
+              options={voices.map(v => ({ label: `${v.gender === 'female' ? '女' : '男'}·${v.name}（${v.style}）`, value: v.id }))} />
           </div>
         </Space>
       </Modal>

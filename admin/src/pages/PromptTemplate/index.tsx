@@ -5,7 +5,7 @@ import api from '../../services/api';
 
 const { Title } = Typography;
 
-const CAPABILITIES = ['video', 'image', 'text', 'audio', 'avatar'];
+const CAPABILITIES = ['video', 'image', 'text', 'audio', 'avatar', 'script'];
 const PROVIDERS = ['volcengine', 'aliyun', 'openai', 'deepseek', 'runway', 'heygen', 'zhipu'];
 
 interface Template {

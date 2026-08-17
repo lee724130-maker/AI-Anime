@@ -86,11 +86,12 @@ export class CanvasService {
       const varMap: Record<string, string> = dto.variable_values || {};
       // substitute {{var}} over the full raw JSON (covers nodes + edges + params)
       // JSON-escape values so quotes/backslashes cannot break the nodes JSON
-      nodesJson = tpl.nodes.replace(/\{\{(\w+)\}\}/g, (m, key) => {
+      const varPattern = /\{\{([\w\u4e00-\u9fa5]+)\}\}/g;
+      nodesJson = tpl.nodes.replace(varPattern, (m, key) => {
         if (varMap[key] === undefined) return m;
         return JSON.stringify(String(varMap[key])).slice(1, -1);
       });
-      const leftover = nodesJson.match(/\{\{(\w+)\}\}/);
+      const leftover = nodesJson.match(/\{\{([\w\u4e00-\u9fa5]+)\}\}/);
       if (leftover) {
         throw new BadRequestException(`模板变量未填写：{{${leftover[1]}}}，请返回画布列表重新创建`);
       }
@@ -920,7 +921,8 @@ export class CanvasService {
         const m = url.replace(/\\/g, '/').match(/([^/]+\.(mp4|webm|mov|jpg|jpeg|png|webp|gif))$/i);
         if (m) return `/static/${m[1]}`;
       }
-      return url;
+      // Only serve http(s) and /static/ URLs as covers (block data:/file:/etc.)
+      if (/^https?:\/\//i.test(url) || url.startsWith('/static/')) return url;
     }
     return null;
   }

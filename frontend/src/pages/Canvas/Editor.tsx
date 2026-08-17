@@ -290,6 +290,10 @@ export default function CanvasEditor() {
   };
 
   const handleSave = async () => {
+    if (render?.status === 'rendering') {
+      message.warning('渲染进行中，请等待完成后再保存修改');
+      return;
+    }
     setSaving(true);
     try {
       const pid = await persist();

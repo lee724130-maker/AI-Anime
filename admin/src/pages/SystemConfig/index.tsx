@@ -53,6 +53,7 @@ export default function SystemConfigPage() {
         default_ratio: data.default_ratio || '9:16',
         default_style: data.default_style || 'anime',
         default_model: data.default_model || '',
+        credit_plans: data.credit_plans || '',
       });
     } catch { message.error('获取配置失败'); }
     finally { setLoading(false); }

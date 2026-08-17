@@ -52,10 +52,17 @@ export default function ModelManagePage() {
 
   const openEdit = (item: ModelItem) => {
     setEditing(item);
+    const safeParse = (v: string | null | undefined): string => {
+      if (!v) return '';
+      try {
+        const arr = JSON.parse(v);
+        return Array.isArray(arr) ? arr.join(', ') : String(arr);
+      } catch { return v; }
+    };
     form.setFieldsValue({
       ...item,
-      supported_ratios: item.supported_ratios ? JSON.parse(item.supported_ratios).join(', ') : '',
-      supported_resolutions: item.supported_resolutions ? JSON.parse(item.supported_resolutions).join(', ') : '',
+      supported_ratios: safeParse(item.supported_ratios),
+      supported_resolutions: safeParse(item.supported_resolutions),
     });
     setModalOpen(true);
   };

@@ -30,13 +30,15 @@ const AUDIO_LANGS = [
 interface Episode {
   id: number; episode_no: number; title: string; summary: string | null;
   duration: number | null; project_id: number;
-  style: string | null; ratio: string | null; resolution: string | null; audio_lang: string | null;
+  style: string | null; ratio: string | null; resolution: string | null; audio_lang: string | null; tts_voice: string | null;
   created_at: string; updated_at: string;
 }
 
 interface SegmentCounts {
   total: number; completed: number; pending: number; failed: number;
 }
+
+interface VoiceOption { id: string; name: string; gender: 'male' | 'female'; style: string }
 
 export default function DramaEpisodesPage() {
   const navigate = useNavigate();
@@ -45,7 +47,12 @@ export default function DramaEpisodesPage() {
   const [projectTitle, setProjectTitle] = useState('');
   const [segCounts, setSegCounts] = useState<Record<number, SegmentCounts>>({});
   const [loading, setLoading] = useState(true);
-  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; ep: Episode | null; style: string; ratio: string; resolution: string; audio_lang: string }>({ visible: false, ep: null, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh' });
+  const [settingsModal, setSettingsModal] = useState<{ visible: boolean; ep: Episode | null; style: string; ratio: string; resolution: string; audio_lang: string; tts_voice: string }>({ visible: false, ep: null, style: 'anime', ratio: '9:16', resolution: '720p', audio_lang: 'zh', tts_voice: '' });
+  const [voices, setVoices] = useState<VoiceOption[]>([]);
+
+  useEffect(() => {
+    api.get('/api/generate/tts-voices').then((res) => setVoices(res.data || [])).catch(() => {});
+  }, []);
 
   const fetchData = async () => {
     if (!id) return;
@@ -86,14 +93,17 @@ export default function DramaEpisodesPage() {
       ratio: ep.ratio || '9:16',
       resolution: ep.resolution || '720p',
       audio_lang: ep.audio_lang && ep.audio_lang !== 'none' ? ep.audio_lang : 'zh',
+      tts_voice: ep.tts_voice || '',
     });
   };
 
   const saveSettings = async () => {
-    const { ep, style, ratio, resolution, audio_lang } = settingsModal;
+    const { ep, style, ratio, resolution, audio_lang, tts_voice } = settingsModal;
     if (!ep) return;
     try {
-      await api.put(`/api/drama/episodes/${ep.id}/settings`, { style, ratio, resolution, audio_lang });
+      const payload: any = { style, ratio, resolution, audio_lang };
+      if (tts_voice) payload.tts_voice = tts_voice;
+      await api.put(`/api/drama/episodes/${ep.id}/settings`, payload);
       message.success('设置已保存');
       setSettingsModal(prev => ({ ...prev, visible: false }));
       fetchData();
@@ -188,6 +198,12 @@ export default function DramaEpisodesPage() {
             <Text strong>配音语言</Text>
             <Select value={settingsModal.audio_lang} onChange={v => setSettingsModal(prev => ({ ...prev, audio_lang: v }))}
               style={{ width: '100%', marginTop: 4 }} options={AUDIO_LANGS} />
+          </div>
+          <div>
+            <Text strong>配音音色</Text>
+            <Select value={settingsModal.tts_voice} onChange={v => setSettingsModal(prev => ({ ...prev, tts_voice: v }))}
+              style={{ width: '100%', marginTop: 4 }} allowClear placeholder="默认（按语言自动）"
+              options={voices.map(v => ({ label: `${v.gender === 'female' ? '女' : '男'}·${v.name}（${v.style}）`, value: v.id }))} />
           </div>
         </Space>
       </Modal>

@@ -1,5 +1,31 @@
 # 修复日志
 
+## 2026-08-13（晚间：AI 分析不智能排查→模型升级 + 配音功能升级（旁白/角色台词 + 11 音色）✅ 已提交+已部署+生产验证）
+
+> 承接当日短剧剧本分析。两件事：①用户反馈「AI 分析不智能」→ 全链路排查 + 模型升级（视觉 omni-plus 优先 / 文本 qwen-plus 保速度）；②用户需求「配音内容可选旁白或角色台词 + 多音色」。均已部署生产。
+
+### ① AI 分析不智能排查与模型升级（commit `edc5252`）
+- **排查结论**：链路无断链；根因 = **模型偏弱**——视觉分析首选 `qwen3-vl-flash`（省钱方案，看图能力弱），文本固定 `qwen-plus`（无 qwen-max 级）；剧本分析不读用户输入（genre/episodes/style 全被忽略，无风格选项）。
+- **剧本分析对接用户输入**（commit `836c3bd`）：Create.tsx 加「风格」选择（anime/realistic 默认 anime）→ analyze() 把 genre/episodes/style 拼入提示词、强制 structure.style=project.target_style、阶段2 追加风格指令 → confirmAnalysis 落 episodes.style + project.target_style；controller create body 加 style。端到端 9/9 全绿。
+- **片段重新生成继承项目风格**（commit `fd125f6`），实测 6/6 全绿。
+- **模型升级（用户确认额度后决策：方案 B 速度优先）**：
+  - **视觉链**（两处：generateSmartDescription/analyzeFrames）：`qwen3.5-omni-plus`（不带日期，满 100 万未用）→ `qwen3.5-omni-plus-2026-03-15`（剩 518,846）→ `qwen3-vl-flash` 兜底。**实测看图 2s 精准**（数据 URI 直测通过；qwen3.5-omni-plus 无日期版 2s 快响应）。
+  - **文本链**：`chatCompletion` 改回 **qwen-plus 优先 + GLM-4.5-Air/GLM-4.7-Flash 兜底**；12 集剧本分析 **68s**（与优化前一致，速度达标）。
+  - **保留的修复**：① `chatCompletion` 支持 `options.model` 显式指定（批量机械任务可指定快模型，drama 阶段2 显式 `model:'qwen-plus'`，batchSize=3）；② **空 content 抛错触发降级**（GLM 并发限流会返回 200+空 content+finish=length，原来返回 '' 不降级，真 bug 已修）。
+- **GLM-4.5-Air 实测教训（已弃用为主链）**：Z.ai 免费档**并发上限≈2**（3 并发必有一个返回空 content）、单请求排队 30-120s → 是「变慢」根因；GLM 测试版 API 不稳定，仅作兜底。
+- **视觉测试环境坑**：SSRF 拦截 localhost 图片 URL（不允许访问内网地址）→ 需 data URI；data URI >1.1MB 触发 413（body 限制）→ 先缩放 512px（27KB）可过。
+
+### ② 配音功能升级（commit `9f5cc89`）
+- **配音类型可选**：生成页配音区新增「配音类型」：**🎭 角色台词**（第一人称，默认）/ **📢 旁白解说**（第三人称画外音）。`buildVoiceover(prompt, finalPrompt, duration, type)` 按类型写提示词（旁白=禁止第一人称，如「他站在雨里，心却停在了旧电话亭。」；台词=角色口吻，如「啊～这光，挠得我耳朵痒痒的…」）；smart-plan 接口加 `voiceoverType`（前端表单值传入），返回 `voiceover_type` 回显。
+- **11 种音色可选**（实测 65 候选筛出 17 可用）：`GET /api/generate/tts-voices` 返回音色库 `cosyvoiceVoiceCatalog`（ai-service.util.ts）——**v2×9**（龙小纯·女/龙婉·女/龙飞·男/龙跃·男/龙叔·男/龙城·男/龙泽·男/龙强·男/龙远·男）+ **v3-plus×2**（龙安阳·男/龙安欢·女）。⚠️ **CosyVoice 音色 ID 必须带模型后缀**（`longxiaochun` 裸名 418，`longxiaochun_v2` 才可用；v3-flash 用 `_v3`）。
+- **音色路由与降级**：`resolveCosyVoice` 音色 id → 专属 {model, voiceId}，`generateTTSWithCosyVoice` 优先试专属模型（失败再走降级链+默认男女音色映射）；OpenAI 历史名（nova→女声等）映射兼容。TTS 调用处（t2v/i2v）传 `dto.tts_voice`（默认中文 nova=温柔女声）。前端配音区：类型 Radio + 音色 Select（接口拉取）+ 配音内容 TextArea（placeholder 提示智能规划自动生成）。
+- **本地验证 4/4**：tts-voices 11 音色 / 旁白规划（第三人称）/ 台词规划（第一人称）/ T2V 配音 completed + 日志 `voice=longze_v2` 精确命中。
+- **生产部署**：前端 `index-BFUAybzC.js` + `Generate-DpSrVnsv.js`（hash 与本地一致）+ 后端 dist；pm2 online。
+- **生产验证 5/5 全绿**：11 音色 / 旁白「他站在雨里，心却停在了旧电话亭。」/ 台词「啊～这光，挠得我耳朵痒痒的…」/ T2V 配音任务 completed / longze_v2 命中日志。测试用户 38/39、任务 25/26、deploy 脚本与产物全清（output 28 文件 70M 正常）。
+- ⚠️ **部署脚本教训**：pscp 上传**中文文件名会乱码**（`部署脚本.sh` → 服务器上找不到）→ 部署脚本一律用 ASCII 文件名（deploy.sh）；生产验证脚本内 `execSync` 引用**循环内声明的 let 变量会越界**（`list is not defined`）→ 变量提到循环外。
+- ⚠️ **git 状态**：本地已提交 4 个 commit（836c3bd/fd125f6/edc5252/9f5cc89 + 文档），**未 push**（用户要求暂缓，git 网络易出错）。
+- ⚠️ 已知边界：drama 分集/片段的 TTS 仍是默认音色（未加音色选择，用户未要求）；音色库为实测筛选，若阿里云调整音色需重测。
+
 ## 2026-08-13（短剧剧本分析：两阶段分析支持大集数 + 截断渐进解析兜底 ✅ 已提交+本地验证，待部署）
 
 > 承接 08-12 修复的**两个遗留问题**（当时记录：① 大集数 8-24 集需多阶段分析；② `cleanJson` 无截断兜底）。本轮全部实现：

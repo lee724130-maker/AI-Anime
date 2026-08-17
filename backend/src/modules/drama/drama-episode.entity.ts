@@ -38,6 +38,9 @@ export class DramaEpisode {
   @Column({ name: 'audio_lang', length: 10, default: 'zh' })
   audio_lang: string;
 
+  @Column({ name: 'tts_voice', length: 40, nullable: true })
+  tts_voice: string;
+
   @Column({ name: 'stitch_progress_message', length: 200, nullable: true })
   stitch_progress_message: string;
 

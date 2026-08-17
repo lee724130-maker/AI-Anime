@@ -29,8 +29,16 @@ interface Props {
 }
 
 export default function PropertiesPanel({ node, assetOptions, onChange, onRemove }: Props) {
-  const [color, setColor] = useState(node?.params?.text_color || node?.params?.bg_color || '#7C3AED');
-  useEffect(() => { setColor(node?.params?.text_color || node?.params?.bg_color || '#7C3AED'); }, [node?.id]);
+  const normalizeColor = (v: unknown): string => {
+    if (!v) return '#7C3AED';
+    if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return v;
+    if (typeof v === 'string' && /^#[0-9a-fA-F]{3}$/.test(v)) {
+      return v.replace(/^#(.)(.)(.)$/, '#$1$1$2$2$3$3');
+    }
+    return '#7C3AED';
+  };
+  const [color, setColor] = useState(() => normalizeColor(node?.params?.text_color || node?.params?.bg_color));
+  useEffect(() => { setColor(normalizeColor(node?.params?.text_color || node?.params?.bg_color)); }, [node?.id]);
 
   const patch = (p: Partial<WFNode>) => node && onChange({ ...node, ...p });
   const patchParams = (p: Record<string, any>) => node && onChange({ ...node, params: { ...node.params, ...p } });

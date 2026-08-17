@@ -40,3 +40,6 @@ backend/api-test-results.md
 
 # OS
 .DS_Store
+
+# Temp test scripts
+Temp/
