@@ -1,5 +1,73 @@
 # 修复日志
 
+## 2026-08-17（剪辑页播放器升级：时间线顺序连播 + 文字叠加预览 ✅ 本地 17/17 全绿，待 git 提交）
+
+> 承接视频剪辑页（上节）。用户功能测试反馈「预览区播放体验」：旧实现只播「当前选中片段」单段，未选中时 fallback 第一个素材；预期剪映式行为——**按时间线顺序连播（跨片段自动切换）+ 文字轨实时叠加预览**。本轮在 EditorPage.tsx 重写播放器：
+
+### ✅ 新增能力（EditorPage.tsx，架构重构）
+- **时间线顺序播放器**：`playableSegs`（video 轨按 start 排序的可播片段）+ `boundSegRef`（当前绑定到 `<video>` 的片段）——播放时按全局播放头定位起始段 → **段尾自动切换下一视频段**（src 切换 + loadedmetadata 后跳转 trimIn）；图片段/空隙自动跳过（advanceToNext 按「段尾 > 当前位置」找下一段）；全部播完自动暂停
+- **起播语义**：未选中片段 = 从播放头位置起播；选中片段 = 从该片段 start 起播（预览即该片段局部）；播放中拖动时间线片段/删除片段用**最新 timeline 数据解析绑定段**（boundId → playableSegs.find），不会播旧数据
+- **seek 定位**：标尺/播放头 seek 到任意 t → 预加载并跳到对应片段的局部时间（trimIn 校准）
+- **文字叠加预览**：预览模式（未渲染）下 `timeline.text` 在 `[start, start+duration)` 区间内于预览区按 x%/y%/fontSize（按 300px 预览高 × fontSize/1280 换算）/color/opacity 渲染，黑框落影保证可读；**渲染成片后由成片直接呈现文字**（overlay 自动隐藏）
+- **渲染成片播放**：结束判定改 `v.currentTime >= v.duration - 0.12`（原 totalDur 比成片时长长会永不停止）；playerSrc/playerCanPlay 链不变（成片 > 选中段 > fallback 视频段）
+
+### ✅ 实测（Playwright，17/17 全绿）
+- API 5/5：注册/上传 A/B 两视频/建项目/存时间线（timeline 必须 JSON.stringify——dto.timeline 是 string）
+- UI 12/12：播放按钮 enabled / **t 2.4s 真实播放推进** / **文字 overlay 渲染 count=1** / 段 A 起播 src 正确 / **t≈5s 自动切段 B src 生效** / 播完自动停（pause 图标消失）/ 导出渲染 completed / 下载成片 `<a>` 出现 / 成片播放 t>0 / 0 JS errors
+- 测试用户/项目/上传文件/渲染产物全清（editor_projects=0、users 0、output 0）
+
+### ⚠️ 本轮血泪（测试脚本）
+1. **双击两个不同播放按钮 = 暂停**：底部「播放」文本按钮（onTogglePlay）与预览区圆形按钮（setPlaying 双绑）——脚本先点文本按钮再点圆形按钮 = 播→停。播放类测试只点一个按钮；抓元素用 `div[style*="translateX(-50%)"] button`（预览区底部 overlay 圆形按钮，播放中显示 pause 图标）
+2. **editor dto.timeline 是 string**（create/update 传 JSON.stringify 后的时间线，非对象）；DELETE 项目受外键约束要先删项目再删用户（editor_projects.user_id → users.id）
+3. 头像验证码改为 `require('redis').createClient({url:'redis://127.0.0.1:6379/0'})` 读（本地 redis-cli 不在 PATH；本地后端无 REDIS_DB 配置连 db 0——老经验重申）
+
+## 2026-08-17（视频剪辑页（剪映风时间线编辑器）全新模块 ✅ 本地全链路验证通过，待 git 提交）
+
+> 用户需求：新增「视频剪辑」页面——多轨时间线编辑器（视频/音频/文字三轨），素材来源复用画布编辑器 4 来源 + 音频上传，拖拽移动/右侧 resize/标尺 seek/分割/删除/属性面板，渲染复用 canvas 管线。范围已确认：**P0-MVP、总长 ≤60s、素材 ≤20、免费、仅 PC 端**。
+
+### ✅ 后端（新模块 `backend/src/modules/editor/`）
+- **数据模型**：`editor_projects` 表（name/ratio/resolution/timeline(text 列存时间线 JSON)/status/progress/result_url/error_msg）；时间线 JSON = `{duration, video:[{id,url,start,duration,trimIn,filter,nextTransition}], audio:[{id,url,start,duration,volume,fadeIn,fadeOut}], text:[{id,text,start,duration,x,y,fontSize,color,opacity,animation}]}`
+- **API**：`/api/editor/projects` CRUD + `:id/render` + `:id/export` + `POST /api/editor/upload`（multer 白名单扩展音频 mp3/wav/m4a/flac/aac/ogg，≤300MB，服务端文件名）
+- **校验**（validateTimeline，allowEmpty 参数控制）：总长 ≤60s（EDITOR_MAX_TOTAL_SECONDS）、素材 ≤20（EDITOR_MAX_ITEMS）、片段时长 1~60s、音频 0.5~70s、URL 仅 `/static/` 或 http(s)、滤镜/转场白名单、转场时长 0.2~1.5s；**创建空项目允许空时间线**（草稿），渲染前严格校验
+- **渲染**（doRender）：timeline→workflow JSON（video 按 start 排序；图片 URL 判 image 节点；filter→effect 滤镜节点；转场 effect **插在两段之间**；text/audio→output 边）→ 调 **canvas 新增公共入口 `renderWorkflowJson`**（canvas.service.ts 参数化：workDirPrefix/finalPrefix/maxClipSeconds，默认值保持 canvas 行为零变化）；trimIn>0 时预裁剪到 `/static/` 临时文件（仅本地文件，外链跳过并 warn）；输出 `output/editor_result_{id}_{ts}.mp4`
+- **canvas.service.ts 变更**：`clampDuration` 加 max 参数；renderWorkflow 加 `finalPrefix='canvas_result'`、`maxClipSeconds=15` 参数；新增 `public renderWorkflowJson(payload)`（含 refId/ratio/resolution/bgmUrl/nodes/workDirPrefix/finalPrefix/maxClipSeconds/onUpdate）
+- **Bug 修复（转场丢失）**：转换循环读 `v.nextTransition` 改为读 **`videos[i-1].nextTransition`**（语义=「本段与下一段的转场」挂在当前段）——修复前转场全丢（8.0s=4+4 无重叠），修复后 7.50s 精确（4+4−0.5）
+
+### ✅ 前端（新页面 `frontend/src/pages/Editor/`）
+- `types.ts`（TimelineDoc/常量/helpers）、`components/Timeline.tsx`（三轨 52px 高/标尺 tick+播放头/拖拽移动/resize 手柄/标尺 seek/底部栏：播放头显示+分割+删除选中+缩放 slider 10~100px/秒）、`components/PropsPanel.tsx`（按轨类型编辑 + 删除）、`EditorPage.tsx`（素材面板 4 Tab + 音频 Tab + 上传 Dragger、播放器联动播放头、2s 防抖自动保存、分割逻辑含 trimIn 继承、渲染轮询 2.5s）、`index.tsx`（列表页）
+- 路由 `/editor`、`/editor/:id`（App.tsx）；导航「剪辑」（AppHeader，画布之后）
+- **Bug 修复（resize 手柄失效）**：Timeline.tsx 右手柄 div 的 onMouseDown 原来只 onSelect+stopPropagation → **补 `startDrag('resize', track, item.id, e, item)`**（手柄 10px 区域拖不动）
+- 渲染完成显示「下载成片」（antd Button href → 渲染为 `<a>` 标签）
+
+### ✅ 本地验证（全绿）
+- **后端 e2e 13/13**（注册 token/建项目/存时间线/60s 超限 400「视频总长度不能超过 60 秒（当前 75.0 秒）」/恢复/渲染 completed/result 文件存在/列表/删除）
+- **质量 4/4**（ffprobe：720×1280 / 转场修复后 7.50s 精确匹配 4+4−0.5 / aac 音轨 / 滤镜灰阶）
+- **前端 UI 12/12**（注册→登录→弹窗关闭→列表→新建→素材库加素材→时间线分段→属性面板→导出渲染→下载成片 `<a>`→无 JS 错误）
+- **时间线交互 7/7**（resize +38px 生效 / 标尺 seek 播放头 00:01.9 / 分割出新段 / 删除 / 无 JS 错误）
+- 测试用户/项目/输出文件全部清理（editor_projects 0 残留）
+
+### ✅ 自查修复（提交前 code review + 回归，本地全链路重跑全绿）
+- **cleanup.service.ts**：引用收集补 `editor_projects.timeline` + `result_url` 两行 UNION（否则用户上传素材 30 天后被当孤儿删）；`TEMP_DIR_PREFIXES` 加 `editor_gen_`（崩溃残留目录回收）
+- **NaN 防御（前后端）**：`Number(a.volume) ?? 0.8` 在字段缺失时是 **NaN**（`??` 不拦截 NaN）→ ffmpeg volume=NaN 音轨静默失败 → 统一 `numOr()` 兜底（volume/x/y/opacity/fontSize）
+- **Timeline.tsx**：轨道渲染改按 `start` 排序——分割后数组顺序错乱（[A,B,C]→[A,C,B1,B2]）UI 重叠错位；顺带轨道空白点击清空选中
+- **EditorPage.tsx**：autosave 竞态防护（persistRef 防首次创建重复项目）；选中图片素材时预览区渲染 `<img>`（原来 `<video src=.jpg>` 黑屏）
+- 回归：后端 e2e 13/13、质量 4/4、UI 12/12、交互 7/7 全绿；测试用户/项目/输出全清；cleanup SQL 新分支实测可执行
+
+### ✅ 第二轮修复（用户功能测试反馈 2 项，本地验证全绿）
+- **① 点击「播放头」按钮无效果**：真根因 = Timeline 底部「播放头 00:00.0」是纯展示按钮（有播放 icon 但无 onClick）+ **预览区 fallback 取 `timeline.video[0]` 默认选中第一个素材——资产库前 2 个是图片** → 预览区渲染 `<img>`（无 video 元素）→ play() 静默无效。修复：a) 底部按钮改为**真播放/暂停开关**（onTogglePlay，从播放头位置播放，播放中紫色高亮，旁加「▶ t 起」文本展示播放头）；b) playerSrc fallback 改 `timeline.video.find(isVideoUrl)` **跳过图片选第一个视频片段**；c) 图片预览时两个播放按钮 disabled（playerCanPlay 判定）。
+- **② 素材库选择栏横向截断**：Segmented block 5 项挤 210px 宽 → 每栏只显示 2-3 字。改 **Radio.Group 竖排 5 个全名按钮**（AI 历史/资产库/热门创作/短剧片段/音频 BGM），选中高亮清晰。
+- 验证：修复专项 8/8（竖排标签全名/fallback 选视频/first play falsed=false/暂停/图片选中→img+按钮禁用/0 JS 错误）+ 原 UI 12/12 + 交互 7/7（seek 验证改读标尺 playhead left px ÷ 48px/s）；测试数据全清。
+- ⚠️ 教训：预览区定位不要用 `div[style*="rgb(17,17,17)"]`（素材卡片 60px 黑底也匹配、muted=true 干扰）——**用高度 ≥250px 判定预览区**；诊断播放类问题先确认抓的元素是预览区 video。
+
+### ⚠️ 本轮血泪经验（新）
+1. **注册接口直接返回 access_token**（无需再登录）；本地后端 Redis 无 REDIS_DB 配置时**连 db 0**（不是 5！本地 .env.local 无 REDIS 配置 → 注入验证码必须写 db 0）
+2. **antd Button 带 href 渲染为 `<a>`**（「下载成片」getByRole('button') 永远找不到 → 用 `a:has-text(...)`）
+3. **Playwright `text=分段 1` 命中 Text 元素而非 clip div**（clip 有 8px padding，Text box=128 vs clip 144）→ 定位 clip 用 `text=分段 1 → xpath=..`；**双击两个 clip 重叠时上层的 clip 拦截下层的 resize/移动**（拖拽测试要先避免重叠）
+4. **标尺 seek 点击 y 坐标**：「视频轨」Text 在 header 内垂直居中（header 高 52），thb.y-30+14 会落在 clip 上 → 用 `cursor:crosshair` 元素定位标尺（该元素是 ruler 容器，getBoundingClientRect 即 ruler 区域）
+5. **tests 复用旧用户会 409**：脚本用户名带随机后缀；**同一检测点 `text=分段 N` 匹配多处**（时间线 clip + PropsPanel 标题）
+6. 登录后「测试版说明」弹窗拦截点击 → 循环点确认直到 `.ant-modal-wrap:visible` 为 0；Start-Process 必须配 workdir=backend（否则起不来），且不能与 Invoke-WebRequest 同命令（ChildProcess.kill）
+7. 查询 SQL 用 `cmd /c "mysql ... < file.sql"`（execFileSync 拼命令行会被 mysql 的 Usage 输出吞掉）
+
 ## 2026-08-13（晚间：AI 分析不智能排查→模型升级 + 配音功能升级（旁白/角色台词 + 11 音色）✅ 已提交+已部署+生产验证）
 
 > 承接当日短剧剧本分析。两件事：①用户反馈「AI 分析不智能」→ 全链路排查 + 模型升级（视觉 omni-plus 优先 / 文本 qwen-plus 保速度）；②用户需求「配音内容可选旁白或角色台词 + 多音色」。均已部署生产。

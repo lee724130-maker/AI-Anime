@@ -29,6 +29,8 @@ const ViralProjectDetail = lazy(() => import('./pages/Viral/ProjectDetail'));
 const ViralTemplateList = lazy(() => import('./pages/Viral/TemplateList'));
 const CanvasIndex = lazy(() => import('./pages/Canvas'));
 const CanvasEditor = lazy(() => import('./pages/Canvas/Editor'));
+const EditorIndex = lazy(() => import('./pages/Editor'));
+const EditorPage = lazy(() => import('./pages/Editor/EditorPage'));
 const GeneratePage = lazy(() => import('./pages/Generate'));
 const GenerateHistoryPage = lazy(() => import('./pages/Generate/History'));
 const DramaListPage = lazy(() => import('./pages/Drama'));
@@ -101,6 +103,8 @@ export default function App() {
           <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />
           <Route path="/canvas" element={<ProtectedRoute><UserLayout><CanvasIndex /></UserLayout></ProtectedRoute>} />
           <Route path="/canvas/editor/:id" element={<ProtectedRoute><UserLayout><CanvasEditor /></UserLayout></ProtectedRoute>} />
+          <Route path="/editor" element={<ProtectedRoute><UserLayout><EditorIndex /></UserLayout></ProtectedRoute>} />
+          <Route path="/editor/:id" element={<ProtectedRoute><UserLayout><EditorPage /></UserLayout></ProtectedRoute>} />
         </Routes>
       </Suspense>
       <TestNoticeModal />

@@ -280,6 +280,45 @@ export class CanvasService {
   // ═══════════ Render engine ═══════════
 
   /**
+   * Render an arbitrary workflow JSON (nodes+edges string) without touching
+   * canvas_projects rows. Used by the editor (视频剪辑) module, which stores its
+   * own timeline JSON and converts it to a workflow before rendering.
+   * Calls back onUpdate() with progress patches ({progress}, {status,...}).
+   */
+  async renderWorkflowJson(payload: {
+    refId: number;
+    ratio: string;
+    resolution: string;
+    bgmUrl?: string;
+    nodes: string;
+    workDirPrefix?: string;
+    finalPrefix?: string;
+    maxClipSeconds?: number;
+    onUpdate?: (patch: Partial<CanvasProject>) => Promise<void>;
+  }): Promise<string | null> {
+    const { refId, ratio, resolution, bgmUrl, nodes } = payload;
+    const workDirPrefix = payload.workDirPrefix || 'editor_gen';
+    const finalPrefix = payload.finalPrefix || 'editor_result';
+    const workDir = path.join(this.outputDir, `${workDirPrefix}_${refId}_${Date.now()}`);
+    fs.mkdirSync(workDir, { recursive: true });
+
+    const update = payload.onUpdate || (async () => undefined);
+    try {
+      const parsed = this.parseWorkflow(nodes);
+      if (!parsed.isWorkflow) throw new Error('时间线数据不是有效的工作流 JSON');
+      const projectShape = {
+        id: refId,
+        ratio: ratio || '9:16',
+        resolution: resolution || '720p',
+        bgm_url: bgmUrl || null,
+      } as CanvasProject;
+      return await this.renderWorkflow(projectShape, parsed, workDir, update, finalPrefix, payload.maxClipSeconds ?? 15);
+    } finally {
+      try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  }
+
+  /**
    * Trigger async render. Updates status/progress on the project row.
    * The request returns immediately; the frontend polls getProjectResult.
    */
@@ -437,6 +476,8 @@ export class CanvasService {
     wf: { nodes: any[]; edges: any[] },
     workDir: string,
     update: (patch: Partial<CanvasProject>) => Promise<void>,
+    finalPrefix = 'canvas_result',
+    maxClipSeconds = 15,
   ): Promise<string | null> {
     const { nodes: wfNodes, edges: wfEdges } = wf;
     const ratio = project.ratio || '9:16';
@@ -455,7 +496,7 @@ export class CanvasService {
     const clips: string[] = [];
     for (let i = 0; i < chain.length; i++) {
       const node = chain[i];
-      const dur = this.clampDuration(node.duration);
+      const dur = this.clampDuration(node.duration, maxClipSeconds);
       try {
         let clip: string | null = null;
         if (node.type === 'image') {
@@ -585,7 +626,7 @@ export class CanvasService {
     }
 
     // ── Step 5: persist ──
-    const finalName = `canvas_result_${project.id}_${Date.now()}.mp4`;
+    const finalName = `${finalPrefix}_${project.id}_${Date.now()}.mp4`;
     const finalPath = path.join(this.outputDir, finalName);
     fs.copyFileSync(base, finalPath);
     await update({ status: 'completed', progress: 100, result_url: `/static/${finalName}` });
@@ -927,10 +968,10 @@ export class CanvasService {
     return null;
   }
 
-  private clampDuration(dur: any): number {
+  private clampDuration(dur: any, max: number = 15): number {
     const d = Number(dur);
     if (!d || isNaN(d)) return 3;
-    return Math.min(Math.max(d, 1), 15);
+    return Math.min(Math.max(d, 1), max);
   }
 
   private resolveSourceUrl(node: any): string {

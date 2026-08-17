@@ -4,7 +4,7 @@ import { DataSource } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const TEMP_DIR_PREFIXES = ['viral_frames_', 'viral_analyze_', 'viral_gen_', 'viral_reg_', 'canvas_gen_'];
+const TEMP_DIR_PREFIXES = ['viral_frames_', 'viral_analyze_', 'viral_gen_', 'viral_reg_', 'canvas_gen_', 'editor_gen_'];
 const STALE_FILE_EXT = /\.(mp4|webm|mov|mkv|jpg|jpeg|png|webp|gif|mp3|m4a|wav)$/i;
 const TEMP_DIR_AGE = 2 * 60 * 60 * 1000;      // temp dirs older than 2h (crash leftovers)
 const RESULT_FILE_AGE = 30 * 24 * 60 * 60 * 1000; // unreferenced result files older than 30 days
@@ -106,6 +106,8 @@ export class CleanupService implements OnModuleDestroy {
       UNION SELECT video_url FROM drama_segment_candidates WHERE video_url LIKE '%/static/%'
       UNION SELECT image_url FROM drama_assets WHERE image_url LIKE '%/static/%'
       UNION SELECT image_url FROM global_assets WHERE image_url LIKE '%/static/%'
+      UNION SELECT result_url FROM editor_projects WHERE result_url LIKE '%/static/%'
+      UNION SELECT timeline FROM editor_projects WHERE timeline LIKE '%/static/%'
     `);
     for (const r of rows) {
       if (!r || !r.v) continue;
