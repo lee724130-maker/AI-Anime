@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { execSync, exec } from 'child_process';
+import { execSync, exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 function findFfmpeg(): string {
   // Prefer the modern binary in backend/tools/ffmpeg (ffmpeg 6.x, supports
@@ -83,6 +84,29 @@ export async function runFfmpegQueued(
   }
 }
 
+/**
+ * Like runFfmpegQueued but executes via execFile (array args, NO shell).
+ * Critical on Linux: an exec()-built shell command strips single quotes inside
+ * ffmpeg filtergraphs (e.g. zoompan=z='min(zoom+0.001,1.05)' → z=min(zoom+0.001,1.05)
+ * which ffmpeg then fails to parse). execFile passes args verbatim, so filtergraph
+ * quotes survive. Windows shells didn't strip quotes, so this bug only surfaced in prod.
+ */
+export async function runFfmpegQueuedArr(
+  bin: string,
+  args: string[],
+  opts?: { timeout?: number },
+): Promise<{ stderr: string; stdout: string }> {
+  await ffmpegSemaphore.acquire();
+  try {
+    return await execFileAsync(bin, args, {
+      timeout: opts?.timeout || 120000,
+      maxBuffer: 1024 * 1024 * 20,
+    });
+  } finally {
+    ffmpegSemaphore.release();
+  }
+}
+
 export { ffmpegSemaphore };
 
 @Injectable()
@@ -117,6 +141,11 @@ export class FFmpegUtil {
 
   private ff(args: string, opts?: { timeout?: number }): Promise<{ stderr: string; stdout: string }> {
     return runFfmpegQueued(`"${this.ffmpegPath}" ${args}`, opts);
+  }
+
+  // execFile-based (no shell): preserves filtergraph quotes on Linux
+  private ffArr(args: string[], opts?: { timeout?: number }): Promise<{ stderr: string; stdout: string }> {
+    return runFfmpegQueuedArr(this.ffmpegPath, args, opts);
   }
 
   /**
@@ -239,7 +268,9 @@ export class FFmpegUtil {
       const displayCmd = args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
       this.logger.log(`FFmpeg command: ffmpeg ${displayCmd}`);
 
-      const { stderr } = await this.ff(`${displayCmd}`, { timeout: 60000 });
+      // execute via execFile (array) to preserve filtergraph quotes (Linux shell
+      // strips single quotes otherwise, breaking zoompan=z='min(...)' filters)
+      const { stderr } = await this.ffArr(args, { timeout: 60000 });
       if (stderr) {
         this.logger.debug(`FFmpeg stderr: ${stderr.slice(0, 200)}`);
       }

@@ -43,3 +43,6 @@ backend/api-test-results.md
 
 # Temp test scripts
 Temp/
+
+# deploy zip artifacts (local packaging only)
+deploy/

@@ -1,5 +1,60 @@
 # 修复日志
 
+## 2026-08-18（生产后端 editor 模块部署完成 + ffmpeg zoompan 跨平台修复 + 生产验收 14/14 全绿 ✅ 待 git 提交）
+
+> 完成昨日遗留：① 生产后端部署 editor 模块（此前 404）；② 生产渲染失败根因修复（zoompan 单引号）；③ 生产编辑器全链路验收 14/14 全绿；④ 测试残留全清。
+
+### ✅ 生产后端 editor 模块部署（昨天遗留的第 1 步）
+- 本地 dist 打包（Compress-Archive → pscp → plink unzip 替换 dist）→ pm2 restart → `/api/editor/*` 404 → 401 正常（`api_health` 401 = JWT 鉴权生效，模块路由存在）
+- 部署脚本：`Temp\opencode\deploy-be-editor.js` + `restart-verify-be.js`；⚠️ deploy-be-editor.js 有 && 链 bug：`mv dist` 后 unzip warning 中断，但文件实际解压成功（教训重申：**解压后必须 grep/查文件确认，不能只信脚本退出码**）
+
+### ✅ 生产渲染失败根因（zoompan 单引号被 Linux shell 剥掉）
+- 症状：图片段渲染时 `/tmp/editor_gen_*/clips` 里 composite 后黑屏（本地正常、生产失败）——本地媒体 08-13 旧版用 `node dist/src/main`（Windows）能出片，但前两轮生产渲染（本地 zip → 服务器）失败
+- 根因：`ffmpeg.util.ts` 的 `runFfmpegQueued` 用 `spawn('ffmpeg', args)` **拼 shell 字符串**执行（`-filter_complex '...'` 单引号包装）——Linux shell 解析剥掉单引号后 filtergraph 断成多参数 → zoompan/composite 静默失败
+- 修复（ffmpeg.util.ts）：新增 `runFfmpegQueuedArr`/`ffArr` 用 `execFile` 数组传参（import 加 `execFile`），composite 执行改 `this.ffArr(args, { timeout: 60000 })`；tsc EXIT=0 → 上传服务器 dist 替换 → pm2 restart → `grep ffArr dist=2` + `mtime 14:46` 确认新代码生效
+- **修复后生产实测：渲染 completed + editor_result_3_*.mp4 存在（38KB）**——图片段渲染全链路生产打过
+
+### ✅ 生产验收 14/14 全绿（test-prod-editor-img.js，图片段专项）
+- 注册（Redis db5 注入验证码）/ 上传 A/B 两视频+图片 / 建项目 / 存时间线 / **UI 播放：段 A 起播 src 正确 / 图片段显示静态图 count=1 / 图片段播放器暂停 true / 文字叠加可见 / 自动切段 B / 图片段隐藏** / 渲染 completed / 无 JS 错误——14/14
+- 本地 16/16 的同一套检查点，生产因时序漂移（加载慢）2 个 FAIL → **图片段检查改轮询等待（最多 8s 内 img 出现 + paused）** 后全绿
+
+### ⚠️ 本轮血泪（生产验收三连坑）
+1. **测试版说明 Modal 遮挡点击**：新注册用户登录必弹，`.ant-modal-wrap` 遮罩盖住播放按钮 → click 30s 超时（diag 用 `elementFromPoint` 拿到 topElement=DIV.ant-modal-wrap 实锤）；且弹窗加载慢，固定循环会空跑——**关闭逻辑必须「先等 wrap visible 再点确认，循环直到 wrap 消失」**
+2. **antd 两字按钮空格坑重申**：「确认」渲染为「确 认」→ `button:has-text("确认")` 永远匹配不到 → **必须 `getByRole('button', { name: /确\s*认/ })`**（JS 正则不经 CSS 解析器）
+3. **about:blank 上 evaluate 抛 SecurityError**：diag 脚本在导航前直接 `page.evaluate(localStorage.setItem)` → 崩溃且 log 只输出前面 2 行（误导以为卡在 goto）——**必须先 goto 目标域名页面（/login）再注入 localStorage**
+4. **生产 MySQL 账号不是 root/123456**：是 `ai_anime/AnimeSecure2026!`（读服务器 backend/.env）——测试脚本清理 SQL 一直 `2>/dev/null` 吞错误**静默失败**，测试用户 uid≥46 一直残留到今天才清（users=12）；**测试脚本 SQL 别吞 stderr，或清理后验证行数**
+5. node stdout 经 PowerShell `Select-String` 管道丢行（老坑）→ diag 一律写文件再读
+6. **生产播放时序实测**：生产加载比本地慢（点击播放后 src 生效要 1-2s），**固定 wait 的边界检查点（如段尾 5s 处查 img）必须改轮询**，本地公式不能照搬
+
+### ✅ 服务器测试残留全清
+- `editor_projects` = 0；测试用户全删（users=12 正常）；`uploads/editor_upload_*` = 0；`output/editor_result_*` = 0；`/tmp/editor_gen_*` = 0
+
+### ⚠️ 待办
+- [ ] git 提交：昨天的 EditorPage.tsx 图片段修复 + 今天 ffmpeg.util.ts + AGENTS.md（08-17 两节 + 本节）；deploy/ 下 zip 打包产物不提交（本地已存在，建议加 .gitignore）
+- [ ] 本地重跑 test-img-seg.js + 剪辑页回归（本地后端重启用新 ffmpeg 实现，确认无回归）
+- [ ] push 待用户确认（git 网络易出错，用户暂缓惯例）
+
+## 2026-08-17（深夜：图片段播放跳过 bug 修复 ✅ 本地 16/16 全绿 + 前端已部署生产；⚠️ 生产后端缺 editor 模块，明天部署）
+
+> 用户反馈剪辑页播放器「图片段被跳过不显示」。本地排查两轮（EDBG 日志实锤）→ 修复 → 前端部署生产完成；**生产后端仍是 08-13 旧版（无 editor 模块，/api/editor/* 404），明天需部署后端**。
+
+### ✅ 修复（EditorPage.tsx，1 行级根因 + 1 个精度小修）
+- **根因（图片段被瞬间跳过）**：`handleTimeUpdate` 里 `if (!seg || isImageUrl(seg.url)) { advanceToNext(v); return; }` —— v1 段尾切换时 `bindSeg(v2)` 调 `v.pause()` 触发**残留 timeupdate**，此时绑定段已是图片段 v2 → 条件成立 → **立即 advanceToNext 跳到 v3**（EDBG 日志：`bindSeg v2` 与 `bindSeg v3` 同毫秒相邻，中间无 tick）。修复：图片段时 timeupdate **直接 return**（图片段由 interval 按墙钟推进 playhead 并检测段尾）——`if (!seg) { advanceToNext(v); return; } if (isImageUrl(seg.url)) return;`
+- **精度小修**：interval video 分支补 setPlayhead（段尾前最后 ~0.25s 无 timeupdate，播放头停在该处——实测 t 卡 12.745）；段尾判定时直接 set 到段尾时刻
+- **本地验证 16/16 全绿**：图片段静态图显示 count=1 / 播放器暂停 / 文字叠加显示 / 切段 B src 正确 / 图片段隐藏 / **播放头精确到终点 t=13** / 自动停止 / seek t=6 显示图 / 渲染 completed / 下载链接（test-img-seg.js，图片段专项）
+- ⚠️ 三轮排查教训：① 加日志必须**真打印**（第一版日志被 `if ((window as any).__EDBG)` 门挡住，白跑两轮）；② **同一段代码在 handleTimeUpdate 与别处几乎一样，edit 匹配要带上下文**（第一轮 edit「成功」但可能落在别处，483 行仍是旧代码——务必修后 grep/读文件确认，别再闭眼跑测试）；③ EDBG 日志挂页面 console，测试脚本 `page.on('console')` 过滤打印，排查播放类问题极高效（bindSeg/tick/timeupdate 三事件序列一眼定位）
+
+### 🚀 前端已部署生产（index-BNwZLmPA.js + Generate-CWFeFIVI.js 已上线，服务器 frontend/dist/assets 与本地一致）
+- 部署脚本：`Temp\opencode\deploy-fe-editor.js` / `deploy-fe-editor2.js`（pscp 上传 frontend.zip → 服务器 `bash deploy/deploy.sh`）
+- ⚠️ **部署事故（已恢复）**：deploy.sh 里 `unzip deploy/backend.zip` —— 但服务器 deploy/ 下**没有 backend.zip**（上次部署结束时已 `rm -rf`，脚本又没 set -e 检查）→ unzip 失败仍继续 → **backend/dist 被空目录覆盖** → `pm2 restart` 后 `[..] errored`、api 502 → 紧急从 `backend/dist_bak` 恢复（`rm -rf backend/dist && mv backend/dist_bak backend/dist && pm2 restart`，fix-prod-backend.js）→ **Nest application successfully started + api 401 正常**
+- ⚠️ 教训：**服务器 deploy/ 里的 zip 是上次部署遗留清理掉的，deploy.sh 依赖的 backend.zip 常不存在**——以后要么每次上传 zip + 脚本，要么 deploy.sh 加 `[ -f zip ] || exit 1` 守卫；**恢复 dist 用 dist_bak 一步到位**（deploy.sh 的 mv 已把旧版完整备份在 dist_bak）
+
+### ⚠️ 明天待办（生产后端部署，1 步）
+1. **生产后端缺 editor 模块**：生产 dist 是 08-13 旧版（恢复自 dist_bak）——`/api/editor/upload|projects` 404（实测）。本地 `backend/dist` 已编译含 editor 模块（上一轮 e2e 13/13 跑的同一包）→ 打包 `backend.zip`（dist 内容）→ pscp 上传 → 服务器解压替换 + `pm2 restart`（注意先备份 dist；**backup 后按 dist_bak 恢复路径 mv 回来**）→ 验证 `/api/editor/projects` 非 404 + `api_health` 401
+2. 部署后跑一次生产编辑器验收：test-prod-editor-img.js（Redis db5 注入验证码 → 上传视频+图片 → 建项目→存时间线 → UI 播放：图片段显示/暂停/文字/切段/渲染/下载）——今天因 404 中止在「上传 A/B/img」
+3. 顺带：test-img-seg.js 末尾 ffprobe 用 `ffmpeg -i` 报 SCRIPT ERROR（测试脚本自身 bug，清理被跳过 → 每次手动补 SQL 清理 editor_projects）
+4. git：今天的修复 + 08-17 剪辑页两节均未提交，待 push
+
 ## 2026-08-17（剪辑页播放器升级：时间线顺序连播 + 文字叠加预览 ✅ 本地 17/17 全绿，待 git 提交）
 
 > 承接视频剪辑页（上节）。用户功能测试反馈「预览区播放体验」：旧实现只播「当前选中片段」单段，未选中时 fallback 第一个素材；预期剪映式行为——**按时间线顺序连播（跨片段自动切换）+ 文字轨实时叠加预览**。本轮在 EditorPage.tsx 重写播放器：

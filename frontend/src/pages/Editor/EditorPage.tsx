@@ -337,6 +337,13 @@ export default function EditorPage() {
   // ── Player wiring ──
   const selectedVideo = selected?.track === 'video'
     ? (timeline.video.find((x) => x.id === selected.id) || null) : null;
+  // playable segments (video + image clips) sorted by start (timeline preview mode)
+  const playableSegs = useMemo(
+    () => timeline.video
+      .filter((v) => v.url)
+      .sort((a, b) => (a.start || 0) - (b.start || 0)),
+    [timeline.video],
+  );
   const fallbackVideo = useMemo(
     () => timeline.video.find((v) => isVideoUrl(v.url)) || null,
     [timeline.video],
@@ -347,18 +354,43 @@ export default function EditorPage() {
     : selectedVideo
       ? toStaticUrl(selectedVideo.url)
       : fallbackVideo ? toStaticUrl(fallbackVideo.url) : undefined;
-  const playerCanPlay = !!playerSrc && !isImageUrl(playerSrc);
+  const playerCanPlay = renderOK ? !!playerSrc : playableSegs.length > 0;
 
-  // playable video segments sorted by start (timeline preview mode)
-  const playableSegs = useMemo(
-    () => timeline.video
-      .filter((v) => v.url && isVideoUrl(v.url))
-      .sort((a, b) => (a.start || 0) - (b.start || 0)),
-    [timeline.video],
-  );
+  const playheadRef = useRef(0);
+  const setPlayhead = (t: number) => { playheadRef.current = t; setCurrentTime(t); };
 
-  // Playing state: which video segment is currently bound to the <video>
+  // Bound segment + image overlay (image segments are shown as a static frame)
   const boundSegRef = useRef<TimelineVideoItem | null>(null);
+  const [previewImg, setPreviewImg] = useState<string | null>(null);
+
+  // Bind a segment to the player (video: play; image: pause video + show static img)
+const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOffset: number) => {
+    boundSegRef.current = seg;
+    if (isImageUrl(seg.url)) {
+      v.pause();
+      setPreviewImg(toStaticUrl(seg.url) || null);
+      return;
+    }
+    setPreviewImg(null);
+    const url = toStaticUrl(seg.url) || '';
+    const local = Math.max(0, segOffset + (Number(seg.trimIn) || 0));
+    if (v.getAttribute('src') !== url) {
+      v.src = url;
+      v.addEventListener('loadedmetadata', () => {
+        v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
+        if (playingRef.current) v.play().catch(() => { });
+      }, { once: true });
+    } else {
+      v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      if (playingRef.current) v.play().catch(() => { });
+    }
+  }, []);
+
+  // Live mirror of playing for callbacks/interval
+  const playingRef = useRef(false);
+  useEffect(() => { playingRef.current = playing; }, [playing]);
 
   // Start / restart playback from the current playhead (or selected clip start)
   useEffect(() => {
@@ -369,27 +401,14 @@ export default function EditorPage() {
       v.play().catch(() => { /* ignore autoplay errors */ });
       return;
     }
-    // timeline preview: bind the segment under the playhead (fallback: playableSegs[0])
+    // timeline preview: bind the segment under the playhead (fallback: next segment)
     const t0 = selectedVideo && isVideoUrl(selectedVideo.url)
-      ? (selectedVideo.start || 0) : currentTime;
+      ? (selectedVideo.start || 0) : playheadRef.current;
     const target = playableSegs.find((s) => t0 >= (s.start || 0) && t0 < (s.start || 0) + (s.duration || 0))
       || playableSegs.find((s) => (s.start || 0) + (s.duration || 0) > t0)
       || null;
     if (!target) { setPlaying(false); return; }
-    boundSegRef.current = target;
-    const url = toStaticUrl(target.url) || '';
-    if (v.getAttribute('src') !== url) {
-      v.src = url;
-      const local = Math.max(0, t0 - (target.start || 0) + (Number(target.trimIn) || 0));
-      v.addEventListener('loadedmetadata', () => {
-        v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
-        v.play().catch(() => { });
-      }, { once: true });
-    } else {
-      const local = Math.max(0, t0 - (target.start || 0) + (Number(target.trimIn) || 0));
-      v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
-      v.play().catch(() => { });
-    }
+    bindSeg(v, target, Math.max(0, t0 - (target.start || 0)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
@@ -401,6 +420,7 @@ export default function EditorPage() {
       v.removeAttribute('src');
       v.load();
       boundSegRef.current = null;
+      setPreviewImg(null);
       return;
     }
     if (Math.abs(v.currentTime - currentTime) > 0.3) v.currentTime = currentTime;
@@ -410,29 +430,51 @@ export default function EditorPage() {
   // Timeline preview: advance to the next playable segment when the current one ends
   const advanceToNext = useCallback((v: HTMLVideoElement) => {
     const cur = boundSegRef.current;
-    const from = cur ? (cur.start || 0) + (cur.duration || 0) : currentTime;
+    const from = cur ? (cur.start || 0) + (cur.duration || 0) : playheadRef.current;
     const next = playableSegs.find((s) => (s.start || 0) + (s.duration || 0) > from + 0.03) || null;
     if (!next) { setPlaying(false); return; }
-    boundSegRef.current = next;
-    const url = toStaticUrl(next.url) || '';
-    const local = Math.max(0, Number(next.trimIn) || 0);
-    if (v.getAttribute('src') !== url) {
-      v.src = url;
-      v.addEventListener('loadedmetadata', () => {
-        v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
-        v.play().catch(() => { });
-      }, { once: true });
-    } else {
-      v.currentTime = local;
-      v.play().catch(() => { });
-    }
-  }, [playableSegs, currentTime]);
+    bindSeg(v, next, 0);
+  }, [playableSegs, bindSeg]);
+
+  // Preview master loop: image segments advance the playhead by wall time;
+  // video segment ends are detected via the timeupdate handler below
+  useEffect(() => {
+    if (!playing || renderOK) return;
+    let last = 0;
+    const iv = window.setInterval(() => {
+      const v = videoRef.current;
+      if (!v || !playingRef.current) return;
+      const boundId = boundSegRef.current?.id;
+      const seg = (boundId && playableSegs.find((s) => s.id === boundId)) || null;
+      if (!seg) {
+        advanceToNext(v);
+        return;
+      }
+      if (!isImageUrl(seg.url)) {
+        const advance = v.currentTime >= (seg.duration || 0) - 0.08;
+        if (advance) setPlayhead((seg.start || 0) + (seg.duration || 0));
+        else setPlayhead((seg.start || 0) + v.currentTime - (Number(seg.trimIn) || 0));
+        if (advance) advanceToNext(v);
+        return;
+      }
+      // image segment: advance playhead by elapsed wall time
+      const now = Date.now();
+      const dt = last ? (now - last) / 1000 : 0;
+      last = now;
+      const end = (seg.start || 0) + (seg.duration || 0);
+      const nt = Math.min(playheadRef.current + dt, end - 0.05);
+      setPlayhead(nt);
+      if (nt >= end - 0.05) advanceToNext(v);
+    }, 120);
+    return () => window.clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, renderOK, playableSegs]);
 
   const handleTimeUpdate = () => {
     const v = videoRef.current;
     if (!v || !playing) return;
     if (renderOK) {
-      setCurrentTime((t) => (Math.abs(t - v.currentTime) > 0.05 ? v.currentTime : t));
+      setPlayhead(v.currentTime);
       if (v.currentTime >= v.duration - 0.12) setPlaying(false);
       return;
     }
@@ -440,28 +482,27 @@ export default function EditorPage() {
     const boundId = boundSegRef.current?.id;
     const seg = (boundId && playableSegs.find((s) => s.id === boundId)) || null;
     if (!seg) { advanceToNext(v); return; }
+    // image segment: no video time drives it — the interval loop advances the
+    // playhead and detects the segment end (a stray timeupdate must NOT advance)
+    if (isImageUrl(seg.url)) return;
     const local = v.currentTime;
     if (local >= (seg.duration || 0) - 0.08) { advanceToNext(v); return; }
     const globalT = (seg.start || 0) + local - (Number(seg.trimIn) || 0);
-    setCurrentTime((t) => (Math.abs(t - globalT) > 0.1 ? globalT : t));
+    if (Math.abs(playheadRef.current - globalT) > 0.1) setPlayhead(globalT);
   };
 
   const handleSeek = (t: number) => {
-    setCurrentTime(t);
+    setPlayhead(t);
     if (!renderOK) {
       const v = videoRef.current;
       if (v) {
-        const target = playableSegs.find((s) => t >= (s.start || 0) && t < (s.start || 0) + (s.duration || 0));
+        const target = playableSegs.find((s) => t >= (s.start || 0) && t < (s.start || 0) + (s.duration || 0)) || null;
         if (target) {
-          const url = toStaticUrl(target.url) || '';
-          if (v.getAttribute('src') !== url) {
-            v.src = url;
-            v.addEventListener('loadedmetadata', () => {
-              v.currentTime = Math.min(Math.max(0, t - (target.start || 0) + (Number(target.trimIn) || 0)), Math.max(0, v.duration - 0.05));
-            }, { once: true });
-          } else {
-            v.currentTime = Math.max(0, t - (target.start || 0) + (Number(target.trimIn) || 0));
-          }
+          bindSeg(v, target, Math.max(0, t - (target.start || 0)));
+        } else {
+          v.pause();
+          setPreviewImg(null);
+          boundSegRef.current = null;
         }
       }
       return;
@@ -604,14 +645,16 @@ export default function EditorPage() {
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Player */}
           <div style={{ background: '#111', borderRadius: 12, height: 300, flexShrink: 0, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {playerSrc ? (
-              isImageUrl(playerSrc) ? (
-                <img src={playerSrc} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
-              ) : (
-                <video ref={videoRef} src={playerSrc} onTimeUpdate={handleTimeUpdate} preload="auto"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-              )
+            {!playerSrc || isImageUrl(playerSrc) ? (
+              <video ref={videoRef} onTimeUpdate={handleTimeUpdate} preload="auto" style={{ display: 'none' }} />
             ) : (
+              <video ref={videoRef} src={playerSrc} onTimeUpdate={handleTimeUpdate} preload="auto"
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+            )}
+            {previewImg && (
+              <img src={previewImg} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 10 }} />
+            )}
+            {!playerSrc && !previewImg && timeline.video.length === 0 && timeline.text.length === 0 && (
               <div style={{ textAlign: 'center', color: '#555' }}>
                 <VideoCameraOutlined style={{ fontSize: 40 }} />
                 <div style={{ fontSize: 12, marginTop: 8 }}>点击左侧素材添加到时间线，选中片段后可预览</div>
