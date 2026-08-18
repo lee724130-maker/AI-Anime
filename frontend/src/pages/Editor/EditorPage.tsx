@@ -250,7 +250,22 @@ export default function EditorPage() {
     setSelected({ track, id: item.id });
   }, [timeline]);
 
-  const handleAddFromAssetPanel = useCallback((a: AssetItem) => {
+  // Probe a video's real duration (used as the clip duration when added)
+  const probeVideoDuration = useCallback((url: string) => new Promise<number>((resolve) => {
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    const done = (d: number) => {
+      v.removeAttribute('src');
+      v.load();
+      resolve(Math.min(Math.max(d, 1), MAX_SECONDS));
+    };
+    v.onloadedmetadata = () => done(isFinite(v.duration) && v.duration > 0 ? v.duration : 3);
+    v.onerror = () => done(3);
+    v.src = url;
+    setTimeout(() => { if (!isFinite(v.duration) || v.duration <= 0) done(3); }, 8000);
+  }), []);
+
+  const handleAddFromAssetPanel = useCallback(async (a: AssetItem) => {
     const url = toStaticUrl(a.url) || '';
     if (isAudioUrl(url)) {
       addToTrack('audio', {
@@ -258,10 +273,11 @@ export default function EditorPage() {
       } as TimelineAudioItem);
       return;
     }
+    const dur = isVideoUrl(url) ? round1(await probeVideoDuration(url)) : 3;
     addToTrack('video', {
-      id: genId('v'), url, start: videoEnd, duration: 3, trimIn: 0, filter: 'none', nextTransition: null,
+      id: genId('v'), url, start: videoEnd, duration: dur, trimIn: 0, filter: 'none', nextTransition: null,
     } as TimelineVideoItem);
-  }, [addToTrack, videoEnd]);
+  }, [addToTrack, videoEnd, probeVideoDuration]);
 
   const addText = () => {
     addToTrack('text', {
@@ -282,13 +298,10 @@ export default function EditorPage() {
         addToTrack('audio', {
           id: genId('a'), url, start: 0, duration: 5, volume: 0.8, fadeIn: 0, fadeOut: 2,
         } as TimelineAudioItem);
-      } else if (isVideoUrl(url)) {
-        addToTrack('video', {
-          id: genId('v'), url, start: videoEnd, duration: 3, trimIn: 0, filter: 'none', nextTransition: null,
-        } as TimelineVideoItem);
       } else {
+        const dur = isVideoUrl(url) ? round1(await probeVideoDuration(url)) : 3;
         addToTrack('video', {
-          id: genId('v'), url, start: videoEnd, duration: 3, trimIn: 0, filter: 'none', nextTransition: null,
+          id: genId('v'), url, start: videoEnd, duration: dur, trimIn: 0, filter: 'none', nextTransition: null,
         } as TimelineVideoItem);
       }
       message.success('上传成功并已添加');
@@ -335,8 +348,6 @@ export default function EditorPage() {
   };
 
   // ── Player wiring ──
-  const selectedVideo = selected?.track === 'video'
-    ? (timeline.video.find((x) => x.id === selected.id) || null) : null;
   // playable segments (video + image clips) sorted by start (timeline preview mode)
   const playableSegs = useMemo(
     () => timeline.video
@@ -351,9 +362,7 @@ export default function EditorPage() {
   const renderOK = render?.status === 'completed' && !!render.result_url;
   const playerSrc = renderOK && render.result_url
     ? render.result_url
-    : selectedVideo
-      ? toStaticUrl(selectedVideo.url)
-      : fallbackVideo ? toStaticUrl(fallbackVideo.url) : undefined;
+    : fallbackVideo ? toStaticUrl(fallbackVideo.url) : undefined;
   const playerCanPlay = renderOK ? !!playerSrc : playableSegs.length > 0;
   // The <video> element must stay visible while the timeline preview drives it
   // via bindSeg (it is hidden only when there is nothing video-like to show).
@@ -362,13 +371,22 @@ export default function EditorPage() {
   const playheadRef = useRef(0);
   const setPlayhead = (t: number) => { playheadRef.current = t; setCurrentTime(t); };
 
-  // Bound segment + image overlay (image segments are shown as a static frame)
+  // Bound segment + image overlay (image segments are shown as a static frame,
+  // only while the playhead sits inside the image segment — selecting a clip
+  // must never cover the video area)
   const boundSegRef = useRef<TimelineVideoItem | null>(null);
   const [previewImg, setPreviewImg] = useState<string | null>(null);
-  // Selected image clip (not playing yet) is also shown as a static frame;
-  // while playing, only the bound segment (previewImg) may show an image
-  const previewImgShown = previewImg
-    || (!playing && !renderOK && selectedVideo && isImageUrl(selectedVideo.url) ? (toStaticUrl(selectedVideo.url) || null) : null);
+  const previewImgShown = previewImg;
+
+  // When a bound segment is removed from the timeline, clear its stale preview
+  useEffect(() => {
+    const boundId = boundSegRef.current?.id;
+    if (boundId && !timeline.video.some((s) => s.id === boundId)) {
+      boundSegRef.current = null;
+      setPreviewImg(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeline.video]);
 
   // Bind a segment to the player (video: play; image: pause video + show static img)
 const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOffset: number) => {
@@ -381,17 +399,24 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
     setPreviewImg(null);
     const url = toStaticUrl(seg.url) || '';
     const local = Math.max(0, segOffset + (Number(seg.trimIn) || 0));
-    if (v.getAttribute('src') !== url) {
-      v.src = url;
-      v.addEventListener('loadedmetadata', () => {
-        v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
-        // eslint-disable-next-line @typescript-eslint/no-use-before-define
-        if (playingRef.current) v.play().catch(() => { });
-      }, { once: true });
-    } else {
-      v.currentTime = Math.min(local, Math.max(0, v.duration - 0.05));
+    // duration may still be NaN right after assigning src (or when the source
+    // errored); only seek once the metadata is ready, and never assign NaN
+    const applyLocal = () => {
+      const d = v.duration;
+      if (!isFinite(d) || d <= 0) return;
+      const t = Math.min(local, Math.max(0, d - 0.05));
+      if (!isFinite(t)) return;
+      try { v.currentTime = t; } catch { /* ignore */ }
       // eslint-disable-next-line @typescript-eslint/no-use-before-define
       if (playingRef.current) v.play().catch(() => { });
+    };
+    if (v.getAttribute('src') !== url) {
+      v.src = url;
+      v.addEventListener('loadedmetadata', applyLocal, { once: true });
+    } else if (isFinite(v.duration) && v.duration > 0) {
+      applyLocal();
+    } else {
+      v.addEventListener('loadedmetadata', applyLocal, { once: true });
     }
   }, []);
 
@@ -409,8 +434,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
       return;
     }
     // timeline preview: bind the segment under the playhead (fallback: next segment)
-    const t0 = selectedVideo && isVideoUrl(selectedVideo.url)
-      ? (selectedVideo.start || 0) : playheadRef.current;
+    const t0 = playheadRef.current;
     const target = playableSegs.find((s) => t0 >= (s.start || 0) && t0 < (s.start || 0) + (s.duration || 0))
       || playableSegs.find((s) => (s.start || 0) + (s.duration || 0) > t0)
       || null;
