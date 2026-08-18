@@ -102,7 +102,8 @@ export default function App() {
           <Route path="/viral/projects" element={<ProtectedRoute><UserLayout><ViralProjectList /></UserLayout></ProtectedRoute>} />
           <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />
           <Route path="/canvas" element={<ProtectedRoute><UserLayout><CanvasIndex /></UserLayout></ProtectedRoute>} />
-          <Route path="/canvas/editor/:id" element={<ProtectedRoute><UserLayout><CanvasEditor /></UserLayout></ProtectedRoute>} />
+          {/* 画布编辑器：网页全屏工作台（无导航栏，独占整屏） */}
+          <Route path="/canvas/editor/:id" element={<ProtectedRoute><CanvasEditor /></ProtectedRoute>} />
           <Route path="/editor" element={<ProtectedRoute><UserLayout><EditorIndex /></UserLayout></ProtectedRoute>} />
           <Route path="/editor/:id" element={<ProtectedRoute><UserLayout><EditorPage /></UserLayout></ProtectedRoute>} />
         </Routes>

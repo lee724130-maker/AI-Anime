@@ -333,7 +333,7 @@ export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChan
   return (
     <div
       ref={containerRef}
-      style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#f5f6f8', borderRadius: 12, minWidth: 0, cursor: dragging?.mode === 'pan' ? 'grabbing' : 'grab', touchAction: 'none' }}
+      style={{ flex: 1, position: 'relative', overflow: 'hidden', background: '#1a1c20', borderRadius: 12, minWidth: 0, cursor: dragging?.mode === 'pan' ? 'grabbing' : 'grab', touchAction: 'none' }}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (draggingAsset) { setDraggingAsset(null); return; }
@@ -387,7 +387,7 @@ export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChan
       {/* dotted grid */}
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none',
-        backgroundImage: 'radial-gradient(#d5d9e0 1px, transparent 1px)',
+        backgroundImage: 'radial-gradient(#3a3f4a 1px, transparent 1px)',
         backgroundSize: `${20 * viewport.zoom}px ${20 * viewport.zoom}px`,
         backgroundPosition: `${viewport.x}px ${viewport.y}px`,
       }} />
@@ -531,7 +531,7 @@ export default function WorkflowCanvas({ workflow, selectedIds, onSelect, onChan
       )}
 
       {/* hint bar */}
-      <div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', color: '#8a94a6', fontSize: 11, background: '#fff', borderRadius: 20, padding: '4px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', bottom: 10, left: '50%', transform: 'translateX(-50%)', color: '#9aa4b2', fontSize: 11, background: '#2c2f36', borderRadius: 20, padding: '4px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.35)', pointerEvents: 'none' }}>
         左键点选/拖动节点 · 左键空白拉框多选 · 右键拖空白平移 · 滚轮缩放 · 右侧圆点拖到左侧圆点连线 · Delete 删除
       </div>
     </div>

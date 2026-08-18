@@ -413,37 +413,43 @@ export default function CanvasEditor() {
   }, [workflow, name, ratio, resolution, projectId]);
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
+    return (
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#17181c' }}>
+        <Spin size="large" />
+      </div>
+    );
   }
 
   if (loadError) {
     return (
-      <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
-        <Text strong style={{ fontSize: 15 }}>项目加载失败</Text>
-        <div style={{ color: '#f5222d', margin: '10px 0 20px', fontSize: 13 }}>{loadError}</div>
-        <Button onClick={() => navigate('/canvas')} style={{ borderRadius: 10 }}>返回画布列表</Button>
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#17181c' }}>
+        <div style={{ textAlign: 'center', background: '#fff', padding: '40px 60px', borderRadius: 16 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+          <Text strong style={{ fontSize: 15 }}>项目加载失败</Text>
+          <div style={{ color: '#f5222d', margin: '10px 0 20px', fontSize: 13 }}>{loadError}</div>
+          <Button onClick={() => navigate('/canvas')} style={{ borderRadius: 10 }}>返回画布列表</Button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '12px 16px', height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
-      {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexShrink: 0 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/canvas')} style={{ borderRadius: 10 }} />
-        <Input value={name} onChange={e => setName(e.target.value)} style={{ width: 200, borderRadius: 10, fontWeight: 600 }} placeholder="画布名称" />
+    <div style={{ height: '100vh', width: '100vw', overflow: 'hidden', background: '#17181c', display: 'flex', flexDirection: 'column' }}>
+      {/* Top bar — full-screen workbench header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 52, flexShrink: 0, background: '#1f2126', borderBottom: '1px solid #2c2f36' }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/canvas')} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }} />
+        <Input value={name} onChange={e => setName(e.target.value)} style={{ width: 220, borderRadius: 10, fontWeight: 600, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }} placeholder="画布名称" />
         <Select value={ratio} onChange={setRatio} style={{ width: 80, borderRadius: 10 }}
           options={['9:16', '16:9', '1:1', '3:4', '4:3', '2:3'].map(r => ({ value: r, label: r }))} />
         <Select value={resolution} onChange={setResolution} style={{ width: 84, borderRadius: 10 }}
           options={['480p', '720p', '1080p'].map(r => ({ value: r, label: r }))} />
-        <Text type="secondary" style={{ fontSize: 12 }}>{workflow.nodes.length} 节点 · {workflow.edges.length} 连线</Text>
+        <Text style={{ color: '#9aa4b2', fontSize: 12 }}>{workflow.nodes.length} 节点 · {workflow.edges.length} 连线</Text>
 
         <div style={{ flex: 1 }} />
 
         {saved && <Tag color="success" icon={<CheckCircleOutlined />}>已保存</Tag>}
-        <Button icon={<QuestionCircleOutlined />} onClick={() => setHelpOpen(true)} style={{ borderRadius: 10 }}>使用教程</Button>
-        <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10 }}>保存</Button>
+        <Button icon={<QuestionCircleOutlined />} onClick={() => setHelpOpen(true)} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }}>使用教程</Button>
+        <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }}>保存</Button>
         <Button type="primary" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
           onClick={handleRender} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}>
           导出渲染
@@ -455,22 +461,22 @@ export default function CanvasEditor() {
         )}
       </div>
 
-      {/* Render progress */}
+      {/* Render progress strip */}
       {render?.status === 'rendering' && (
-        <div style={{ marginBottom: 10, flexShrink: 0 }}>
+        <div style={{ flexShrink: 0, background: '#17181c', padding: '4px 14px 0' }}>
           <Progress percent={render.progress || 0} status="active" strokeColor="#7c3aed" size="small" />
         </div>
       )}
       {render?.status === 'failed' && (
-        <div style={{ marginBottom: 10, flexShrink: 0, color: '#f5222d', fontSize: 12 }}>
+        <div style={{ flexShrink: 0, background: '#17181c', padding: '6px 14px', color: '#ff7875', fontSize: 12 }}>
           渲染失败: {render.error_msg}
         </div>
       )}
 
       {/* Main area: palette + canvas + properties */}
-      <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0, padding: 10 }}>
         {/* Left: palette */}
-        <div style={{ width: 220, flexShrink: 0, background: '#fff', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid #eceef1', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: 240, flexShrink: 0, background: '#fff', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column' }}>
           <Text strong style={{ fontSize: 13, marginBottom: 8 }}>节点 / 素材</Text>
 
           {/* Local upload */}
@@ -554,7 +560,7 @@ export default function CanvasEditor() {
         </div>
 
         {/* Right: properties */}
-        <div style={{ width: 260, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #eceef1', overflow: 'hidden', minHeight: 0 }}>
+        <div style={{ width: 280, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #2c2f36', overflow: 'hidden', minHeight: 0 }}>
           {selectedIds.length > 1 ? (
             <div style={{ padding: 16, textAlign: 'center' }}>
               <Empty description={<span>已选中 <span style={{ color: '#7c3aed', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -584,11 +590,11 @@ export default function CanvasEditor() {
 
       {/* Bottom: result preview */}
       {render?.status === 'completed' && render.result_url && (
-        <div style={{ marginTop: 10, flexShrink: 0, display: 'flex', gap: 12, background: '#fff', border: '1px solid #eceef1', borderRadius: 12, padding: 8, alignItems: 'center' }}>
-          <Text strong style={{ fontSize: 12, flexShrink: 0 }}>成片预览</Text>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 12, background: '#1f2126', borderTop: '1px solid #2c2f36', padding: '8px 14px', alignItems: 'center' }}>
+          <Text strong style={{ fontSize: 12, color: '#e8eaed', flexShrink: 0 }}>成片预览</Text>
           <video key={render.result_url || projectId} src={render.result_url || undefined} controls preload="metadata"
             style={{ width: 120, height: 67, borderRadius: 8, background: '#111', objectFit: 'contain' }} />
-          <Text type="secondary" style={{ fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。</Text>
+          <Text style={{ color: '#9aa4b2', fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。</Text>
           <Button type="primary" size="small" icon={<DownloadOutlined />} href={render.result_url} download style={{ background: '#16a34a', borderColor: '#16a34a' }}>下载成片</Button>
         </div>
       )}
