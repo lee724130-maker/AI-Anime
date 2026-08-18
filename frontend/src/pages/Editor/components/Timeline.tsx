@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Typography, Slider, Divider } from 'antd';
+import { Typography, Slider } from 'antd';
 import {
   VideoCameraOutlined, AudioOutlined, FontSizeOutlined, PlayCircleOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
@@ -293,13 +293,13 @@ export default function Timeline({
           onClick={() => onTogglePlay(currentTime)}
           active={playing}
         />
-        <Text type="secondary" style={{ fontSize: 12, color: '#7c3aed', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        <Text type="secondary" style={{ fontSize: 12, color: '#7c3aed', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', flexShrink: 0 }}>
           ▶ {fmtTime(currentTime)} 起
         </Text>
-        <Divider />
+        <div style={{ width: 1, height: 18, background: '#e5e7eb', flexShrink: 0 }} />
         <ButtonMini icon="✂" label="分割" onClick={onSplit} disabled={!selected} />
         <ButtonMini icon="🗑" label="删除选中" onClick={onDeleteSelected} disabled={!selected} danger />
-        <Divider />
+        <div style={{ width: 1, height: 18, background: '#e5e7eb', flexShrink: 0 }} />
         <ButtonMini icon="◀" label="左移" onClick={() => scrollerRef.current?.scrollBy({ left: -PAN_STEP, behavior: 'smooth' })} />
         <ButtonMini icon="▶" label="右移" onClick={() => scrollerRef.current?.scrollBy({ left: PAN_STEP, behavior: 'smooth' })} />
         <div style={{ flex: 1 }} />
