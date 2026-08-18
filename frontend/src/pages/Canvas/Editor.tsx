@@ -7,6 +7,7 @@ import {
   ArrowLeftOutlined, SaveOutlined, PlayCircleOutlined, DownloadOutlined, QuestionCircleOutlined,
   VideoCameraOutlined, PictureOutlined, FontSizeOutlined, AudioOutlined,
   ThunderboltOutlined, ExportOutlined, CheckCircleOutlined, DeleteOutlined,
+  DoubleLeftOutlined, DoubleRightOutlined, ZoomInOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 import AssetCard from './components/AssetPanel';
@@ -76,6 +77,12 @@ export default function CanvasEditor() {
   const [uploading, setUploading] = useState(false);
   const [paletteKind, setPaletteKind] = useState<'node' | 'asset'>('node');
   const [assetTab, setAssetTab] = useState('ai');
+  const [leftCollapsed, setLeftCollapsed] = useState(() => localStorage.getItem('canvas_left_collapsed') === '1');
+  const [rightCollapsed, setRightCollapsed] = useState(() => localStorage.getItem('canvas_right_collapsed') === '1');
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const toggleLeft = () => setLeftCollapsed((v) => { localStorage.setItem('canvas_left_collapsed', v ? '0' : '1'); return !v; });
+  const toggleRight = () => setRightCollapsed((v) => { localStorage.setItem('canvas_right_collapsed', v ? '0' : '1'); return !v; });
 
   // Asset panel data
   const [aiTasks, setAiTasks] = useState<AssetItem[]>([]);
@@ -475,9 +482,19 @@ export default function CanvasEditor() {
 
       {/* Main area: palette + canvas + properties */}
       <div style={{ display: 'flex', gap: 10, flex: 1, minHeight: 0, padding: 10 }}>
-        {/* Left: palette */}
+        {/* Left: palette (collapsible) */}
+        {leftCollapsed ? (
+          <div onClick={toggleLeft} title="展开素材面板"
+            style={{ width: 34, flexShrink: 0, borderRadius: 12, background: '#1f2126', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 12, cursor: 'pointer' }}>
+            <DoubleRightOutlined style={{ color: '#9aa4b2', fontSize: 13 }} />
+            <Text style={{ color: '#9aa4b2', fontSize: 11, writingMode: 'vertical-rl', letterSpacing: 3 }}>节点 / 素材</Text>
+          </div>
+        ) : (
         <div style={{ width: 240, flexShrink: 0, background: '#fff', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column' }}>
-          <Text strong style={{ fontSize: 13, marginBottom: 8 }}>节点 / 素材</Text>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
+            <Text strong style={{ fontSize: 13 }}>节点 / 素材</Text>
+            <Button type="text" size="small" icon={<DoubleLeftOutlined />} onClick={toggleLeft} title="收起面板" />
+          </div>
 
           {/* Local upload */}
           <Upload.Dragger beforeUpload={(file) => { handleUpload(file); return false; }} showUploadList={false} style={{ marginBottom: 10, borderRadius: 10 }}>
@@ -547,6 +564,7 @@ export default function CanvasEditor() {
             />
           )}
         </div>
+        )}
 
         {/* Center: canvas */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
@@ -559,8 +577,20 @@ export default function CanvasEditor() {
           />
         </div>
 
-        {/* Right: properties */}
-        <div style={{ width: 280, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #2c2f36', overflow: 'hidden', minHeight: 0 }}>
+        {/* Right: properties (collapsible) */}
+        {rightCollapsed ? (
+          <div onClick={toggleRight} title="展开属性面板"
+            style={{ width: 34, flexShrink: 0, borderRadius: 12, background: '#1f2126', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 12, cursor: 'pointer' }}>
+            <DoubleLeftOutlined style={{ color: '#9aa4b2', fontSize: 13 }} />
+            <Text style={{ color: '#9aa4b2', fontSize: 11, writingMode: 'vertical-rl', letterSpacing: 3 }}>属性</Text>
+          </div>
+        ) : (
+        <div style={{ width: 280, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #2c2f36', overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px 0', flexShrink: 0 }}>
+            <Text strong style={{ fontSize: 13 }}>属性{selectedIds.length > 1 ? `（${selectedIds.length} 节点）` : ''}</Text>
+            <Button type="text" size="small" icon={<DoubleRightOutlined />} onClick={toggleRight} title="收起面板" />
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {selectedIds.length > 1 ? (
             <div style={{ padding: 16, textAlign: 'center' }}>
               <Empty description={<span>已选中 <span style={{ color: '#7c3aed', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -585,19 +615,37 @@ export default function CanvasEditor() {
               }}
             />
           )}
+          </div>
         </div>
+        )}
       </div>
 
       {/* Bottom: result preview */}
       {render?.status === 'completed' && render.result_url && (
         <div style={{ flexShrink: 0, display: 'flex', gap: 12, background: '#1f2126', borderTop: '1px solid #2c2f36', padding: '8px 14px', alignItems: 'center' }}>
           <Text strong style={{ fontSize: 12, color: '#e8eaed', flexShrink: 0 }}>成片预览</Text>
-          <video key={render.result_url || projectId} src={render.result_url || undefined} controls preload="metadata"
-            style={{ width: 120, height: 67, borderRadius: 8, background: '#111', objectFit: 'contain' }} />
-          <Text style={{ color: '#9aa4b2', fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。</Text>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <video key={render.result_url || projectId} src={render.result_url || undefined} controls preload="metadata"
+              onClick={() => setPreviewOpen(true)}
+              title="点击放大查看"
+              style={{ width: 120, height: 67, borderRadius: 8, background: '#111', objectFit: 'contain', cursor: 'pointer' }} />
+            <Button type="primary" size="small" shape="circle" icon={<ZoomInOutlined />}
+              title="放大查看" aria-label="放大查看"
+              onClick={() => setPreviewOpen(true)}
+              style={{ position: 'absolute', right: 2, bottom: 2, width: 24, height: 24, minWidth: 24, padding: 0, fontSize: 12, lineHeight: '20px' }} />
+          </div>
+          <Text style={{ color: '#9aa4b2', fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。点击视频可放大查看。</Text>
           <Button type="primary" size="small" icon={<DownloadOutlined />} href={render.result_url} download style={{ background: '#16a34a', borderColor: '#16a34a' }}>下载成片</Button>
         </div>
       )}
+
+      {/* Result video viewer modal */}
+      <Modal title="成片预览" open={previewOpen} onCancel={() => setPreviewOpen(false)} footer={null} width={520} destroyOnClose>
+        {render?.result_url && (
+          <video key={render.result_url} src={render.result_url} controls autoPlay
+            style={{ width: '100%', maxHeight: '72vh', borderRadius: 10, background: '#000', objectFit: 'contain', display: 'block', margin: '0 auto' }} />
+        )}
+      </Modal>
 
       {/* Help / tutorial modal */}
       <Modal title="画布使用教程" open={helpOpen} onCancel={() => setHelpOpen(false)} footer={null} width={640}>
