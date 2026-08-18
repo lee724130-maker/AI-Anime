@@ -288,9 +288,44 @@ export default function EditorPage() {
   const addText = () => {
     addToTrack('text', {
       id: genId('t'), text: '请输入文字', start: round1(currentTime), duration: 3,
-      x: 0.5, y: 0.15, fontSize: 48, color: '#FFFFFF', opacity: 1, animation: 'fade',
+      x: 0.5, y: 0.5, fontSize: 48, color: '#FFFFFF', opacity: 1, animation: 'fade',
     } as TimelineTextItem);
   };
+
+  // Drag a text overlay on the preview to reposition it (0..1 ratio)
+  const previewWrapRef = useRef<HTMLDivElement | null>(null);
+  const updateTextPos = useCallback((id: string, x: number, y: number) => {
+    setTimeline((prev) => {
+      const next: TimelineDoc = {
+        ...prev,
+        text: (prev.text as TimelineTextItem[]).map((it) =>
+          it.id === id ? { ...it, x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) } : it,
+        ),
+      };
+      return { ...next, duration: round1(timelineDuration(next)) };
+    });
+  }, []);
+
+  const startTextDrag = useCallback((t: TimelineTextItem, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const wrap = previewWrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const sx = e.clientX, sy = e.clientY;
+    const ox = t.x ?? 0.5, oy = t.y ?? 0.5;
+    const move = (ev: MouseEvent) => {
+      updateTextPos(t.id, ox + (ev.clientX - sx) / rect.width, oy + (ev.clientY - sy) / rect.height);
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }, [updateTextPos]);
 
   const handleUpload = async (file: File): Promise<boolean> => {
     setUploading(true);
@@ -681,7 +716,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
         {/* Center: player + timeline */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Player */}
-          <div style={{ background: previewImgShown ? '#000' : '#111', borderRadius: 12, height: 300, flexShrink: 0, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div ref={previewWrapRef} style={{ background: previewImgShown ? '#000' : '#111', borderRadius: 12, height: 300, flexShrink: 0, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {!showVideoEl ? (
               <video ref={videoRef} onTimeUpdate={handleTimeUpdate} preload="auto" style={{ display: 'none' }} />
             ) : (
@@ -703,12 +738,13 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
               const isSel = selected?.track === 'text' && selected.id === t.id;
               if (!inRange && !isSel) return null;
               return (
-                <div key={t.id} style={{
-                  position: 'absolute', left: `${((t.x ?? 0.5)) * 100}%`, top: `${(t.y ?? 0.15) * 100}%`,
+                <div key={t.id} onMouseDown={(e) => startTextDrag(t, e)} style={{
+                  position: 'absolute', left: `${((t.x ?? 0.5)) * 100}%`, top: `${(t.y ?? 0.5) * 100}%`,
                   transform: 'translate(-50%,-50%)', color: t.color || '#fff',
                   fontSize: Math.max(10, Math.round((t.fontSize || 36) * 300 / 1280)),
                   opacity: t.opacity ?? 1, textShadow: '0 0 8px rgba(0,0,0,.85), 0 2px 4px rgba(0,0,0,.5)',
-                  zIndex: 20, pointerEvents: 'none', whiteSpace: 'pre-wrap', textAlign: 'center',
+                  zIndex: 20, pointerEvents: 'auto', cursor: 'move', userSelect: 'none',
+                  whiteSpace: 'pre-wrap', textAlign: 'center',
                   maxWidth: '92%', fontWeight: 600, lineHeight: 1.25,
                 }}>
                   {t.text}
