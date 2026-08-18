@@ -355,6 +355,9 @@ export default function EditorPage() {
       ? toStaticUrl(selectedVideo.url)
       : fallbackVideo ? toStaticUrl(fallbackVideo.url) : undefined;
   const playerCanPlay = renderOK ? !!playerSrc : playableSegs.length > 0;
+  // The <video> element must stay visible while the timeline preview drives it
+  // via bindSeg (it is hidden only when there is nothing video-like to show).
+  const showVideoEl = renderOK ? !!playerSrc : timeline.video.length > 0;
 
   const playheadRef = useRef(0);
   const setPlayhead = (t: number) => { playheadRef.current = t; setCurrentTime(t); };
@@ -362,6 +365,10 @@ export default function EditorPage() {
   // Bound segment + image overlay (image segments are shown as a static frame)
   const boundSegRef = useRef<TimelineVideoItem | null>(null);
   const [previewImg, setPreviewImg] = useState<string | null>(null);
+  // Selected image clip (not playing yet) is also shown as a static frame;
+  // while playing, only the bound segment (previewImg) may show an image
+  const previewImgShown = previewImg
+    || (!playing && !renderOK && selectedVideo && isImageUrl(selectedVideo.url) ? (toStaticUrl(selectedVideo.url) || null) : null);
 
   // Bind a segment to the player (video: play; image: pause video + show static img)
 const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOffset: number) => {
@@ -645,16 +652,16 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Player */}
           <div style={{ background: '#111', borderRadius: 12, height: 300, flexShrink: 0, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {!playerSrc || isImageUrl(playerSrc) ? (
+            {!showVideoEl ? (
               <video ref={videoRef} onTimeUpdate={handleTimeUpdate} preload="auto" style={{ display: 'none' }} />
             ) : (
-              <video ref={videoRef} src={playerSrc} onTimeUpdate={handleTimeUpdate} preload="auto"
+              <video ref={videoRef} src={playerSrc && !isImageUrl(playerSrc) ? playerSrc : undefined} onTimeUpdate={handleTimeUpdate} preload="auto"
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             )}
-            {previewImg && (
-              <img src={previewImg} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 10 }} />
+            {previewImgShown && (
+              <img src={previewImgShown} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 10 }} />
             )}
-            {!playerSrc && !previewImg && timeline.video.length === 0 && timeline.text.length === 0 && (
+            {!playerSrc && !previewImgShown && timeline.video.length === 0 && timeline.text.length === 0 && (
               <div style={{ textAlign: 'center', color: '#555' }}>
                 <VideoCameraOutlined style={{ fontSize: 40 }} />
                 <div style={{ fontSize: 12, marginTop: 8 }}>点击左侧素材添加到时间线，选中片段后可预览</div>
