@@ -704,7 +704,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
               if (!inRange && !isSel) return null;
               return (
                 <div key={t.id} style={{
-                  position: 'absolute', left: `${t.x ?? 50}%`, top: `${t.y ?? 50}%`,
+                  position: 'absolute', left: `${((t.x ?? 0.5)) * 100}%`, top: `${(t.y ?? 0.15) * 100}%`,
                   transform: 'translate(-50%,-50%)', color: t.color || '#fff',
                   fontSize: Math.max(10, Math.round((t.fontSize || 36) * 300 / 1280)),
                   opacity: t.opacity ?? 1, textShadow: '0 0 8px rgba(0,0,0,.85), 0 2px 4px rgba(0,0,0,.5)',

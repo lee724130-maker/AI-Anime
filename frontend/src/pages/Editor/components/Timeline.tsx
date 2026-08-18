@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Typography, Slider } from 'antd';
+import { Typography, Slider, Divider } from 'antd';
 import {
   VideoCameraOutlined, AudioOutlined, FontSizeOutlined, PlayCircleOutlined, PauseCircleOutlined,
 } from '@ant-design/icons';
@@ -285,29 +285,30 @@ export default function Timeline({
         </div>
       </div>
 
-      {/* Bottom bar: split / delete / zoom */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderTop: '1px solid #f0f0f0', flexShrink: 0, background: '#fff' }}>
+      {/* Bottom bar: split / delete / zoom / pan */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #f0f0f0', flexShrink: 0, background: '#fff', flexWrap: 'wrap', rowGap: 6 }}>
         <ButtonMini
           icon={playing ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
           label={playing ? '暂停' : '播放'}
           onClick={() => onTogglePlay(currentTime)}
           active={playing}
         />
-        <Text type="secondary" style={{ fontSize: 12, color: '#7c3aed', fontVariantNumeric: 'tabular-nums' }}>
+        <Text type="secondary" style={{ fontSize: 12, color: '#7c3aed', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
           ▶ {fmtTime(currentTime)} 起
         </Text>
+        <Divider />
         <ButtonMini icon="✂" label="分割" onClick={onSplit} disabled={!selected} />
         <ButtonMini icon="🗑" label="删除选中" onClick={onDeleteSelected} disabled={!selected} danger />
-        <div style={{ width: 1, height: 18, background: '#f0f0f0' }} />
+        <Divider />
         <ButtonMini icon="◀" label="左移" onClick={() => scrollerRef.current?.scrollBy({ left: -PAN_STEP, behavior: 'smooth' })} />
         <ButtonMini icon="▶" label="右移" onClick={() => scrollerRef.current?.scrollBy({ left: PAN_STEP, behavior: 'smooth' })} />
         <div style={{ flex: 1 }} />
-        <Text type="secondary" style={{ fontSize: 11 }}>缩放</Text>
+        <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>缩放</Text>
         <Slider
           min={10} max={100} value={pxPerSec} onChange={onPxPerSec}
-          style={{ width: 140, margin: '6px 0' }} tooltip={{ formatter: (v) => `${v}px/秒` }}
+          style={{ width: 110, margin: '6px 0', flexShrink: 0 }} tooltip={{ formatter: (v) => `${v}px/秒` }}
         />
-        <Text type="secondary" style={{ fontSize: 11, width: 46 }}>{totalDur.toFixed(1)}s</Text>
+        <Text type="secondary" style={{ fontSize: 11, width: 46, whiteSpace: 'nowrap' }}>{totalDur.toFixed(1)}s</Text>
       </div>
     </div>
   );
@@ -324,6 +325,7 @@ function ButtonMini({ icon, label, onClick, disabled, danger, active }: {
         display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid #e5e7eb', borderRadius: 8,
         padding: '4px 10px', fontSize: 12, background: active ? '#7c3aed' : '#fff', cursor: disabled ? 'not-allowed' : 'pointer',
         color: disabled ? '#bbb' : active ? '#fff' : danger ? '#f5222d' : '#333', opacity: disabled ? 0.6 : 1,
+        whiteSpace: 'nowrap', flexShrink: 0,
       }}
     >
       <span style={{ fontSize: 12 }}>{icon}</span>
