@@ -41,6 +41,8 @@ interface Props {
   onDeleteSelected: () => void;
 }
 
+const PAN_STEP = 240;
+
 function fmtTime(t: number): string {
   const s = Math.max(0, t);
   const mm = Math.floor(s / 60);
@@ -61,15 +63,38 @@ export default function Timeline({
   const totalDur = Math.max(timeline.duration, currentTime, 5);
   const [drag, setDrag] = useState<DragState | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
+  const panRef = useRef<{ x0: number; sl0: number; moved: boolean } | null>(null);
 
-  // Global pointer listeners while dragging
+  // Follow the playhead horizontally while playing (keep the playhead visible)
   useEffect(() => {
-    if (!drag) return;
+    if (!playing) return;
+    const sc = scrollerRef.current;
+    if (!sc) return;
+    const x = currentTime * pxPerSec + HEADER_W;
+    if (x < sc.scrollLeft + 40 || x > sc.scrollLeft + sc.clientWidth - 40) {
+      sc.scrollTo({ left: Math.max(0, x - sc.clientWidth / 2), behavior: 'smooth' });
+    }
+  }, [currentTime, playing, pxPerSec]);
+
+  // Global pointer listeners (always registered; handlers no-op unless a
+  // drag/pan is active, since pan is tracked via ref and must work without a
+  // state update to re-subscribe)
+  useEffect(() => {
     const onMove = (e: MouseEvent) => {
+      // blank-lane pan (drag anywhere on a lane background scrolls horizontally)
+      if (panRef.current) {
+        const p = panRef.current;
+        if (Math.abs(e.clientX - p.x0) > 5) p.moved = true;
+        if (p.moved && scrollerRef.current) {
+          scrollerRef.current.scrollLeft = p.sl0 - (e.clientX - p.x0);
+        }
+        return;
+      }
       const d = dragRef.current;
-      if (!d || !containerRef.current) return;
+      if (!d || !containerRef.current || !scrollerRef.current) return;
       const rect = containerRef.current.getBoundingClientRect();
       const dxSec = (e.clientX - d.startX) / pxPerSec;
       if (d.mode === 'move' && d.track && d.id) {
@@ -84,17 +109,24 @@ export default function Timeline({
           return { ...it, duration: nd, start: ns };
         }));
       } else if (d.mode === 'seek') {
-        onSeek(round1(Math.max(0, Math.min(totalDur, (e.clientX - rect.left) / pxPerSec))));
+        onSeek(round1(Math.max(0, Math.min(totalDur, (e.clientX - rect.left + scrollerRef.current.scrollLeft) / pxPerSec))));
       }
     };
-    const onUp = () => setDrag(null);
+    const onUp = () => {
+      if (panRef.current) {
+        const wasClick = !panRef.current.moved;
+        panRef.current = null;
+        if (wasClick) onSelect(null);
+      }
+      setDrag(null);
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [drag, pxPerSec, totalDur, onTimelineChange, onSeek]);
+  }, [pxPerSec, totalDur, onTimelineChange, onSeek, onSelect]);
 
   const updateItem = (track: TrackKey, id: string, fn: (it: any) => any): TimelineDoc => {
     const items = (timeline as any)[track] as any[];
@@ -108,7 +140,8 @@ export default function Timeline({
     e.stopPropagation();
     if (mode === 'seek') {
       const rect = containerRef.current!.getBoundingClientRect();
-      onSeek(round1(Math.max(0, (e.clientX - rect.left) / pxPerSec)));
+      const sl = scrollerRef.current ? scrollerRef.current.scrollLeft : 0;
+      onSeek(round1(Math.max(0, (e.clientX - rect.left + sl) / pxPerSec)));
     }
     setDrag({
       mode, track, id,
@@ -193,52 +226,63 @@ export default function Timeline({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff', border: '1px solid #eceef1', borderRadius: 12, overflow: 'hidden' }}>
-      {/* Ruler + playhead area */}
-      <div style={{ display: 'flex', height: 30, flexShrink: 0, borderBottom: '1px solid #f0f0f0' }}>
-        <div style={{ width: HEADER_W, flexShrink: 0, borderRight: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>{fmtTime(currentTime)}</Text>
-        </div>
-        <div
-          ref={containerRef}
-          style={{ position: 'relative', flex: 1, overflowX: 'hidden', cursor: 'crosshair' }}
-          onMouseDown={(e) => {
-            if (e.button !== 0) return;
-            const rect = containerRef.current!.getBoundingClientRect();
-            onSeek(round1(Math.max(0, (e.clientX - rect.left) / pxPerSec)));
-            startDrag('seek', 'video', null, e);
-          }}
-        >
-          {/* second ticks */}
-          {Array.from({ length: Math.ceil(totalDur) + 1 }).map((_, i) => (
-            <div key={i} style={{ position: 'absolute', left: i * pxPerSec, top: 0, bottom: 0, width: 1, background: '#f0f0f0' }} />
-          ))}
-          <div style={{ position: 'absolute', top: 0, bottom: 0, left: currentTime * pxPerSec, width: 2, background: '#f5222d', zIndex: 20, pointerEvents: 'none' }} />
-        </div>
-      </div>
-
-      {/* Tracks */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-        {TRACK_META.map((meta) => {
-          const items = (timeline as any)[meta.key] as any[];
-          return (
-            <div key={meta.key} style={{ display: 'flex', height: TRACK_HEIGHT, borderBottom: '1px solid #f6f6f6' }}>
-              <div style={{ width: HEADER_W, flexShrink: 0, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, background: '#fafafa' }}>
-                <span style={{ fontSize: 13, color: meta.color }}>{meta.icon}</span>
-                <Text type="secondary" style={{ fontSize: 10 }}>{meta.label} ({items.length})</Text>
-              </div>
-              <div style={{ position: 'relative', flex: 1, background: '#fcfcfd', overflow: 'hidden' }} onClick={() => onSelect(null)}>
-                {[...items].sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0)).map((it, i) => renderItem(meta.key, it, i))}
-                {items.length === 0 && (
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text type="secondary" style={{ fontSize: 11 }}>
-                      {meta.key === 'video' ? '从左侧素材面板点击素材添加到时间线' : meta.key === 'audio' ? '上传或添加音频（BGM / 配音）' : '添加文字字幕'}
-                    </Text>
-                  </div>
-                )}
-              </div>
+      {/* Horizontally scrollable area: ruler + tracks share the same scrollLeft */}
+      <div ref={scrollerRef} className="tl-scroller" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 186 }}>
+        <div style={{ width: Math.max(HEADER_W + totalDur * pxPerSec, HEADER_W + 400), minWidth: '100%', position: 'relative' }}>
+          {/* Ruler */}
+          <div style={{ display: 'flex', height: 30, flexShrink: 0, borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 30 }}>
+            <div style={{ width: HEADER_W, flexShrink: 0, borderRight: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>{fmtTime(currentTime)}</Text>
             </div>
-          );
-        })}
+            <div
+              ref={containerRef}
+              style={{ position: 'relative', flex: 1, cursor: 'crosshair' }}
+              onMouseDown={(e) => {
+                if (e.button !== 0) return;
+                const rect = containerRef.current!.getBoundingClientRect();
+                const sl = scrollerRef.current ? scrollerRef.current.scrollLeft : 0;
+                onSeek(round1(Math.max(0, (e.clientX - rect.left + sl) / pxPerSec)));
+                startDrag('seek', 'video', null, e);
+              }}
+            >
+              {/* second ticks */}
+              {Array.from({ length: Math.ceil(totalDur) + 1 }).map((_, i) => (
+                <div key={i} style={{ position: 'absolute', left: i * pxPerSec, top: 0, bottom: 0, width: 1, background: '#f0f0f0' }} />
+              ))}
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: currentTime * pxPerSec, width: 2, background: '#f5222d', zIndex: 20, pointerEvents: 'none' }} />
+            </div>
+          </div>
+
+          {/* Tracks */}
+          {TRACK_META.map((meta) => {
+            const items = (timeline as any)[meta.key] as any[];
+            return (
+              <div key={meta.key} style={{ display: 'flex', height: TRACK_HEIGHT, borderBottom: '1px solid #f6f6f6' }}>
+                <div style={{ width: HEADER_W, flexShrink: 0, borderRight: '1px solid #f0f0f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, background: '#fafafa' }}>
+                  <span style={{ fontSize: 13, color: meta.color }}>{meta.icon}</span>
+                  <Text type="secondary" style={{ fontSize: 10 }}>{meta.label} ({items.length})</Text>
+                </div>
+                <div
+                  className="tl-lane"
+                  style={{ position: 'relative', flex: 1, background: '#fcfcfd', overflow: 'hidden', cursor: 'grab' }}
+                  onMouseDown={(e) => {
+                    if (e.button !== 0) return;
+                    panRef.current = { x0: e.clientX, sl0: scrollerRef.current ? scrollerRef.current.scrollLeft : 0, moved: false };
+                  }}
+                >
+                  {[...items].sort((a, b) => (Number(a.start) || 0) - (Number(b.start) || 0)).map((it, i) => renderItem(meta.key, it, i))}
+                  {items.length === 0 && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                      <Text type="secondary" style={{ fontSize: 11 }}>
+                        {meta.key === 'video' ? '从左侧素材面板点击素材添加到时间线' : meta.key === 'audio' ? '上传或添加音频（BGM / 配音）' : '添加文字字幕'}
+                      </Text>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Bottom bar: split / delete / zoom */}
@@ -254,6 +298,9 @@ export default function Timeline({
         </Text>
         <ButtonMini icon="✂" label="分割" onClick={onSplit} disabled={!selected} />
         <ButtonMini icon="🗑" label="删除选中" onClick={onDeleteSelected} disabled={!selected} danger />
+        <div style={{ width: 1, height: 18, background: '#f0f0f0' }} />
+        <ButtonMini icon="◀" label="左移" onClick={() => scrollerRef.current?.scrollBy({ left: -PAN_STEP, behavior: 'smooth' })} />
+        <ButtonMini icon="▶" label="右移" onClick={() => scrollerRef.current?.scrollBy({ left: PAN_STEP, behavior: 'smooth' })} />
         <div style={{ flex: 1 }} />
         <Text type="secondary" style={{ fontSize: 11 }}>缩放</Text>
         <Slider

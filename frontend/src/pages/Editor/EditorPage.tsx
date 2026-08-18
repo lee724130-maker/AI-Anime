@@ -235,6 +235,12 @@ export default function EditorPage() {
     return round1(e);
   }, [timeline.video]);
 
+  // Every timeline mutation recomputes the total duration (ruler range /
+  // scroll width / seek clamping all depend on it)
+  const commitTimeline = useCallback((t: TimelineDoc) => {
+    setTimeline({ ...t, duration: round1(timelineDuration(t)) });
+  }, []);
+
   const addToTrack = useCallback((track: TrackKey, item: any) => {
     const arr = (timeline as any)[track] as any[];
     if (arr.length + 1 > MAX_ITEMS) {
@@ -246,9 +252,9 @@ export default function EditorPage() {
       message.warning(`视频总长度不能超过 ${MAX_SECONDS} 秒，请缩短已有片段后再添加`);
       return;
     }
-    setTimeline(next);
+    commitTimeline(next);
     setSelected({ track, id: item.id });
-  }, [timeline]);
+  }, [timeline, commitTimeline]);
 
   // Probe a video's real duration (used as the clip duration when added)
   const probeVideoDuration = useCallback((url: string) => new Promise<number>((resolve) => {
@@ -336,14 +342,14 @@ export default function EditorPage() {
       tail.nextTransition = (item as TimelineVideoItem).nextTransition;
       tail.trimIn = round1((Number(item.trimIn) || 0) + (cut - start));
     }
-    setTimeline({ ...timeline, [selected.track]: [...arr.filter((x) => x.id !== item.id), head, tail] });
+    commitTimeline({ ...timeline, [selected.track]: [...arr.filter((x) => x.id !== item.id), head, tail] });
     setSelected({ track: selected.track, id: tail.id });
     setPlaying(false);
   };
 
   const handleDeleteSelected = () => {
     if (!selected) return;
-    setTimeline({ ...timeline, [selected.track]: (timeline as any)[selected.track].filter((x: any) => x.id !== selected.id) });
+    commitTimeline({ ...timeline, [selected.track]: (timeline as any)[selected.track].filter((x: any) => x.id !== selected.id) });
     setSelected(null);
   };
 
@@ -693,8 +699,9 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
             )}
             {/* text overlay (timeline preview only; final render bakes text into the video) */}
             {!renderOK && timeline.text.map((t) => {
-              const visible = currentTime >= (t.start || 0) && currentTime < (t.start || 0) + (t.duration || 0);
-              if (!visible) return null;
+              const inRange = currentTime >= (t.start || 0) && currentTime < (t.start || 0) + (t.duration || 0);
+              const isSel = selected?.track === 'text' && selected.id === t.id;
+              if (!inRange && !isSel) return null;
               return (
                 <div key={t.id} style={{
                   position: 'absolute', left: `${t.x ?? 50}%`, top: `${t.y ?? 50}%`,
@@ -728,7 +735,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
               playing={playing}
               onTogglePlay={(t) => { if (t !== currentTime) handleSeek(t); setPlaying(playerCanPlay && !playing); }}
               onPxPerSec={setPxPerSec}
-              onTimelineChange={(t) => { setTimeline(t); setSelected((s) => s && (t as any)[s.track].some((x: any) => x.id === s.id) ? s : null); }}
+              onTimelineChange={(t) => { commitTimeline(t); setSelected((s) => s && (t as any)[s.track].some((x: any) => x.id === s.id) ? s : null); }}
               onSelect={(s) => { setSelected(s); if (s) { setPlaying(false); } }}
               onSeek={handleSeek}
               onSplit={handleSplit}
@@ -739,7 +746,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
 
         {/* Right: props */}
         <div style={{ width: 270, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #eceef1', overflow: 'hidden', minHeight: 0 }}>
-          <PropsPanel selected={selected} timeline={timeline} onTimelineChange={setTimeline} />
+          <PropsPanel selected={selected} timeline={timeline} onTimelineChange={commitTimeline} />
         </div>
       </div>
     </div>
