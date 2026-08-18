@@ -768,7 +768,9 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
             {!renderOK && timeline.text.map((t) => {
               const inRange = currentTime >= (t.start || 0) && currentTime < (t.start || 0) + (t.duration || 0);
               const isSel = selected?.track === 'text' && selected.id === t.id;
-              if (!inRange && !isSel) return null;
+              // While playing, honor the text block's time range strictly;
+              // only when paused does a selected block show regardless of time (so its content/position can be edited)
+              if (!inRange && !(isSel && !playing)) return null;
               return (
                 <div key={t.id} onMouseDown={(e) => startTextDrag(t, e)} style={{
                   position: 'absolute', left: `${((t.x ?? 0.5)) * 100}%`, top: `${(t.y ?? 0.5) * 100}%`,
