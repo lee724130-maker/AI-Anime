@@ -69,6 +69,20 @@ export default function Timeline({
   dragRef.current = drag;
   const panRef = useRef<{ x0: number; sl0: number; moved: boolean } | null>(null);
 
+  // Wheel over the tracks scrolls the timeline horizontally only (page must
+  // NOT scroll). React's synthetic onWheel is passive, so a native non-passive
+  // listener with preventDefault is required.
+  useEffect(() => {
+    const sc = scrollerRef.current;
+    if (!sc) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      sc.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    };
+    sc.addEventListener('wheel', onWheel, { passive: false });
+    return () => sc.removeEventListener('wheel', onWheel);
+  }, []);
+
   // Follow the playhead horizontally while playing (keep the playhead visible)
   useEffect(() => {
     if (!playing) return;
@@ -228,12 +242,7 @@ export default function Timeline({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff', border: '1px solid #eceef1', borderRadius: 12, overflow: 'hidden' }}>
       {/* Horizontally scrollable area: ruler + tracks share the same scrollLeft */}
-      <div ref={scrollerRef} className="tl-scroller" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 186 }}
-        onWheel={(e) => {
-          const sc = scrollerRef.current;
-          if (!sc) return;
-          sc.scrollLeft += e.deltaY;
-        }}>
+      <div ref={scrollerRef} className="tl-scroller" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 186 }}>
         <div style={{ width: Math.max(HEADER_W + totalDur * pxPerSec, HEADER_W + 400), minWidth: '100%', position: 'relative' }}>
           {/* Ruler */}
           <div style={{ display: 'flex', height: 30, flexShrink: 0, borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 30 }}>
