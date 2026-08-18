@@ -32,6 +32,8 @@ interface Props {
   selected: Selection | null;
   pxPerSec: number;
   playing: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
   onTogglePlay: (t: number) => void;
   onPxPerSec: (v: number) => void;
   onTimelineChange: (t: TimelineDoc) => void;
@@ -39,12 +41,11 @@ interface Props {
   onSeek: (t: number) => void;
   onSplit: () => void;
   onDeleteSelected: () => void;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
-const PAN_STEP = 240;
-
-function fmtTime(t: number): string {
-  const s = Math.max(0, t);
+function fmtTime(t: number): string {  const s = Math.max(0, t);
   const mm = Math.floor(s / 60);
   const ss = (s % 60).toFixed(1);
   return `${String(mm).padStart(2, '0')}:${ss.padStart(4, '0')}`;
@@ -57,8 +58,8 @@ const labelOf = (url: string): string => {
 };
 
 export default function Timeline({
-  timeline, currentTime, selected, pxPerSec, playing, onTogglePlay, onPxPerSec,
-  onTimelineChange, onSelect, onSeek, onSplit, onDeleteSelected,
+  timeline, currentTime, selected, pxPerSec, playing, canUndo, canRedo, onTogglePlay, onPxPerSec,
+  onTimelineChange, onSelect, onSeek, onSplit, onDeleteSelected, onUndo, onRedo,
 }: Props) {
   const totalDur = Math.max(timeline.duration, currentTime, 5);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -227,7 +228,12 @@ export default function Timeline({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff', border: '1px solid #eceef1', borderRadius: 12, overflow: 'hidden' }}>
       {/* Horizontally scrollable area: ruler + tracks share the same scrollLeft */}
-      <div ref={scrollerRef} className="tl-scroller" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 186 }}>
+      <div ref={scrollerRef} className="tl-scroller" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', minHeight: 186 }}
+        onWheel={(e) => {
+          const sc = scrollerRef.current;
+          if (!sc) return;
+          sc.scrollLeft += e.deltaY;
+        }}>
         <div style={{ width: Math.max(HEADER_W + totalDur * pxPerSec, HEADER_W + 400), minWidth: '100%', position: 'relative' }}>
           {/* Ruler */}
           <div style={{ display: 'flex', height: 30, flexShrink: 0, borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 30 }}>
@@ -300,8 +306,8 @@ export default function Timeline({
         <ButtonMini icon="✂" label="分割" onClick={onSplit} disabled={!selected} />
         <ButtonMini icon="🗑" label="删除选中" onClick={onDeleteSelected} disabled={!selected} danger />
         <div style={{ width: 1, height: 18, background: '#e5e7eb', flexShrink: 0 }} />
-        <ButtonMini icon="◀" label="左移" onClick={() => scrollerRef.current?.scrollBy({ left: -PAN_STEP, behavior: 'smooth' })} />
-        <ButtonMini icon="▶" label="右移" onClick={() => scrollerRef.current?.scrollBy({ left: PAN_STEP, behavior: 'smooth' })} />
+        <ButtonMini icon="↩" label="撤回" onClick={onUndo} disabled={!canUndo} />
+        <ButtonMini icon="↪" label="还原" onClick={onRedo} disabled={!canRedo} />
         <div style={{ flex: 1 }} />
         <Text type="secondary" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>缩放</Text>
         <Slider

@@ -236,10 +236,42 @@ export default function EditorPage() {
   }, [timeline.video]);
 
   // Every timeline mutation recomputes the total duration (ruler range /
-  // scroll width / seek clamping all depend on it)
-  const commitTimeline = useCallback((t: TimelineDoc) => {
+  // scroll width / seek clamping all depend on it). Mutations push a history
+  // snapshot so 撤回/还原 (undo/redo) can step back to a previous state.
+  const MAX_HISTORY = 50;
+  const timelineRef = useRef(timeline);
+  useEffect(() => { timelineRef.current = timeline; }, [timeline]);
+  const [undoStack, setUndoStack] = useState<TimelineDoc[]>([]);
+  const [redoStack, setRedoStack] = useState<TimelineDoc[]>([]);
+
+  const commitTimeline = useCallback((t: TimelineDoc, skipHistory = false) => {
+    if (!skipHistory) {
+      setUndoStack((prev) => {
+        const next = [...prev, JSON.parse(JSON.stringify(timelineRef.current))];
+        return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+      });
+      setRedoStack([]);
+    }
     setTimeline({ ...t, duration: round1(timelineDuration(t)) });
   }, []);
+
+  const undo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const snapshot = undoStack[undoStack.length - 1];
+    setUndoStack(undoStack.slice(0, -1));
+    setRedoStack((r) => [...r, JSON.parse(JSON.stringify(timelineRef.current))]);
+    setTimeline({ ...snapshot, duration: round1(timelineDuration(snapshot)) });
+    setSelected(null);
+  }, [undoStack]);
+
+  const redo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const snapshot = redoStack[redoStack.length - 1];
+    setRedoStack(redoStack.slice(0, -1));
+    setUndoStack((u) => [...u, JSON.parse(JSON.stringify(timelineRef.current))]);
+    setTimeline({ ...snapshot, duration: round1(timelineDuration(snapshot)) });
+    setSelected(null);
+  }, [redoStack]);
 
   const addToTrack = useCallback((track: TrackKey, item: any) => {
     const arr = (timeline as any)[track] as any[];
@@ -776,6 +808,10 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
               onSeek={handleSeek}
               onSplit={handleSplit}
               onDeleteSelected={handleDeleteSelected}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={undoStack.length > 0}
+              canRedo={redoStack.length > 0}
             />
           </div>
         </div>
@@ -801,7 +837,7 @@ function normalizeTimeline(tl: any): TimelineDoc {
   })) : [];
   const text = Array.isArray(tl?.text) ? tl.text.map((t: any) => ({
     id: t.id, text: String(t.text || ''), start: Number(t.start) || 0, duration: Number(t.duration) || 3,
-    x: numOr(t.x, 0.5), y: numOr(t.y, 0.15), fontSize: Number(t.fontSize) || 48,
+    x: numOr(t.x, 0.5), y: numOr(t.y, 0.5), fontSize: Number(t.fontSize) || 48,
     color: t.color || '#FFFFFF', opacity: numOr(t.opacity, 1), animation: t.animation || 'fade',
   })) : [];
   return { duration: Number(tl?.duration) || 0, video, audio, text };
