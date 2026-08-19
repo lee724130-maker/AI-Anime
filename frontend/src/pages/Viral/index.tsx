@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, Badge, message, Modal } from 'antd';
-import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined, QuestionCircleOutlined, LinkOutlined, RocketOutlined, BulbOutlined, UpOutlined, AppstoreOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { SearchOutlined, FireOutlined, PlusOutlined, RightOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, VideoCameraAddOutlined, DeleteOutlined, QuestionCircleOutlined, LinkOutlined, RocketOutlined, BulbOutlined, UpOutlined, AppstoreOutlined, FolderOpenOutlined, MenuOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import CoverThumb from './CoverThumb';
 import CreditRulesAlert from '../../components/CreditRulesAlert';
@@ -36,6 +36,15 @@ export default function ViralIndex() {
   const [keyword, setKeyword] = useState('');
   const [categories, setCategories] = useState<{ category: string; count: number }[]>([]);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = () => setIsMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -94,6 +103,7 @@ export default function ViralIndex() {
   const scrollToSection = (id: string) => {
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setNavOpen(false);
   };
 
   if (loading) {
@@ -106,8 +116,9 @@ export default function ViralIndex() {
 
   return (
     <div>
-      <style>{`@media (max-width: 1400px){ .viral-side-nav{ display:none; } }`}</style>
-      {/* 左侧悬浮导航（不占内容区） */}
+      <style>{`@media (max-width: 1400px){ .viral-side-nav{ display:none!important; } }`}</style>
+      {/* 左侧悬浮导航（不占内容区，仅 >768px 渲染） */}
+      {!isMobile && (
       <div className="viral-side-nav" style={{
         position: 'fixed', left: 24, top: '50%', transform: 'translateY(-50%)', zIndex: 100,
         width: 96, background: '#fff', borderRadius: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
@@ -129,6 +140,53 @@ export default function ViralIndex() {
           </Button>
         ))}
       </div>
+      )}
+
+      {/* 移动端折叠导航（点箭头展开/收起） */}
+      {isMobile && (
+        <>
+          <div
+            onClick={() => setNavOpen(v => !v)}
+            style={{
+              position: 'fixed', left: 0, top: '50%', transform: 'translateY(-50%)',
+              zIndex: 120, width: 30, height: 92,
+              background: navOpen ? '#6d28d9' : '#7c3aed', color: '#fff',
+              borderRadius: '0 14px 14px 0', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+              boxShadow: '0 2px 10px rgba(124,58,237,0.45)',
+              transition: 'background 0.2s',
+            }}
+          >
+            {navOpen ? <RightOutlined style={{ fontSize: 16 }} /> : <MenuOutlined style={{ fontSize: 16 }} />}
+            <span style={{ fontSize: 10, lineHeight: 1.2, textAlign: 'center' }}>
+              {navOpen ? '收起' : '导航'}
+            </span>
+          </div>
+          {navOpen && (
+            <div style={{
+              position: 'fixed', left: 30, top: '50%', transform: 'translateY(-50%)',
+              zIndex: 110, width: 124, background: '#fff', borderRadius: 14,
+              boxShadow: '0 6px 24px rgba(0,0,0,0.16)', padding: '8px 0',
+              display: 'flex', flexDirection: 'column', gap: 2,
+            }}>
+              {NAV_ITEMS.map(item => (
+                <Button
+                  key={item.id}
+                  type="text"
+                  onClick={() => scrollToSection(item.id)}
+                  style={{
+                    height: 52, borderRadius: 0, color: '#555', fontSize: 13,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 17, lineHeight: 1 }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </Button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <div>
         {/* Hero 引导区 */}

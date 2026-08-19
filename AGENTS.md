@@ -1,5 +1,22 @@
 # 修复日志
 
+## 2026-08-19（Viral 首页侧边导航手机端折叠化 ✅ 已提交已部署生产，index-B2qIX7rl.js + Viral-nQtXX92O.js）
+
+> 用户反馈：viral 首页 `viral-side-nav` 侧边导航在手机端会覆盖页面内容。真根因：组件 `<style>` 里的 `@media (max-width:1400px){ .viral-side-nav{ display:none } }` 被**内联 style 的 `display:'flex'` 覆盖**（内联样式优先级 > 媒体查询 CSS）→ 手机上 fixed 导航一直显示、遮挡内容——溢出扫描测不出（fixed 不占文档流）。已修复 + 按需求改成**移动端折叠卡片**。
+
+### ✅ ① 修复与折叠卡片（`pages/Viral/index.tsx`）
+- 桌面导航改条件渲染 `{!isMobile && (...)}`（isMobile = matchMedia ≤768px 自写 hook 模式，与 AppHeader 相同），`@media` 规则补 `!important` 兜底 768-1400px 区间
+- 移动端折叠卡片：左侧固定 30px 紫色竖 tab（「导航」+ MenuOutlined，展开态变「收起」+ RightOutlined，zIndex 120）；点开放出 124px 白色卡片（3 导航项，zIndex 110）；**点导航项滚动定位后自动收起**；再点 tab 手动收起
+- 验证：Playwright **13/13 全绿**（mobile 默认收起/无 fixed nav/无溢出/tab 展开/卡片内容/点导航自动收起+滚动定位/箭头收起；desktop 侧边导航可见无 tab；tablet 1024 媒体查询隐藏无 tab；0 JS 错误）；tsc 全绿
+- ⚠️ 教训：**内联 style 会覆盖同选择器 media query**——需要响应式显隐的 fixed 元素，用条件渲染（JS 层断点）而非 CSS 媒体查询；必须用 CSS 时加 `!important`
+
+### ✅ ② 部署
+- 仅前端：deploy-fe-resp.js（zip→pscp→unzip 替换 dist）→ unzip backslash warning 退出码非零链断老坑（**文件实际解压成功**，以 grep hash/curl 为准）→ 生产确认 index-B2qIX7rl.js + Viral-nQtXX92O.js（16138B 与本地一致）+ viral_200 + front_root 200 + zip 已清理
+
+### 📋 遗留
+- 本地测试用户 195-206（resptest/hdrtest/diag 前缀）残留，下次顺手清理；canvas_projects 29 归属已改 user 1
+- git push 未做（用户惯例暂缓）；deploy 目录服务器侧仍有历史占位（deploy/ 9 项，含脚本）
+
 ## 2026-08-19（全站响应式适配 ✅ 已提交已部署生产，frontend dist index-R8Vpoa4A.js）
 
 > 用户需求：手机（安卓/iPhone 375px）也能用 + Mac 适配 + 多分辨率（1024/1440/1920+）。仅前端改动（后端零变更），本地实测全绿后部署生产，curl 验证 hash/title/css 全一致。
