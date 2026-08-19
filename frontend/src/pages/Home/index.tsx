@@ -1,13 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Row, Col, Card, Tag, List, Space, Button, Progress, Spin, Empty, Tooltip, Badge } from 'antd';
+import { Typography, Row, Col, Card, Tag, List, Space, Button, Progress, Spin, Empty, Tooltip, Badge, Modal, message } from 'antd';
 import {
   VideoCameraOutlined, WalletOutlined,
   ThunderboltOutlined, ClockCircleOutlined,
   CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, DatabaseOutlined,
   ExperimentOutlined,
   ReloadOutlined, PlusOutlined,
-  AimOutlined, RightOutlined,
+  AimOutlined, RightOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import UserLayout from '../../components/UserLayout';
@@ -77,6 +77,29 @@ export default function HomePage() {
 
   const statusColor = (s: string) => PROJECT_STATUS_MAP[s]?.color || 'default';
   const statusLabel = (s: string) => PROJECT_STATUS_MAP[s]?.label || s;
+
+  const [clearing, setClearing] = useState(false);
+
+  const handleClearFailed = () => {
+    Modal.confirm({
+      title: '清空失败任务',
+      content: '将清除列表中的全部失败任务记录（失败生成的产物文件也会一并删除），确定继续吗？',
+      okText: '清空', okType: 'danger', cancelText: '取消',
+      okButtonProps: { loading: clearing },
+      onOk: async () => {
+        setClearing(true);
+        try {
+          await api.delete('/api/workbench/failed-tasks');
+          message.success('已清空失败记录');
+          fetchSummary();
+        } catch (err: any) {
+          message.error('清空失败: ' + (err?.response?.data?.message || err.message));
+        } finally {
+          setClearing(false);
+        }
+      },
+    });
+  };
 
   const hasNoProjects = summary && summary.projects.length === 0;
   const hasNoFailed = summary && summary.failedTasks.length === 0;
@@ -319,7 +342,14 @@ export default function HomePage() {
                 </Space>
               }
               extra={
-                <Button type="text" size="small" icon={<ReloadOutlined />} style={{ color: '#999' }} onClick={fetchSummary} />
+                <Space size={4}>
+                  {summary && summary.failedTasks.length > 0 && (
+                    <Button size="small" danger type="text" icon={<ClearOutlined />} style={{ color: '#ff4d4f' }} onClick={handleClearFailed}>
+                      清空
+                    </Button>
+                  )}
+                  <Button type="text" size="small" icon={<ReloadOutlined />} style={{ color: '#999' }} onClick={fetchSummary} />
+                </Space>
               }
               style={cardStyle}
             >

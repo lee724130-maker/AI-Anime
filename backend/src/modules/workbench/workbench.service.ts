@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, EntityManager } from 'typeorm';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DramaProject } from '../drama/drama-project.entity';
@@ -75,6 +75,7 @@ export class WorkbenchService {
     private readonly videoTaskRepo: Repository<VideoTask>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    private readonly entityManager: EntityManager,
   ) {}
 
   async getSummary(userId: number) {
@@ -209,6 +210,79 @@ export class WorkbenchService {
     ];
     all.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
     return all.slice(0, 50);
+  }
+
+  async clearFailedTasks(userId: number) {
+    const outputDir = path.resolve(process.cwd(), 'output');
+
+    const deleteFilesOf = (data: any) => {
+      if (!data) return;
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data); } catch { return; }
+      }
+      const urls: string[] = [];
+      if (Array.isArray(data)) {
+        data.forEach((item: any) => { if (item.url) urls.push(item.url); });
+      } else if (data.url) {
+        urls.push(data.url);
+      } else if (data.video?.url) {
+        urls.push(data.video.url);
+      } else if (data.images) {
+        data.images.forEach((img: any) => { if (img.url) urls.push(img.url); });
+      }
+      for (const url of urls) {
+        if (url.startsWith('/static/')) {
+          const filePath = path.join(outputDir, path.basename(url));
+          try { if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); } }
+          catch { /* ignore */ }
+        }
+      }
+    };
+
+    // 1. failed generation tasks → remove records + related rows + output files
+    const genTasks = await this.genTaskRepo.find({ where: { user_id: userId, status: 'failed' } });
+    for (const t of genTasks) {
+      deleteFilesOf(t.output_data);
+      await this.entityManager.query('DELETE FROM task_events WHERE task_id = ?', [t.id]);
+      await this.entityManager.query('DELETE FROM media_files WHERE task_id = ?', [t.id]);
+    }
+    if (genTasks.length) {
+      await this.genTaskRepo.delete({ user_id: userId, status: 'failed' });
+    }
+
+    // 2. failed video tasks → remove records + result files
+    const vTasks = await this.videoTaskRepo.find({ where: { user_id: userId, status: 'failed' } });
+    for (const t of vTasks) {
+      for (const u of [t.video_url, t.cover_url]) {
+        if (u && u.startsWith('/static/')) {
+          const filePath = path.join(outputDir, path.basename(u));
+          try { if (fs.existsSync(filePath)) { fs.unlinkSync(filePath); } } catch { /* ignore */ }
+        }
+      }
+    }
+    if (vTasks.length) {
+      await this.videoTaskRepo.delete({ user_id: userId, status: 'failed' });
+    }
+
+    // 3. failed drama segments → keep the segment, reset to pending & drop ERROR marker
+    const projects = await this.projectRepo.find({ where: { user_id: userId }, select: ['id'] });
+    const episodeIds = (await this.episodeRepo.find({
+      where: { project_id: In(projects.map(p => p.id)) },
+      select: ['id'],
+    })).map(e => e.id);
+    const segments = episodeIds.length
+      ? await this.segmentRepo.find({ where: { episode_id: In(episodeIds), status: 'failed' } })
+      : [];
+    for (const s of segments) {
+      s.status = 'pending';
+      if (s.video_url?.startsWith('ERROR:')) s.video_url = null;
+      await this.segmentRepo.save(s);
+    }
+
+    return {
+      message: '已清空失败记录',
+      cleared: { generation: genTasks.length, video: vTasks.length, segment: segments.length },
+    };
   }
 
   async getDiskUsage() {

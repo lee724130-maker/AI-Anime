@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Delete, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { WorkbenchService } from './workbench.service';
 
@@ -20,6 +20,11 @@ export class WorkbenchController {
   @Get('failed-tasks')
   failedTasks(@Req() req) {
     return this.service.getFailedTasks(req.user.id);
+  }
+
+  @Delete('failed-tasks')
+  clearFailedTasks(@Req() req) {
+    return this.service.clearFailedTasks(req.user.id);
   }
 
   @Get('disk-usage')

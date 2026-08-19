@@ -38,8 +38,8 @@ export class DramaSegment {
   @Column({ length: 20, default: 'pending' })
   status: string;
 
-  @Column({ name: 'video_url', length: 500, nullable: true })
-  video_url: string;
+  @Column({ type: 'varchar', name: 'video_url', length: 500, nullable: true })
+  video_url: string | null;
 
   @Column({ name: 'progress_message', length: 200, nullable: true })
   progress_message: string;
