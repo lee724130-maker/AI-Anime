@@ -309,14 +309,24 @@ export default function HomePage() {
                 <>
                   <Row gutter={[12, 12]}>
                     <Col span={12}>
-                      <div style={{ background: '#f6ffed', borderRadius: 12, padding: '14px 8px', textAlign: 'center' }}>
+                      <div
+                        onClick={() => navigate('/tasks?status=processing')}
+                        style={{ background: '#f6ffed', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(82,196,26,0.25)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+                      >
                         <SyncOutlined spin={summary!.processingCount > 0} style={{ fontSize: 18, color: '#52c41a', marginBottom: 4 }} />
                         <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary!.processingCount}</div>
                         <Text type="secondary" style={{ fontSize: 12 }}>处理中</Text>
                       </div>
                     </Col>
                     <Col span={12}>
-                      <div style={{ background: '#fffbe6', borderRadius: 12, padding: '14px 8px', textAlign: 'center' }}>
+                      <div
+                        onClick={() => navigate('/tasks?status=pending')}
+                        style={{ background: '#fffbe6', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
+                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(250,173,20,0.3)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+                      >
                         <ClockCircleOutlined style={{ fontSize: 18, color: '#faad14', marginBottom: 4 }} />
                         <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary!.pendingCount}</div>
                         <Text type="secondary" style={{ fontSize: 12 }}>待处理</Text>

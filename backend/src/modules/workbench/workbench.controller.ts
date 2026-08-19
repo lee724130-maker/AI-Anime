@@ -1,4 +1,4 @@
-import { Controller, Get, Delete, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Delete, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { WorkbenchService } from './workbench.service';
 
@@ -15,6 +15,14 @@ export class WorkbenchController {
   @Get('projects')
   projects(@Req() req) {
     return this.service.getProjects(req.user.id);
+  }
+
+  @Get('tasks')
+  tasks(@Req() req, @Query('status') status?: string) {
+    if (status !== 'processing' && status !== 'pending') {
+      throw new BadRequestException('status 仅支持 processing 或 pending');
+    }
+    return this.service.getTasks(req.user.id, status);
   }
 
   @Get('failed-tasks')

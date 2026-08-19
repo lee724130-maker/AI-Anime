@@ -8,6 +8,7 @@ import UserLayout from './components/UserLayout';
 import TestNoticeModal from './components/TestNoticeModal';
 
 const HomePage = lazy(() => import('./pages/Home'));
+const TasksPage = lazy(() => import('./pages/Tasks'));
 const UserPage = lazy(() => import('./pages/User'));
 const ScriptListPage = lazy(() => import('./pages/Script'));
 const ScriptCreatePage = lazy(() => import('./pages/Script/Create'));
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/register" element={<AuthGuard><RegisterPage /></AuthGuard>} />
           <Route path="/" element={<LandingPage />} />
           <Route path="/dashboard" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+          <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
           <Route path="/generate" element={<ProtectedRoute><UserLayout><GeneratePage /></UserLayout></ProtectedRoute>} />
           <Route path="/generate/history" element={<ProtectedRoute><UserLayout><GenerateHistoryPage /></UserLayout></ProtectedRoute>} />
           <Route path="/drama" element={<ProtectedRoute><UserLayout><DramaListPage /></UserLayout></ProtectedRoute>} />

@@ -188,6 +188,90 @@ export class WorkbenchService {
     }));
   }
 
+  async getTasks(userId: number, status: 'processing' | 'pending') {
+    const genStatus = status;
+    const videoStatus = status;
+    const segStatus = status === 'processing' ? 'generating' : 'pending';
+
+    const [genTasks, videoTasks] = await Promise.all([
+      this.genTaskRepo.find({
+        where: { user_id: userId, status: genStatus },
+        order: { created_at: 'DESC' },
+        take: 200,
+      }),
+      this.videoTaskRepo.find({
+        where: { user_id: userId, status: videoStatus },
+        order: { created_at: 'DESC' },
+        take: 200,
+      }),
+    ]);
+
+    const projects = await this.projectRepo.find({ where: { user_id: userId }, select: ['id', 'title'] });
+    const episodeIds = (await this.episodeRepo.find({
+      where: { project_id: In(projects.map(p => p.id)) },
+      select: ['id', 'project_id', 'episode_no'],
+    }));
+    const segments = episodeIds.length
+      ? await this.segmentRepo.find({
+          where: { episode_id: In(episodeIds.map(e => e.id)), status: segStatus },
+          order: { created_at: 'DESC' },
+          take: 200,
+        })
+      : [];
+    const episodeById = new Map(episodeIds.map(e => [e.id, e]));
+
+    const items = [
+      ...genTasks.map(t => ({
+        id: t.id,
+        source: 'generation',
+        type: t.type || 'unknown',
+        status,
+        title: this.genTitle(t.input_data) || (t.type || '生成任务'),
+        time: t.started_at || t.created_at,
+      })),
+      ...videoTasks.map(t => ({
+        id: t.id,
+        source: 'video',
+        type: 'video',
+        status,
+        title: t.prompt ? (t.prompt.length > 60 ? t.prompt.substring(0, 60) + '…' : t.prompt) : `视频任务 #${t.id}`,
+        time: t.completed_at || t.created_at,
+      })),
+      ...segments.map(s => {
+        const ep = episodeById.get(s.episode_id);
+        return {
+          id: s.id,
+          source: 'segment',
+          type: `片段 #${s.segment_no}`,
+          status,
+          title: (ep
+            ? `第 ${ep.episode_no} 集 · `
+            : '') + (s.prompt_cn ? (s.prompt_cn.length > 60 ? s.prompt_cn.substring(0, 60) + '…' : s.prompt_cn) : '短剧片段'),
+          projectId: ep?.project_id ?? null,
+          time: s.updated_at,
+        };
+      }),
+    ];
+    items.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+    return { status, total: items.length, items };
+  }
+
+  private genTitle(inputData: string | null): string | null {
+    if (!inputData) return null;
+    try {
+      const data = JSON.parse(inputData);
+      const prompt = data?.prompt || data?.text || data?.prompt_cn;
+      if (typeof prompt === 'string' && prompt.trim()) {
+        return prompt.trim().length > 60 ? prompt.trim().substring(0, 60) + '…' : prompt.trim();
+      }
+    } catch { /* not json */ }
+    try {
+      const firstLine = inputData.split(/\r?\n/)[0]?.trim();
+      if (firstLine && firstLine.length < 150) return firstLine;
+    } catch { /* ignore */ }
+    return null;
+  }
+
   async getFailedTasks(userId: number) {
     const [genTasks, videoTasks] = await Promise.all([
       this.genTaskRepo.find({ where: { user_id: userId, status: 'failed' }, order: { created_at: 'DESC' }, take: 50 }),
