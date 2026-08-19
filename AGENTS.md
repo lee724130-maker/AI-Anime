@@ -1,5 +1,40 @@
 # 修复日志
 
+## 2026-08-19（晚间轮：dashboard 失败任务「清空」按钮 ✅ 已提交 5b31e61 已部署生产实测 4/4 PASS）
+
+> 用户需求：工作台失败任务卡片一键清空历史失败报错。后端新增批量清理接口 + 前端卡片加清空按钮。已部署生产（前后端 dist 同步替换 + 手动 NODE_ENV restart），本地 API 5/5 + 本地 UI 5/5 + 生产 API 4/4 全绿。
+
+### ✅ ① 后端（workbench 模块）
+- `workbench.service.ts` 新增 `clearFailedTasks(userId)`（注入 EntityManager）：**三路清理**——
+  1. `generation_tasks` failed：逐一按 output_data 物理删产物文件（deleteFiles 同款模式）+ 删关联 task_events/media_files → 批量 delete；
+  2. `video_tasks` failed：物理删 video_url/cover_url 的 /static/ 文件 → 批量 delete；
+  3. `drama_segments` failed：**只重置 status='pending' 不删数据**，video_url 以 `ERROR:` 开头置 null（关联链 user → drama_projects → drama_episodes → drama_segments，In query）
+- 返回 `{ message, cleared: {generation, video, segment} }`；controller 新增 `@Delete('failed-tasks')`
+- ⚠️ **TypeORM 血泪重申**：`drama-segment.entity.ts` 的 `video_url` 从 `string` 改 `string | null` 必须显式 `type: 'varchar'`——否则 decorator 反射 union 类型报 DataTypeNotSupportedError，**后端启动即崩**（pid 起来就死，netstat 无 3000）
+- 本地验证 5/5：注册（Redis db0 注入码）→ SQL 造 2 条 failed（gen+video，output 指向假文件）→ summary 显示 2 条 source=video/generation → DELETE rc=200 cleared{1,1,0} → 记录 0 条 + 假产物文件被删
+
+### ✅ ② 前端（Home/index.tsx）
+- 失败任务 Card extra 新增「清空」按钮（danger text 红色，**仅 failedTasks.length>0 时渲染**）→ Modal.confirm 确认（提示产物文件一并删除）→ DELETE `/api/workbench/failed-tasks` → success toast + fetchSummary；loading 态防连点
+- 本地 UI 5/5：按钮出现（有失败数据）/ confirm 弹窗 / toast / 空态「最近没有失败任务」/ 按钮隐藏；JS 错误 0（仅 antd List deprecation 存量 warning）
+- ⚠️ 点击坑：页面有**可见的 .ant-modal-wrap 残留拦截 pointer 事件**（elementFromPoint 实锤 topEl=DIV.ant-modal-wrap，force click 也被吃）→ 测试用 `el.dispatchEvent(new MouseEvent('click',{bubbles:true}))` 绕过——用户真实操作无感，但测试脚本以后遇「按钮可见却点不动」先查 wrap 遮挡
+
+### ✅ ③ 生产部署与验证
+- 部署：deploy-fe-be-clear.js（backend.zip+frontend.zip+deploy.sh 三合一，deploy.sh 里 pm2 restart 本次执行成功 pid=173017→173132）→ 仍按惯例**手动补 `NODE_ENV=production pm2 restart --update-env`**（jlist 按名字过滤：ENV=production PID=173132 R=48 STATUS=online）+ api_health=401/front 200
+- 生产 API 4/4：注册 uid=65（**清 reg_ip 限流键后恢复注册**——每 IP 每日 2 个，连续测试会 409「今日该网络注册账号已达上限」）→ 造完整链数据（drama_projects/drama_episodes/drama_segments failed ERROR: 段 + gen + video）→ **summary failedTasks len=3（三类都汇总，segment 也在列）** → DELETE rc=200 cleared{1,1,1} → gen=0/vid=0/**seg=pending|NULL** 全 PASS
+- 生产残留全清：uid 60-65 测试用户全删、clr-test 项目/任务 0、redis email_code/reg_ip 键全清；前端 dist hash index-CQe-ZV90.js 已核对
+
+### ⚠️ 本轮血泪
+1. **Union 类型列必须显式 type（AGENTS.md 旧教训再踩）**——改字段类型后本地后端没起来，先 `netstat` 查 3000 再查日志，别直接调接口（ECONNREFUSED）
+2. **drama 表结构（生产实测）**：`drama_projects` 无 eps/ratio 列（是 `episodes`/`target_ratio`），`drama_episodes` 无 status 列（是 `stitch_status`，有 ratio）——种测试数据前先 SHOW COLUMNS
+3. **生产注册限流实战**：reg_ip 键 incr 在 409 请求也计数，连测 3 个用户必撞 2 个/日上限 → 测试前 `redis-cli -n 5 del $(redis-cli -n 5 keys "reg_ip*" | tr '\n' ' ')`
+4. **MySQL -e 多语句中途报错后续不执行**（非 --force）：seed 里一条 INSERT 列名错 → 后面 SET/INSERT 全跳过且 2>/dev/null 吞错 → 看起来「接口没生效」实为没种上数据；**seed 阶段别吞 stderr**（2>&1）
+5. failedTasks summary 结构：`{id, source: video|generation|segment, type, status, error, time}`——segment 失败也汇总（error 取 ERROR: 后内容）；无 user_id 字段（按 token 过滤）
+
+### 📋 遗留（用户暂缓）
+- 生产 3 条漏洞期 `paid` 订单（moyi uid40 +1920、Lee-10 uid16 +120）是否扣回未决
+- git push 未做（用户惯例暂缓）
+- deploy-be-editor.js 的 pm2 restart 缺陷未修（本次手动补 restart 通过）——下次部署前应修
+
 ## 2026-08-19（下午轮：生产文字渲染全链路修复 ✅ 已提交已部署生产实测 4/4 PASS + text.y 语义归一化）
 
 > 完成 08-18 深夜遗留全部步骤：换 ffmpeg（drawtext）→ 代码 fontfile 探测 → 部署 → 生产复测 4/4 全绿；顺带根因修复 text.y=20 出屏。git 提交 `c5b7a04`（含 mockPay 双保险）。**08-18 遗留全部关闭**。
