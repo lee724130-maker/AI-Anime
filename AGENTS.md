@@ -1,5 +1,46 @@
 # 修复日志
 
+## 2026-08-19（全站响应式适配 ✅ 已提交已部署生产，frontend dist index-R8Vpoa4A.js）
+
+> 用户需求：手机（安卓/iPhone 375px）也能用 + Mac 适配 + 多分辨率（1024/1440/1920+）。仅前端改动（后端零变更），本地实测全绿后部署生产，curl 验证 hash/title/css 全一致。
+
+### ✅ ① 全局基建（index.html + index.css）
+- `index.html`：lang zh-CN、title「AI 动漫短剧创作平台」、`viewport-fit=cover`（iPhone 刘海屏）、theme-color #7c3aed、description
+- `index.css`：body/#root `100dvh`（vh fallback @supports）；`overflow-x:hidden`（防保底溢出）；`≤768px` 下 input/select/textarea 强制 16px（防 iOS 聚焦自动放大）；`.mobile-only-hint`（默认 none，≤768px block，编辑器专用提示）；`.auth-screen`（100dvh + @supports dvh fallback，解决 TS1117 重复 minHeight 键）；`.app-header`/`.app-hero-blur` 补 `-webkit-backdrop-filter`（Safari）；细滚动条样式（WebKit）
+
+### ✅ ② AppHeader 汉堡菜单（移动端导航）
+- 重写 `components/AppHeader/index.tsx`：新增 `useIsMobile`（matchMedia ≤768px + addEventListener）；移动端 = 汉堡按钮（MenuOutlined，紫色）+ 左侧 Drawer（width 260，7 导航项 + 分割线 + 退出账号（用户名）），点导航项跳转并自动关抽屉；右侧仅「充值」按钮 + 头像（隐藏用户名/积分文本）；desktop 保持原导航；header 高度 60→52、padding 0 32px→0 12px
+- **antd v6 Drawer 结构变化（实测）**：`.ant-drawer`（root，open 加 `.ant-drawer-open`）→ `.ant-drawer-mask` + `.ant-drawer-content-wrapper` → `.ant-drawer-section`（role=dialog，含 header+body）——**没有 `.ant-drawer-content` class 了**，测试/样式定位用 `.ant-drawer-section`
+
+### ✅ ③ 页面级响应式（19 文件）
+- UserLayout：maxWidth 1200→1280、padding `clamp(16px, 3vw, 32px)`
+- Auth（Login/Register）：外层 padding 16 + 内层 maxWidth 420 自适应（原 width 420 硬溢出）
+- Tasks：统计卡 Col `span={8}`→`xs={8}`、Table `scroll={{x:560}}`；Order：`scroll={{x:640}}` + padding clamp
+- Generate：3 处参数行 Space + Form.Item 加 wrap/flex 响应式、Select width '100%'、tts_voice maxWidth 360
+- Drama：EditAnalysis 题材 Input+集数行 wrap、summary TextArea 400→'100%'+maxWidth 400；EpisodeDetail 右栏 `flex=340px`→`xs={24} md={8}`、播放器高 480→`clamp(280px, 52vh, 480px)`
+- Viral：CreateTemplate 顶部三列 `xs={24} sm={8}` + 变量行 xs 堆叠；SceneEditor 四列 `xs={12/12/12/24} sm=原值`；ProjectDetail 头部 flexWrap+Descriptions `column={{xs:1,sm:2}}`；ProjectList 缩略图 `clamp(90px,22vw,160px)`；index 顶部按钮 `xs={24}`+Space wrap（**原 424px 溢出**）
+- Landing hero 按钮组 Space 加 wrap + justifyContent center（**原 426px 溢出**）
+- 编辑器降级：Canvas/Editor 外层 `overflowX:auto` + 内层 `minWidth:1000`；Editor/EditorPage 同样（`minWidth:1024`）+ 两页顶部 `.mobile-only-hint` 提示「桌面端工具建议电脑浏览，视口已启用横向滚动」
+
+### ✅ ④ 本地验证（Playwright，全部通过）
+- `tsc -b` 全绿；生产构建 vite build 成功
+- resp-sweep.js 全站溢出扫描 **72/72 绿**（375/428/768/1024/1440/1920 × public 全页 + auth 页 + 登录态核心页）
+- resp-header.js 汉堡交互 **16/16**（desktop 导航/用户名/退出/无汉堡；mobile 无导航文本/充值/汉堡/抽屉开/抽屉内容/点击导航跳 /generate/抽屉自动关/无溢出/0 JS 错误）
+- resp-editor.js 画布编辑器 **6/6**（375：无溢出 + hint 显示 + minWidth 1000 容器存在；1440：hint 隐藏）+ 剪辑编辑器 /editor/50 375px PASS（无溢出 + hint + minWidth 1024）
+
+### ⚠️ ⑤ 本轮血泪（测试）
+1. **注册限流本地也生效（2 个/日/IP）**：本地后端同逻辑——脚本注册第 3 个必 409 → 登录 401「用户名或密码错误」假象 → 测试用户改复用已注册用户（SQL 查 users LIKE 前缀）
+2. **antd v6 Drawer class 大变**（见②）——按 antd v5 经验写 `.ant-drawer-content` 全是空
+3. **antd 两字按钮空格坑重申**：closeModal 找「确认」按钮必须 `/确\s*认/` 正则（includes('确认') 匹配不到「确 认」→ Modal 没关 → `.ant-modal-wrap` 拦截汉堡点击 → 原生 click 超时被 catch 吞 → drawer 假失败）
+4. **测试版说明 Modal 的 wrap 残留拦截 pointer**（老坑重申）：click 前必须确认 wrap 不可见
+5. **编辑器无权访问显示「项目加载失败」**：项目 user_id 必须属于测试用户，否则页面是错误页（hint/wrapper 都不渲染 → 假 FAIL）
+6. **unzip backslash warning 退出码非零但文件实际解压成功**（重申）：部署内联 && 链在 unzip 后断掉（echo FE_OK 没执行、部署脚本报 CHECK），**但 dist 文件已全部解压到位**——验证以 ls/grep hash/curl 页面为准，别只看脚本退出码；本次生产已验证 index-R8Vpoa4A.js + title + viewport-fit + css 200 + front_root=200 全对
+7. **curl 直接登录（node fetch 127.0.0.1）比 Playwright 填表稳**：token 注入 localStorage 后 goto，测试脚本更快更稳（authStore 读写 localStorage 'token'/'user' 键）
+
+### 📋 遗留
+- 本地测试用户 195-206（resptest/hdrtest/diag 前缀）残留，下次顺手清理；canvas_projects 29 归属已改 user 1
+- git push 未做（用户惯例暂缓）；deploy 目录服务器侧仍有历史占位（deploy/ 9 项，含脚本）
+
 ## 2026-08-19（晚间轮2：dashboard 任务概览卡片 → 任务中心页 ✅ 已提交 f979954 已部署生产实测 5/5 PASS）
 
 > 用户需求：dashboard 任务概览卡片里点「处理中」/「待处理」卡片，进入页面查看哪些任务在队列中。新增任务中心页（/tasks?status=processing|pending），三类来源统一汇总展示。

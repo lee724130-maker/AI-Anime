@@ -654,7 +654,11 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
   }
 
   return (
-    <div style={{ padding: '12px 16px', height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ padding: '12px 16px', height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
+      <div className="mobile-only-hint" style={{ flexShrink: 0, background: '#7c3aed', color: '#fff', textAlign: 'center', fontSize: 12, padding: '6px 12px', borderRadius: 8, marginBottom: 8 }}>
+        剪辑编辑器为桌面端工具，建议在电脑浏览器（宽屏 ≥1024px）中操作，当前视口已启用横向滚动
+      </div>
+      <div style={{ minWidth: 1024, height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexShrink: 0 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/editor')} style={{ borderRadius: 10 }} />
@@ -822,6 +826,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
         <div style={{ width: 270, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #eceef1', overflow: 'hidden', minHeight: 0 }}>
           <PropsPanel selected={selected} timeline={timeline} onTimelineChange={commitTimeline} />
         </div>
+      </div>
       </div>
     </div>
   );

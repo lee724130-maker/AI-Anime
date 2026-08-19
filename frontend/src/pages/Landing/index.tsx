@@ -172,7 +172,7 @@ export default function LandingPage() {
             无需绘画基础，输入角色和剧情，AI 自动生成动漫短视频。
             多角色一致性、场景拆分、视频拼接，一站式完成创作。
           </Paragraph>
-          <Space size={16}>
+          <Space size={16} wrap style={{ justifyContent: 'center' }}>
             {isLoggedIn ? (
               <Button type="primary" size="large" icon={<ArrowRightOutlined />}
                 style={{ height: 52, padding: '0 44px', borderRadius: 12, fontSize: 16, fontWeight: 600,

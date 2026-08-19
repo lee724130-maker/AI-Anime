@@ -158,7 +158,7 @@ export default function TasksPage() {
 
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         {Object.entries(SOURCE_META).map(([key, meta]) => (
-          <Col span={8} key={key}>
+          <Col xs={8} key={key}>
             <Card size="small" style={{ borderRadius: 12 }} styles={{ body: { padding: '12px 16px' } }}>
               <Space orientation="vertical" size={0} style={{ width: '100%' }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>{meta.label}</Text>
@@ -181,6 +181,7 @@ export default function TasksPage() {
             rowKey={(r) => `${r.source}_${r.id}`}
             columns={columns}
             dataSource={items}
+            scroll={{ x: 560 }}
             pagination={{ pageSize: 10, showSizeChanger: false }}
             size="middle"
             rowClassName={() => 'cursor-pointer'}

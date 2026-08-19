@@ -44,20 +44,20 @@ export default function SceneEditor({ scenes, onChange }: Props) {
             <Text strong style={{ fontSize: 13 }}>场景 {i + 1}</Text>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(i)} />
           </div>
-          <Row gutter={8}>
-            <Col span={6}>
+          <Row gutter={[8, 8]}>
+            <Col xs={12} sm={6}>
               <Input size="small" placeholder="场景名" value={s.name}
                 onChange={e => update(i, 'name', e.target.value)} style={{ borderRadius: 6 }} />
             </Col>
-            <Col span={3}>
+            <Col xs={12} sm={3}>
               <Input size="small" type="number" placeholder="秒" value={s.duration}
                 onChange={e => update(i, 'duration', Number(e.target.value))} style={{ borderRadius: 6 }} suffix={<Tag style={{ marginRight: -4, border: 'none', fontSize: 10 }}>s</Tag>} />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Select size="small" value={s.type} onChange={v => update(i, 'type', v)}
                 style={{ width: '100%' }} options={SCENE_TYPES} />
             </Col>
-            <Col span={9}>
+            <Col xs={24} sm={9}>
               <Input size="small" placeholder="场景描述（支持 {{变量名}} 替换）" value={s.description}
                 onChange={e => update(i, 'description', e.target.value)} style={{ borderRadius: 6 }} />
             </Col>

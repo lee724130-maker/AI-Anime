@@ -28,11 +28,86 @@
 
 body {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
+  overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Full-viewport auth screens: 100dvh with vh fallback (iOS Safari) */
+.auth-screen {
+  min-height: 100vh;
+}
+@supports (height: 100dvh) {
+  .auth-screen {
+    min-height: 100dvh;
+  }
+}
+
+/* === Responsive helpers (mobile-first) === */
+
+/* iOS Safari: keep 16px inputs so focus does not auto-zoom the page */
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Form rows: allow wrapping on narrow screens */
+.responsive-form .ant-form-item {
+  margin-bottom: 12px;
+}
+
+/* Slim scrollbars (macOS / WebKit) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.25);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.45);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Mobile-only desktop-tool hint (narrow viewports) */
+.mobile-only-hint {
+  display: none;
+}
+@media (max-width: 768px) {
+  .mobile-only-hint {
+    display: block;
+  }
+}
+
+/* Backdrop-filter Safari prefix */
+.app-header,
+.app-hero-blur {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* Ant Table: ensure it never breaks layout on mobile (when scroll={{x}} is set) */
+.ant-table-wrapper {
+  max-width: 100%;
+}
+
+/* Page hero paddings on small screens */
+@media (max-width: 768px) {
+  .page-hero {
+    padding: 32px 16px;
+    margin-bottom: 20px;
+  }
 }
 
 /* === Timeline horizontal scroller: hide scrollbar, keep scrollability === */

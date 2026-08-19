@@ -227,8 +227,8 @@ export default function ViralIndex() {
                 ]}
               />
             </Col>
-            <Col xs={12} sm={6} style={{ textAlign: 'right' }}>
-              <Space>
+            <Col xs={24} sm={6} style={{ textAlign: 'right' }}>
+              <Space wrap>
                 <Button icon={<VideoCameraAddOutlined />} style={{ borderRadius: 10 }}
                   onClick={() => navigate('/viral/create')}>
                   创建模板

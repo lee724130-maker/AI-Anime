@@ -59,7 +59,7 @@ export default function ViralProjectList() {
   }
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral')}
         style={{ marginBottom: 16, color: '#666' }}>返回模板集市</Button>
       <Title level={4} style={{ margin: '0 0 20px' }}>我的创作</Title>
@@ -81,19 +81,19 @@ export default function ViralProjectList() {
                 marginBottom: 12,
               }} onClick={() => navigate(`/viral/projects/${p.id}`)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                    <div style={{ width: 160, marginRight: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                    <div style={{ width: 'clamp(90px, 22vw, 160px)', marginRight: 12, flexShrink: 0 }}>
                       <CoverThumb src={p.cover_url} height={90} radius={8} />
                     </div>
-                    <div style={{ flex: 1 }}>
-                    <Space size={8}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                    <Space size={8} wrap>
                       <span style={{ fontSize: 18, color: sm.color === 'success' ? '#52c41a' : sm.color === 'error' ? '#ff4d4f' : '#faad14' }}>
                         {sm.icon}
                       </span>
                       <Text strong style={{ fontSize: 15 }}>{p.name}</Text>
                       <Tag color={sm.color} style={{ borderRadius: 6, fontSize: 10 }}>{sm.label}</Tag>
                     </Space>
-                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {new Date(p.created_at).toLocaleString('zh-CN')}
                       </Text>

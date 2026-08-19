@@ -131,7 +131,7 @@ export default function CreateTemplate() {
 
   if (step === 'analyzing') {
     return (
-      <div style={{ padding: '24px 32px' }}>
+      <div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => setStep('input')}
           style={{ marginBottom: 16, color: '#666' }}>返回</Button>
         <Card style={{ ...cardStyle, textAlign: 'center', padding: '80px 0' }}>
@@ -144,7 +144,7 @@ export default function CreateTemplate() {
   }
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 900 }}>
+    <div style={{ padding: 'clamp(16px, 3vw, 32px)', maxWidth: 900 }}>
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral')}
         style={{ marginBottom: 16, color: '#666' }}>返回模板集市</Button>
       <CreditRulesAlert apiPath="/api/viral/credit-rules" />
@@ -244,15 +244,15 @@ export default function CreateTemplate() {
           <Card style={{ ...cardStyle, marginBottom: 16 }}>
             <Title level={5} style={{ marginBottom: 16 }}>模板信息</Title>
             <Row gutter={16}>
-              <Col span={8}>
+              <Col xs={24} sm={8}>
                 <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>名称</Text>
                 <Input value={name} onChange={e => setName(e.target.value)} style={{ borderRadius: 8 }} />
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={8}>
                 <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>分类</Text>
                 <Input value={category} onChange={e => setCategory(e.target.value)} style={{ borderRadius: 8 }} />
               </Col>
-              <Col span={8}>
+              <Col xs={24} sm={8}>
                 <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>参考视频</Text>
                 <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} style={{ borderRadius: 8 }} />
               </Col>
@@ -286,16 +286,16 @@ export default function CreateTemplate() {
                   <Text strong style={{ fontSize: 13 }}>变量 {i + 1}</Text>
                   <Button type="text" size="small" danger onClick={() => removeVariable(i)}>删除</Button>
                 </div>
-                <Row gutter={8}>
-                  <Col span={5}>
+                <Row gutter={[8, 8]}>
+                  <Col xs={12} sm={5}>
                     <Input size="small" placeholder="key (英文)" value={v.key}
                       onChange={e => updateVariable(i, 'key', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
-                  <Col span={5}>
+                  <Col xs={12} sm={5}>
                     <Input size="small" placeholder="标签 (中文)" value={v.label}
                       onChange={e => updateVariable(i, 'label', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
-                  <Col span={3}>
+                  <Col xs={8} sm={3}>
                     <Select size="small" value={v.type} onChange={val => updateVariable(i, 'type', val)}
                       style={{ width: '100%' }}
                       options={[
@@ -304,15 +304,15 @@ export default function CreateTemplate() {
                         { value: 'select', label: '选择' },
                       ]} />
                   </Col>
-                  <Col span={5}>
+                  <Col xs={12} sm={5}>
                     <Input size="small" placeholder="建议值" value={v.default_value}
                       onChange={e => updateVariable(i, 'default_value', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
-                  <Col span={3}>
+                  <Col xs={8} sm={3}>
                     <Input size="small" placeholder="提示" value={v.placeholder}
                       onChange={e => updateVariable(i, 'placeholder', e.target.value)} style={{ borderRadius: 6 }} />
                   </Col>
-                  <Col span={3} style={{ display: 'flex', alignItems: 'center' }}>
+                  <Col xs={4} sm={3} style={{ display: 'flex', alignItems: 'center' }}>
                     <Button size="small" type={v.required ? 'primary' : 'default'}
                       onClick={() => updateVariable(i, 'required', !v.required)}
                       style={{ borderRadius: 6, fontSize: 11 }}>

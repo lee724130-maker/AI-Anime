@@ -458,7 +458,7 @@ export default function EpisodeDetailPage() {
             <Card style={{ borderRadius: 12, marginBottom: 12 }} styles={{ body: { padding: 10 } }}>
               {playingUrl ? (
                 <div style={{
-                  width: '100%', height: 480, background: '#000',
+                  width: '100%', height: 'clamp(280px, 52vh, 480px)', background: '#000',
                   borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   <video key={playingUrl} src={getUrl(playingUrl)} controls
@@ -550,7 +550,7 @@ export default function EpisodeDetailPage() {
             </Card>
           </Col>
 
-          <Col flex="340px">
+          <Col xs={24} md={8} lg={8} style={{ minWidth: 0 }}>
             <Card size="small" style={{ borderRadius: 12 }}
               title={
                 <Space size={6}>

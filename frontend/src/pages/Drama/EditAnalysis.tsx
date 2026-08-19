@@ -152,12 +152,12 @@ export default function EditAnalysisPage() {
                   <Text type="secondary">标题</Text>
                   <Input value={result.title} onChange={(e) => setResult({ ...result, title: e.target.value })} size="large" />
                 </div>
-                <Space size={12}>
-                  <div>
+                <Space size={12} wrap>
+                  <div style={{ flex: '1 1 140px', minWidth: 120 }}>
                     <Text type="secondary">题材</Text>
-                    <Input value={result.genre} onChange={(e) => setResult({ ...result, genre: e.target.value })} style={{ width: 160 }} />
+                    <Input value={result.genre} onChange={(e) => setResult({ ...result, genre: e.target.value })} style={{ width: '100%' }} />
                   </div>
-                  <div>
+                  <div style={{ flex: '0 0 auto' }}>
                     <Text type="secondary">集数</Text>
                     <InputNumber value={result.episodeCount} onChange={(v) => setResult({ ...result, episodeCount: v })} min={1} max={99} />
                   </div>
@@ -172,16 +172,16 @@ export default function EditAnalysisPage() {
             <div>
               {(result.episodes || []).map((ep: any, epIndex: number) => (
                 <Card key={epIndex} title={
-                  <Space>
+                  <Space wrap style={{ flex: 1 }}>
                     <Tag color="purple">第{ep.episodeNo}集</Tag>
                     <Input value={ep.title} onChange={(e) => updateEpisode(epIndex, 'title', e.target.value)}
-                      style={{ width: 200 }} placeholder="集标题" />
+                      style={{ width: 200, maxWidth: '100%' }} placeholder="集标题" />
                     <InputNumber value={ep.duration} onChange={(v) => updateEpisode(epIndex, 'duration', v)}
                       min={30} max={600} addonAfter="秒" style={{ width: 120 }} />
                   </Space>
                 } style={{ borderRadius: 8, marginBottom: 12 }} size="small" extra={
                   <TextArea value={ep.summary} onChange={(e) => updateEpisode(epIndex, 'summary', e.target.value)}
-                    rows={2} style={{ width: 400 }} placeholder="剧情概要" />
+                    rows={2} style={{ width: '100%', maxWidth: 400 }} placeholder="剧情概要" />
                 }>
                   {(ep.segments || []).map((seg: any, segIndex: number) => (
                     <Card key={segIndex} type="inner" size="small" style={{ marginBottom: 8 }}

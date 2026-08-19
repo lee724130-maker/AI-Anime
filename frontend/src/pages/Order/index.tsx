@@ -144,13 +144,13 @@ export default function OrderPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fb' }}>
       <AppHeader />
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 0' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'clamp(16px, 3vw, 24px) 0 0' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <Title level={3} style={{ margin: 0 }}>算力充值</Title>
         </div>
         <Button className="back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} style={{ marginBottom: 16 }}>返回</Button>
       </div>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 32px' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 clamp(16px, 3vw, 24px) 32px' }}>
         <Card style={{ marginBottom: 20, borderRadius: 8 }}>
           <Space style={{ width: '100%', justifyContent: 'space-between' }}>
             <div>
@@ -195,7 +195,7 @@ export default function OrderPage() {
 
           <Card title="充值记录" style={{ borderRadius: 8 }}>
             {orders.length ? (
-              <Table rowKey="id" columns={columns} dataSource={orders} pagination={false} />
+              <Table rowKey="id" columns={columns} dataSource={orders} pagination={false} scroll={{ x: 640 }} />
             ) : (
               <Empty description="暂无充值订单" />
             )}

@@ -441,7 +441,11 @@ export default function CanvasEditor() {
   }
 
   return (
-    <div style={{ height: '100vh', width: '100vw', overflow: 'hidden', background: '#17181c', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', width: '100vw', overflowX: 'auto', overflowY: 'hidden', background: '#17181c', display: 'flex', flexDirection: 'column' }}>
+      <div className="mobile-only-hint" style={{ flexShrink: 0, background: '#7c3aed', color: '#fff', textAlign: 'center', fontSize: 12, padding: '6px 12px' }}>
+        画布编辑器为桌面端工具，建议在电脑浏览器（宽屏 ≥1024px）中操作，当前视口已启用横向滚动
+      </div>
+      <div style={{ minWidth: 1000, height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Top bar — full-screen workbench header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 52, flexShrink: 0, background: '#1f2126', borderBottom: '1px solid #2c2f36' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/canvas')} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }} />
@@ -706,6 +710,7 @@ export default function CanvasEditor() {
           </div>
         </div>
       </Modal>
+      </div>
     </div>
   );
 }

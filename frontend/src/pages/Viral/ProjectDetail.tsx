@@ -116,7 +116,7 @@ export default function ViralProjectDetail() {
   }
   if (!project) {
     return (
-      <div style={{ padding: '24px 32px' }}>
+<div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral/projects')}>返回</Button>
         <Empty description="项目不存在" style={{ padding: '60px 0' }} />
       </div>
@@ -133,12 +133,12 @@ export default function ViralProjectDetail() {
       <CreditRulesAlert apiPath="/api/viral/credit-rules" />
 
       <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <Title level={4} style={{ margin: 0 }}>{project.name}</Title>
             <Tag color={sm.color} style={{ borderRadius: 6, marginTop: 8 }}>{sm.label}</Tag>
           </div>
-          <Space>
+          <Space wrap>
             {project.status === 'pending' && (
               <Button type="primary" icon={<ThunderboltOutlined />} onClick={startGeneration}
                 loading={generating} style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
@@ -228,7 +228,7 @@ export default function ViralProjectDetail() {
           </div>
         )}
 
-        <Descriptions column={2} size="small" style={{ marginTop: 16 }}>
+        <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
           <Descriptions.Item label="模板 ID">{project.template_id}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{new Date(project.created_at).toLocaleString('zh-CN')}</Descriptions.Item>
           <Descriptions.Item label="状态">

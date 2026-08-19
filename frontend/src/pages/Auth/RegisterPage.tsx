@@ -55,14 +55,14 @@ export default function RegisterPage() {
   };
 
   return (
-    <div style={{
+    <div className="auth-screen" style={{
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      minHeight: '100vh',
+      padding: 16,
       background: 'linear-gradient(135deg, #ede9fe 0%, #fce7f3 50%, #fef3c7 100%)',
     }}>
-      <Card style={{ width: 420, borderRadius: 16, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
+      <Card style={{ width: '100%', maxWidth: 420, borderRadius: 16, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
         {/* Hero banner */}
         <div style={{
           background: 'linear-gradient(135deg, #059669 0%, #10b981 40%, #34d399 100%)',

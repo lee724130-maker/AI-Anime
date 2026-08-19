@@ -27,14 +27,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{
+    <div className="auth-screen" style={{
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      minHeight: '100vh',
+      padding: 16,
       background: 'linear-gradient(135deg, #ede9fe 0%, #fce7f3 50%, #fef3c7 100%)',
     }}>
-      <Card style={{ width: 420, borderRadius: 16, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
+      <Card style={{ width: '100%', maxWidth: 420, borderRadius: 16, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
         {/* Hero banner */}
         <div style={{
           background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 30%, #ec4899 70%, #f59e0b 100%)',

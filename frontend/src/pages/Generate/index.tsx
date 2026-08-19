@@ -378,7 +378,7 @@ export default function GeneratePage() {
       case 'text-to-image':
         return (
           <Form form={formTextToImage} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-image', v, formTextToImage)}>
-            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Text type="secondary">描述</Text>
               <PromptPresets 
                 presets={IMAGE_PRESETS} 
@@ -390,14 +390,14 @@ export default function GeneratePage() {
             <Form.Item name="prompt" rules={[{ required: true, message: '请输入图片描述' }]}>
               <TextArea rows={3} placeholder="描述你想要生成的图片内容..." />
             </Form.Item>
-            <Space style={{ width: '100%' }} size={12}>
-              <Form.Item name="style" label="风格" initialValue="realistic">
-                <Select style={{ width: 140 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
+            <Space style={{ width: '100%' }} size={12} wrap>
+              <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 130px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
-              <Form.Item name="num_images" label="数量" initialValue={1}>
-                <Select style={{ width: 100 }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
+              <Form.Item name="num_images" label="数量" initialValue={1} style={{ flex: '1 1 90px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
               </Form.Item>
-              <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
+              <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px', flex: '1 1 260px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
@@ -409,7 +409,7 @@ export default function GeneratePage() {
       case 'text-to-video':
         return (
           <Form form={formTextToVideo} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-video', v, formTextToVideo)}>
-            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Text type="secondary">描述</Text>
               <PromptPresets 
                 presets={VIDEO_PRESETS} 
@@ -421,18 +421,18 @@ export default function GeneratePage() {
             <Form.Item name="prompt" rules={[{ required: true, message: '请输入视频描述' }]}>
               <TextArea rows={3} placeholder="描述视频画面内容、动作、风格..." />
             </Form.Item>
-            <Space style={{ width: '100%' }} size={12}>
-              <Form.Item name="resolution" label="分辨率" initialValue="720p">
-                <Select style={{ width: 120 }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
+            <Space style={{ width: '100%' }} size={12} wrap>
+              <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="宽高比" initialValue="9:16">
-                <Select style={{ width: 140 }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
+              <Form.Item name="ratio" label="宽高比" initialValue="9:16" style={{ flex: '1 1 130px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
               </Form.Item>
-              <Form.Item name="duration" label="时长" initialValue={5}>
-                <Select style={{ width: 100 }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
+              <Form.Item name="duration" label="时长" initialValue={5} style={{ flex: '1 1 90px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="realistic">
-                <Select style={{ width: 110 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
+              <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 100px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </Space>
             <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
@@ -447,8 +447,8 @@ export default function GeneratePage() {
                       <Radio.Button value="narration">📢 旁白解说</Radio.Button>
                     </Radio.Group>
                   </Form.Item>
-                  <Form.Item name="tts_voice" label="音色" initialValue="longxiaochun">
-                    <Select style={{ width: 240 }} options={voiceOptions} placeholder="选择音色" />
+                  <Form.Item name="tts_voice" label="音色" initialValue="longxiaochun" style={{ maxWidth: 360 }}>
+                    <Select style={{ width: '100%' }} options={voiceOptions} placeholder="选择音色" />
                   </Form.Item>
                   <Form.Item name="voiceover_text" label="配音内容（可留空）">
                     <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
@@ -630,18 +630,18 @@ export default function GeneratePage() {
             <Form.Item name="prompt">
               <TextArea rows={2} placeholder="描述角色的动作或镜头运动..." />
             </Form.Item>
-            <Space style={{ width: '100%' }} size={12}>
-              <Form.Item name="resolution" label="分辨率" initialValue="720p">
-                <Select style={{ width: 120 }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
+            <Space style={{ width: '100%' }} size={12} wrap>
+              <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="宽高比" initialValue="9:16">
-                <Select style={{ width: 140 }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
+              <Form.Item name="ratio" label="宽高比" initialValue="9:16" style={{ flex: '1 1 130px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
               </Form.Item>
-              <Form.Item name="duration" label="时长" initialValue={5}>
-                <Select style={{ width: 100 }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
+              <Form.Item name="duration" label="时长" initialValue={5} style={{ flex: '1 1 90px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="realistic">
-                <Select style={{ width: 110 }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
+              <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 100px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </Space>
             <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
