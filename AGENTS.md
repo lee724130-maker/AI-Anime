@@ -1,5 +1,25 @@
 # 修复日志
 
+## 2026-08-19（Generate 页 Tab 标签行移动端布局修复 + 生产/本地同步检查 ✅ 已提交已部署生产，index-SyBuwWeP.js + Generate-B9wgkI6H.js）
+
+> 用户反馈：/generate 页「文字生图片/文字生视频/图片生视频/多图合并」四个按钮（自绘 Tab 行）排列不整齐。原因：自绘 button 固定 `padding:12px 16px`，4 项总宽 ≈490px > 375px 手机 → 溢出/错乱。
+
+### ✅ ① 修复（`pages/Generate/index.tsx`）
+- 加 `isMobile` hook（matchMedia ≤768px，与 AppHeader/Viral 同模式）：移动端每个 tab `flex:'1 1 0'` 等分 + `padding:'12px 2px'` + fontSize 12 + whiteSpace nowrap；容器加 `overflowX:'auto'` 兜底；desktop 保持 `0 0 auto` + padding 12px 16px
+- 验证：Playwright **16/16 全绿**——desktop 4 tab 间距对齐；mobile 375 四 tab 等宽 73px 同一行、320px 等宽 60px、均无溢出、选中高亮正常、0 JS 错误；tsc 全绿
+- ⚠️ 移动端等分原则：**固定 padding 的内容行在窄屏必须 flex:1 等分 + 缩字号 + nowrap**，光靠 wrap 会换行错乱
+
+### ✅ ② 生产部署 + 生产/本地同步检查（用户收官需求）
+- 部署：deploy-fe-resp.js（unzip backslash warning 链断老坑再现，文件实际解压成功）→ 生产验证 Generate-B9wgkI6H.js（30.83KB 与本地一致）+ index-SyBuwWeP.js + gen_200 + front_root 200 + zip 清理
+- **前端同步检查：90/90 assets 文件名本地=生产完全一致，index.html 引用的 hash 一致** → 前端完全同步
+- **后端同步检查**：生产 dist 特征齐全（workbench getTasks/clearFailedTasks = 晚间轮；ffmpeg.util runFfmpegQueuedArr/norm01/detectFontFile = 08-18/19 渲染修复），与本地 dist 一致；本地源码无未提交后端改动 → 后端完全同步
+- 生产健康：api_health=401（鉴权正常）、front_root=200
+- ⚠️ 同步检查方法：`ls assets | sort` 对比本地 dist 列表（90/90 NONE 差异）+ grep 生产 dist 特征字符串 + 本地 dist 同名 grep——代码同步以「生产 dist 特征 = 本地构建产物」为准，不看 git push（未 push 是惯例）
+
+### 📋 遗留
+- 本地测试用户 195-206（resptest/hdrtest/diag 前缀）残留，下次顺手清理；canvas_projects 29 归属已改 user 1
+- git push 未做（用户惯例暂缓）；deploy 目录服务器侧仍有历史占位（deploy/ 9 项，含脚本）
+
 ## 2026-08-19（Viral 首页侧边导航手机端折叠化 ✅ 已提交已部署生产，index-B2qIX7rl.js + Viral-nQtXX92O.js）
 
 > 用户反馈：viral 首页 `viral-side-nav` 侧边导航在手机端会覆盖页面内容。真根因：组件 `<style>` 里的 `@media (max-width:1400px){ .viral-side-nav{ display:none } }` 被**内联 style 的 `display:'flex'` 覆盖**（内联样式优先级 > 媒体查询 CSS）→ 手机上 fixed 导航一直显示、遮挡内容——溢出扫描测不出（fixed 不占文档流）。已修复 + 按需求改成**移动端折叠卡片**。

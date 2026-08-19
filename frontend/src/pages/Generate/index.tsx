@@ -90,6 +90,15 @@ function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan,
 
 export default function GeneratePage() {
   const [tabKey, setTabKey] = useState('text-to-image');
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 768px)').matches);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const onChange = () => setIsMobile(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   // 结果区轮播：本次会话提交的任务 id（最新在前），关闭即移除
@@ -814,8 +823,8 @@ export default function GeneratePage() {
       )}
 
       <Card style={{ borderRadius: 12, marginBottom: 24 }}>
-        {/* Tab 标签行（仿 antd line 风格） */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid rgba(5,5,5,0.06)' }}>
+        {/* Tab 标签行（仿 antd line 风格；移动端等分 4 列，防溢出） */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid rgba(5,5,5,0.06)', overflowX: 'auto' }}>
           {tabItems.map(t => (
             <button
               key={t.key}
@@ -823,7 +832,9 @@ export default function GeneratePage() {
               onClick={() => setTabKey(t.key)}
               style={{
                 border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                padding: '12px 16px', fontSize: 14, lineHeight: '22px', marginBottom: -1,
+                padding: isMobile ? '12px 2px' : '12px 16px', fontSize: isMobile ? 12 : 14,
+                lineHeight: '22px', marginBottom: -1, whiteSpace: 'nowrap', minWidth: 0,
+                flex: isMobile ? '1 1 0' : '0 0 auto',
                 color: tabKey === t.key ? '#1677ff' : 'rgba(0,0,0,0.88)',
                 fontWeight: tabKey === t.key ? 500 : 400,
                 borderBottom: tabKey === t.key ? '2px solid #1677ff' : '2px solid transparent',
