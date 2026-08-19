@@ -1,5 +1,45 @@
 # 修复日志
 
+## 2026-08-19（下午轮：生产文字渲染全链路修复 ✅ 已提交已部署生产实测 4/4 PASS + text.y 语义归一化）
+
+> 完成 08-18 深夜遗留全部步骤：换 ffmpeg（drawtext）→ 代码 fontfile 探测 → 部署 → 生产复测 4/4 全绿；顺带根因修复 text.y=20 出屏。git 提交 `c5b7a04`（含 mockPay 双保险）。**08-18 遗留全部关闭**。
+
+### ✅ ① 生产 ffmpeg 换装（核心根因）
+- jv 最新 release（7.0.2-static）实测**仍无 drawtext**（`Filter not found: drawtext`，release 名带 amd64 也不是 6.1.1）→ 放弃下载升级路线
+- 改用**系统 `/usr/bin/ffmpeg` 4.4.2**（drawtext/xfade/zoompan/overlay 全部 19/19 齐）：`tools/ffmpeg/ffmpeg_702_bak + ffprobe_702_bak` 备份 7.0.2 后 cp 系统 ffmpeg/ffprobe 至 tools/ffmpeg/ → 中文+wqy 出图实测 350 亮像素 PASS → 渲染/ffprobe 全链路正常
+- 遗留清理：`ffmpeg-rel.tar.xz`（18MB 残包）已删
+
+### ✅ ② 代码 fontfile 跨平台探测（ffmpeg.util.ts）
+- 新增 `detectFontFile()`：Win `C:/Windows/Fonts/msyh.ttc→msyh.ttf→simhei.ttf→msyhl.ttc`；Linux `wqy-zenhei.ttc→Noto CJK×3→wqy-microhei.ttc`；找到返回 `fontfile=路径`（**: 转义 `\\:`** 防盘符冒号），找不到返回 ''（兜底不传）
+- 注入两处 drawtext：generateOverlayTextVideo + generateTextVideo；条件拼接 `fontPart + ':'` 避免空串产生 `::` 双冒号破坏滤镜
+- tsc 全绿；fontfile 语法 4/4 PASS（fontcolor `#7C3AED` + fontfile 前缀顺序正确，drawtext 解析成功）
+
+### ✅ ③ 本地文字渲染全链路 4/4 PASS（项目 48）
+- t=1.35 文字存在且动画中（纯白 **6835**）/ t=2.2 动画完成（**17147**）/ t=3.9 消失（**98**）/ t=4.5 消失（**132**）——阈值 >300
+
+### ✅ ④ 生产复测 4/4 PASS（项目 15，「生产文字测试」slide_up）
+- 渲染 completed 35s；抽帧 et135/et220/et390/et450 + 基准 et050 全拉回本地分析
+- **判据修正教训**：bright(>200) 判据被画面亮度污染（t=4.5 画面切亮背景 14 万亮像素假阳性，et050 基准本底 7312）→ **改判据 = 纯白像素 (>245)**：本底 43≈84≈195（无文字段），文字段 1399/1909 → 4/4 全绿（t=1.35 有字动画中、2.2 有字、3.9/4.5 无字）
+- pscp 通配符坑重申：`et1*.png` 只匹配 et135.png（文件名前缀匹配）——批量拉文件用 tar 打包（服务器 `tar czf et.tar.gz et*.png` → 拉回 → 本地解压）
+
+### ✅ ⑤ text.y 语义归一化（根治 y=20 出屏）
+- **根因实锤**：y=20 来自 e2e 脚本按「百分比语义」传参（test-img-seg/test-prod-editor/test-prod-editor-img 等 `x:50, y:20`）→ 渲染按 0..1 算 `y*h` → 25566px 出屏；**前端 UI 滑块全部 0..1 且 clamp（Editor PropsPanel Slider max=1、updateTextPos clamp、canvas PropertiesPanel max=1）正常用户不会触到**，但后端无防御
+- **修复**：ffmpeg.util.ts 两处（generateOverlayTextVideo + overlayImageOnVideo）加 `norm01()`：0..1 原样、1..100 视为百分比 ÷100、其余兜底 0.5；⚠️ 注意解构 const 不能赋值 → 从解构里移除 x/y，改 `const x = norm01(options?.x)`
+- **验证**：本地 y=20 → 文字出现在 y 255..299（理论中心 256 = 20% 高度）PASS；**生产同测 PASS**（py135.png 纯白 2274，y 255..287）
+
+### ✅ ⑥ 部署与验证细节
+- 部署两轮均复现 **deploy-be-editor.js pm2 restart 不执行**（输出仅 main.js+OLD_EXISTS+unzip backslash warning+DEPLOY_VERDICT=CHECK）→ 每次手动 `NODE_ENV=production pm2 restart ai-anime-backend --update-env`
+- **pm2 验证新坑**：`pm2 jlist` 取 `[0]` 会拿到 extract-worker（进程列表第一项）→ **必须 `.filter(x=>x.name==='ai-anime-backend')`**；确认 pid=170694、restarts=46、uptime=30s、NODE_ENV=production ✓
+- 生产测试数据全清：uid 58（texttest）/ uid 59（ynormp）删除、editor_projects=0、editor_result_15/16 产物、/tmp/et*.png、redis reg_ip 键（文件清理时注意：output 仍有 24 个历史 editor_result_* 无引用残留，cleanup 30 天策略兜底）
+
+### ✅ ⑦ 已完成（git c5b7a04）
+- 4 文件提交：AGENTS.md（今日 mock-pay 节）+ order.service.ts（mockPay 双保险）+ ffmpeg.util.ts（fontfile 探测 + 时间轴内部化 + slide_up 清理 + norm01）+ canvas.service.ts（ovtext 传 start）；框架（zoompan 数组传参等）随前序提交已含
+
+### 📋 遗留（用户暂缓）
+- 生产 3 条漏洞期 `paid` 订单（moyi uid40 +1920、Lee-10 uid16 +120）是否扣回未决
+- git push 未做（用户惯例暂缓）
+- deploy-be-editor.js 的 pm2 restart 缺陷未修（下次部署前应修：脚本末尾直接执行 restart 或输出后手动补）
+
 ## 2026-08-19（生产 mock-pay 白嫖漏洞修复 ✅ 双保险 + NODE_ENV=production + 生产实测 400）
 
 > 用户反馈：订单页有「模拟支付」按钮，点一下就 `paid` 并加积分（能无限刷积分烧模型用量）。生产实测确认：mock-pay 接口在非 production 下直接放行加积分（前端 Order 页就有该按钮）。
@@ -14,7 +54,7 @@
 
 ### 📋 遗留（用户暂缓处理）
 - 生产 3 条漏洞期 `paid` 订单（积分已发放）：#1/#2 用户 moyi (uid40) starter+studio 共 +1920 分；#3 用户 Lee-10 (uid16) +120 分——是否扣回待用户决定
-- 本地 git 提交（order.service.ts mockPay 双保险 + AGENTS.md）未做
+- ~~本地 git 提交（order.service.ts mockPay 双保险 + AGENTS.md）~~ → 已随 `c5b7a04` 提交
 
 ## 2026-08-18（深夜未完轮：生产「文字动画无效」真根因=生产 ffmpeg 无 drawtext 滤镜 + HEAD 残留坏表达式 ⛔ 明天继续）
 
