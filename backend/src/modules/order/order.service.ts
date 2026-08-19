@@ -68,8 +68,12 @@ export class OrderService {
   }
 
   async mockPay(userId: number, orderId: number) {
-    // 模拟支付仅限本地开发使用；生产环境禁止（防止白嫖积分）
-    if (process.env.NODE_ENV === 'production') {
+    // 模拟支付仅限本地开发使用；任何环境默认禁用（防止白嫖积分）。
+    // 双保险：① NODE_ENV=production 直接拒；② system_configs.mock_pay_enabled 必须显式 ='1'
+    // 才放行（生产库永远不需要该键；本地开发在库里开启后可用）。
+    const cfg = await this.configRepo.findOne({ where: { config_key: 'mock_pay_enabled' } });
+    const mockEnabled = cfg?.config_value === '1';
+    if (process.env.NODE_ENV === 'production' || !mockEnabled) {
       throw new BadRequestException('支付功能尚未开通，敬请期待');
     }
     const order = await this.orderRepo.findOne({ where: { id: orderId, user_id: userId } });

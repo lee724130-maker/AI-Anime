@@ -1,5 +1,74 @@
 # 修复日志
 
+## 2026-08-19（生产 mock-pay 白嫖漏洞修复 ✅ 双保险 + NODE_ENV=production + 生产实测 400）
+
+> 用户反馈：订单页有「模拟支付」按钮，点一下就 `paid` 并加积分（能无限刷积分烧模型用量）。生产实测确认：mock-pay 接口在非 production 下直接放行加积分（前端 Order 页就有该按钮）。
+
+### ✅ 漏洞与修复
+- **根因**：`order.service.ts` mockPay 无任何环境校验，`POST /api/order/:id/mock-pay` 一调即 `paid` + credits 到账（前端 Order 页「模拟支付」按钮直连该接口）
+- **修复（双保险）**：① `NODE_ENV=production` 直接抛 400「支付功能尚未开通，敬请期待」；② `system_configs.mock_pay_enabled` 必须显式 `='1'` 才放行（本地开发库开启、生产库无该键=默认拒绝）
+- **积分发放路径全审计**（无其他漏洞面）：唯一充值入口=mockPay（已堵）；`admin.service.recharge` 有 `@Roles('admin')` 保护；`credits/generate` 的 refund 是扣费失败退款（业务正当）；mockPay 内部 paid 后重复调用直接 return 不重复加分、非 pending 拒绝、只能支付自己的订单
+- **生产 pm2 补 NODE_ENV=production**（此前未设置）：`NODE_ENV=production pm2 restart ai-anime-backend --update-env` 生效（jlist 确认）→ 顺带修复 400 响应体带 stack 的信息泄漏（Nest 非 production 才返回 stack）
+- **本地验证**：开关开=放行 201 paid（+120 积分）、开关关=400，均 PASS；生产实测：`POST /order/create` 201 → mock-pay **400 且无 stack 字段** PASS
+- **部署事故复盘**：deploy-be-editor.js 的 && 链在 pm2 restart 前中断（unzip backslash warning 之后），dist 已替换但进程跑旧代码（pm2 uptime 24h 暴露）→ 手动 `pm2 restart` 解决；**部署后必须核对 pm2 uptime/pid，不能只信 grep dist**
+
+### 📋 遗留（用户暂缓处理）
+- 生产 3 条漏洞期 `paid` 订单（积分已发放）：#1/#2 用户 moyi (uid40) starter+studio 共 +1920 分；#3 用户 Lee-10 (uid16) +120 分——是否扣回待用户决定
+- 本地 git 提交（order.service.ts mockPay 双保险 + AGENTS.md）未做
+
+## 2026-08-18（深夜未完轮：生产「文字动画无效」真根因=生产 ffmpeg 无 drawtext 滤镜 + HEAD 残留坏表达式 ⛔ 明天继续）
+
+> 用户反馈「生产还是没效果」→ 全链路对账发现：**生产 dist ≠ 本地 src**（生产=git HEAD 849ce0b），且生产问题比本地修复的问题更深——**生产文字 overlay 全部失败被跳过（成片根本没文字）**。已定位全部根因，**未修复完，明天继续**。
+
+### ✅ 已查明（4 个根因/差异，全部实锤）
+1. **生产 tools/ffmpeg 无 drawtext 滤镜（核心根因）**：生产 `backend/tools/ffmpeg` = johnvansickle **7.0.2-static**（08-06 部署）——`ffmpeg -filters` 里**没有 drawtext**（buildconf 有 --enable-libfreetype/fontconfig 但列表无 drawtext）；生产日志实锤（15:00-15:03 渲染 #12/13/14）：`No such filter: 'drawtext'` → `Overlay text video failed` → `Text overlay 0 skipped` → **成片无文字无动画**（用户感知「动画没效果」实际是文字整个缺失！）。系统 `/usr/bin/ffmpeg` 4.4.2 有 drawtext（grep=1）可作备胎
+2. **生产 dist = git HEAD 849ce0b（14:46 部署），与本地当前工作区不一致**：HEAD 的 generateOverlayTextVideo 时间轴已是内部轴（`0.6-t`、fade st=0 ✓），**但 slide_up 的 x 参数残留垃圾表达式**：`x='x*720-text_w/2, if(lt(t,0.6), y-108*((0.6-t)/0.6))'`（x 里塞 y 动画 if）→ **本地实测该 drawtext 构建失败**（avatar 表达式解析错）→ HEAD 即使有 drawtext 也跑不了 slide_up。本地新版本已清理（textArgs+anim 重构 + slide_down + fade in 0.25 + x 干净）→ 待部署
+3. **生产 Linux 需要显式中文字体 fontfile**：drawtext 无 fontfile 时默认字体无中文 → 必须传 fontfile；生产机器已有 `/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc`（文泉驿正黑 ✓）。**本地 Windows gyan build 默认字体带中文所以一直没暴露**——代码必须加 fontfile 跨平台探测（Win: `C:\Windows\Fonts\msyh.ttc/simhei.ttf`；Linux: wqy-zenhei.ttc / Noto Sans CJK），探测不到才不传兜底
+4. **生产渲染命令里 y='25566.4' 怪值**：= y(≈20)×1280-42 → 前端/测试传的 `text.y=20`（>1 违反 0..1 语义）→ 文字出屏。需查 text.y 语义（0..1 vs 0..100）与生成入口，明天一起处理
+
+### 📍 服务器当前现场（明天接续点）
+- `backend/tools/ffmpeg-rel.tar.xz` 已存在但**不完整**（18MB，第一次 wget 中断，第二次下载被中止）——**删除重下，或本地下载 jv ffmpeg 6.1.1-amd64-static（约 40MB，pscp 上传更稳）**
+- `ffmpeg-6.1.1-amd64-static/` 目录不存在；`/tmp/dt_test.png` 不存在；生产 tools/ffmpeg 仍为 7.0.2（无 drawtext）
+- 部署脚本：`Temp\opencode\deploy-be-editor.js`（打包 dist→pscp→unzip→pm2 restart）；连接参数 HOST=root@47.121.137.131，PW/HK 在脚本内
+
+### 明天步骤（建议顺序）
+1. **换生产 ffmpeg**：下载/上传 jv **6.1.1-amd64-static** → 服务器 `tar xf` → `ffmpeg -filters | grep -c drawtext` 验证 → **实测 drawtext+中文+wqy fontfile 出图（先测通再替换）** → `mv ffmpeg ffmpeg_702_bak && cp ffmpeg-6.1.1-amd64-static/ffmpeg ffprobe ./` → 清 ffmpeg-rel.tar.xz
+2. **代码加 fontfile 探测**（ffmpeg.util.ts 两处 drawtext：generateOverlayTextVideo + generateTextVideo）：探测顺序 Windows msyh.ttc→simhei.ttf、Linux wqy-zenhei.ttc→Noto CJK；`fontfile=` 参数注入（注意 escapeText 与 fontfile=: 冲突转义）；→ tsc
+3. **部署本地新 dist**（含：时间轴修复 + slide_up 清理 + fontfile 探测 + 之前的 zoompan 数组传参；deploy-be-editor.js）→ pm2 restart → grep 确认新代码特征 `0.6 - t` + `fontfile`
+4. **生产复测**（精确 seek 抽帧）：重渲染一个含文字项目 → 服务器 `-i file -ss 1.35/2.2/3.9` 抽帧 → 像素检测（白色 >200）：1.35s 有文字+动画中、2.2s 动画完成、3.9s 消失；**抽帧/检测用本地 ffmpeg 对 pscp 拉回的 result 文件做，或服务器直接做**
+5. **y 参数怪值**：查 text.y=20 的语义与入库链路（前端 0..1？滑块？），统一 clamp
+6. git 提交（EditorPage 图片段 + ffmpeg.util 两轮修复 + AGENTS.md）
+
+### ⚠️ 本地已完成（勿回退）
+- 本地时间轴修复 8/8 全绿（见下节）；`git diff HEAD backend/src/utils/ffmpeg.util.ts` 即本地领先 HEAD 的全部改动（时间轴内部化+slide_up 清理+slide_down+fontfile 待加）
+
+## 2026-08-18（晚轮：编辑器文字动画失效根因修复 ✅ 本地 8/8 全绿——时间轴双层偏移 bug）
+
+> 用户反馈「文字动画没有效果」。像素级排毒定位：**generateOverlayTextVideo 的动画/fade 时间表达式用了「绝对时间」（t-start、fade st=start），但滤镜作用于 ovt 内部时间轴 [0,duration]，overlay 再 setpts+start 平移 → 时间窗被二次偏移 ≈start（1.0s）**。
+
+### ✅ 现象与排查链
+- 现象：渲染成片里文字动画不可感知（一开始以为是「没动画」，实测是**动画被延迟 1s 且被 fade in 遮罩**）
+- 手工复现（不经后端，ffmpeg 逐段验证）：ovt 内部 1.0-1.6s 动画正常（cy 717→461 上滑 ✓）；但 overlay（setpts+start）后可见窗口从预期 [1.0,3.5] 变成 **[2.3,3.5]**，且 fade in 完成点=可见起点（2.29），**fade out st=3.0 超出 ovt 时长 2.5 直接失效（文字硬切消失）**
+- 根因：`generateOverlayTextVideo`（ffmpeg.util.ts:1126）里 `tt=(t-start)` + `fade st=start` + `fade out st=start+duration-fadeOut`——**滤镜时间轴是 ovt 内部 PTS（0..duration），而 start 平移发生在 overlay 阶段（canvas.service.ts:651 setpts=PTS-STARTPTS+st/TB），内部轴再加绝对 start = 重复偏移**
+- 佐证：canvas 流程 start=0 时新旧完全等价（无回归面）；A/B/C 三组手工实验左边界都≈fade in 完成点（1.29/2.29），完美解释「文字 2.0s 才淡入、动画 2.6s 才完成」
+- 另发现 e2e 老脚本抽帧用 `-ss X -i`（快速 seek 落关键帧）——**验证文字窗口必须精确 seek（-i file -ss X）**
+
+### ✅ 修复（ffmpeg.util.ts generateOverlayTextVideo，时间轴统一到 ovt 内部）
+- 动画：`tt=(t-start)` → **`t`（内部轴，显示起点即 0）**——动画窗口 = 可见窗口起点
+- fade in：`st=start` → **`st=0`**（动画时 0.25s 短淡入保住动画可感知度；none 时 0.4s）
+- fade out：`st=start+duration-fadeOut` → **`st=duration-fadeOut`**（在片段结束点正好淡出完，不再硬切）
+- start=0（canvas 路径）数值全部等价，零回归
+
+### ✅ 验证 8/8 全绿（test-editor-anim.js，精确 seek 像素检测）
+- 渲染 completed / **t=1.35s 文字存在且动画进行中（cy=696）** / **t=2.2s 动画完成（cy=624，上移 72px 精确）** / **t=3.9s 文字消失（fade out 后）** / 水平居中 cx=360 / 垂直居中 cy=624 / 时长 5s
+- 语义：动画与文字同起点（文字一出现就在滑入，0.6s 完成），fade out 不再硬切
+- ⚠️ 教训：ffmpeg 的 Duration/进度信息在 **stderr**，`execFileSync().toString()`（stdout）拿不到 → dur=-1 假 FAIL；像素检测边界点（fade 渐变中、快速 seek）会误判「无文字」
+
+### ⚠️ 待办
+- [ ] git 提交：EditorPage.tsx 图片段修复 + ffmpeg.util.ts（zoompan 数组传参、文字动画时间轴）+ AGENTS.md；deploy/ zip 产物不提交
+- [ ] 部署生产：本地 dist 已含修复，需按老流程上传（pscp → unzip → pm2 restart → grep 确认）
+- [ ] 生产复测：动画验收脚本需用精确 seek 抽帧
+
 ## 2026-08-18（生产后端 editor 模块部署完成 + ffmpeg zoompan 跨平台修复 + 生产验收 14/14 全绿 ✅ 待 git 提交）
 
 > 完成昨日遗留：① 生产后端部署 editor 模块（此前 404）；② 生产渲染失败根因修复（zoompan 单引号）；③ 生产编辑器全链路验收 14/14 全绿；④ 测试残留全清。

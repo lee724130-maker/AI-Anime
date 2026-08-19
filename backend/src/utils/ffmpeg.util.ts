@@ -31,6 +31,39 @@ function findFfmpeg(): string {
   return 'ffmpeg';
 }
 
+/**
+ * Cross-platform CJK font detection for drawtext. drawtext without a fontfile
+ * falls back to a default font that often has NO Chinese glyphs (tofu boxes)
+ * on headless Linux. Windows gyan builds ship a CJK-capable default, but
+ * explicit fontfile keeps behavior identical everywhere.
+ * Returns the fontfile=... filter fragment (':' escaped for filter syntax),
+ * or '' when no known CJK font exists (drawtext then uses its default).
+ */
+function detectFontFile(): string {
+  const candidates = process.platform === 'win32'
+    ? [
+        'C:/Windows/Fonts/msyh.ttc',   // Microsoft YaHei (Win7+)
+        'C:/Windows/Fonts/msyh.ttf',
+        'C:/Windows/Fonts/simhei.ttf', // SimHei (older Windows)
+        'C:/Windows/Fonts/msyhl.ttc',
+      ]
+    : [
+        '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',        // 文泉驿正黑 (Ubuntu/Debian)
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', // Noto CJK
+        '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+      ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      // filter 语法：路径内的 ':' 需转义（Windows 盘符），与 escapeText 同款
+      return `fontfile=${c.replace(/:/g, '\\\\:')}`;
+    }
+  }
+  return '';
+}
+
+
 export interface FFmpegCompositeOptions {
   imagePaths: string[];
   audioPath?: string;
@@ -1058,7 +1091,9 @@ export class FFmpegUtil {
 
     const drawTextFilters = lines.map((line, i) => {
       const y = startY + i * lineHeight;
-      return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x=(w-text_w)/2:y=${y}:enable='between(t,0,${duration})'`;
+      const fontArg = detectFontFile();
+      const fontPart = fontArg ? fontArg + ':' : '';
+      return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:${fontPart}fontsize=${fontSize}:x=(w-text_w)/2:y=${y}:enable='between(t,0,${duration})'`;
     });
 
     const fadeIn = 0.5;
@@ -1135,6 +1170,7 @@ export class FFmpegUtil {
       y?: number; // 0..1 vertical position (0.5 = center)
       opacity?: number; // 0..1
       animation?: string; // none | fade | slide_up | slide_down | zoom_in
+      start?: number; // start time on the base video timeline (animations/fade are relative to it)
       outputPath?: string;
     },
   ): Promise<string> {
@@ -1144,14 +1180,27 @@ export class FFmpegUtil {
       resolution = '1080x1920',
       duration = 3,
       fps = 24,
-      x = 0.5,
-      y = 0.5,
       opacity = 1,
       animation = 'fade',
+      start = 0,
     } = options || {};
 
     const outPath = options?.outputPath || path.join(this.outputDir, `overlay_text_${Date.now()}.mov`);
     const [w, h] = resolution.split('x').map(Number);
+
+    // x/y semantics: 0..1 (0.5 = center). Legacy/API callers may pass 0..100
+    // percent-style values (e.g. y=20) which would push text off-screen, so
+    // normalize anything in 1..100 as percent and clamp to [0,1].
+    const norm01 = (v: number | undefined): number => {
+      const n = Number(v);
+      if (Number.isFinite(n)) {
+        if (n >= 0 && n <= 1) return n;
+        if (n > 1 && n <= 100) return n / 100;
+      }
+      return 0.5;
+    };
+    const x = norm01(options?.x);
+    const y = norm01(options?.y);
 
     const maxCharsPerLine = Math.max(4, Math.floor(w / (fontSize * 0.55)));
     const lines = this.wrapText(text, maxCharsPerLine);
@@ -1161,27 +1210,40 @@ export class FFmpegUtil {
     const totalTextHeight = lines.length * lineHeight;
     const startY = y * h - totalTextHeight / 2;
 
+    // The overlay stream plays on its own timeline [0, duration]; it is only
+    // shifted by `start` when placed onto the base video (see overlayClipOnVideo:
+    // setpts=PTS-STARTPTS+start/TB). Therefore ALL drawtext/fade timings below
+    // must use the overlay's own clock `t` (which starts at 0 when it becomes
+    // visible on the base timeline) — absolute timings (t-start, st=start) would
+    // be shifted a second time and silently delay/no-op the animations.
+    const anim = `max(0,(${0.6} - t)/0.6)`;
+    const xxBase = `${(x * w).toFixed(2)}-text_w/2`;
+    const yBase = (lineIndex: number) => Math.max(startY + lineIndex * lineHeight, 0);
+
     const drawTextFilters = lines.map((line, i) => {
-      const yy = startY + i * lineHeight;
-      // Slide / zoom animations applied via x/y expressions
-      let xx = `x*${w}-text_w/2`;
+      const fontPart = detectFontFile();
+      const textArgs = `text='${escapeText(line)}':fontcolor=${textColor}:alpha=${opacity}:${fontPart ? fontPart + ':' : ''}x='${xxBase}'`;
       if (animation === 'slide_up') {
-        xx = `x*${w}-text_w/2, if(lt(t,0.6), y-${h * 0.15}*((0.6-t)/0.6))`;
-        return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x=${xx}:y='${Math.max(yy, 0)}+${h * 0.15}*max(0,(0.6-t)/0.6)':alpha='${opacity}'`;
+        return `drawtext=${textArgs}:fontsize=${fontSize}:y='${yBase(i)}+${h * 0.15}*${anim}'`;
+      }
+      if (animation === 'slide_down') {
+        return `drawtext=${textArgs}:fontsize=${fontSize}:y='${yBase(i)}-${h * 0.15}*${anim}'`;
       }
       if (animation === 'zoom_in') {
-        return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize='${fontSize}*(1+max(0,(0.6-t)/0.6)*0.2)':x='${xx}':y='${Math.max(yy, 0)}':alpha='${opacity}'`;
+        return `drawtext=${textArgs}:fontsize='${fontSize}*(1+${anim}*0.2)':y='${yBase(i)}'`;
       }
-      return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:fontsize=${fontSize}:x='${xx}':y='${Math.max(yy, 0)}':alpha='${opacity}'`;
+      return `drawtext=${textArgs}:fontsize=${fontSize}:y='${yBase(i)}'`;
     });
 
-    // Fade in/out over the clip
-    const fadeIn = 0.4;
+    // Fade in/out on the overlay's own clock: fade-in starts at 0 (right when
+    // the overlay becomes visible), fade-out ends exactly at the clip end.
+    // A shorter fade-in keeps the entrance animation perceivable.
+    const fadeIn = animation === 'none' ? 0.4 : 0.25;
     const fadeOut = Math.min(0.5, duration / 3);
     const alphaFilter =
       animation === 'none'
         ? ''
-        : `,fade=t=in:st=0:d=${fadeIn}:alpha=1,fade=t=out:st=${Math.max(duration - fadeOut, 0)}:d=${fadeOut}:alpha=1`;
+        : `,fade=t=in:st=0:d=${fadeIn}:alpha=1,fade=t=out:st=${Math.max(duration - fadeOut, 0).toFixed(3)}:d=${fadeOut}:alpha=1`;
 
     try {
       await this.ff(
@@ -1216,8 +1278,6 @@ export class FFmpegUtil {
     },
   ): Promise<string> {
     const {
-      x = 0.5,
-      y = 0.5,
       width = 300,
       opacity = 1,
       start = 0,
@@ -1228,6 +1288,16 @@ export class FFmpegUtil {
     const info = await this.getVideoInfo(baseVideo);
     const W = info.width || 1080;
     const H = info.height || 1920;
+    const norm01 = (v: number | undefined): number => {
+      const n = Number(v);
+      if (Number.isFinite(n)) {
+        if (n >= 0 && n <= 1) return n;
+        if (n > 1 && n <= 100) return n / 100;
+      }
+      return 0.5;
+    };
+    const x = norm01(options?.x);
+    const y = norm01(options?.y);
     const ovX = Math.round((x * W) - width / 2);
     const ovY = Math.round((y * H) - (width / (W / H)) / 2);
     const ovH = Math.round(width * (H / W));

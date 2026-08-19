@@ -591,6 +591,7 @@ export class CanvasService {
           y: t.params?.y ?? 0.5,
           opacity: t.params?.opacity ?? 1,
           animation: t.params?.animation || 'fade',
+          start,
           outputPath: path.join(workDir, `ovtext_${i}.mov`),
         });
         base = await this.overlayClipOnVideo(base, overlayClip, start, end, workDir, `ov_${i}`);
