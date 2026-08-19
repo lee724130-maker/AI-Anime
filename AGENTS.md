@@ -1,5 +1,31 @@
 # 修复日志
 
+## 2026-08-19（晚间轮2：dashboard 任务概览卡片 → 任务中心页 ✅ 已提交 f979954 已部署生产实测 5/5 PASS）
+
+> 用户需求：dashboard 任务概览卡片里点「处理中」/「待处理」卡片，进入页面查看哪些任务在队列中。新增任务中心页（/tasks?status=processing|pending），三类来源统一汇总展示。
+
+### ✅ ① 后端（workbench 模块）
+- `workbench.service.ts` 新增 `getTasks(userId, status)`（status ∈ processing|pending，否则 400）：三路查询——generation_tasks（status 直配）、video_tasks（status 直配）、drama_segments（**processing 映射 status='generating'**，pending 直配）→ 合并按 time DESC 排序，取 200 条
+- 返回 `{status, total, items:[{id, source: generation|video|segment, type, status, title, projectId?, time}]}`；title：gen 从 input_data JSON 解析 prompt（失败取首行）、video 取 prompt 前 60 字、segment 拼 `第 N 集 · prompt_cn摘要` + projectId（供前端跳转短剧分集页）
+- `workbench.controller.ts` 新增 `@Get('tasks')` + `@Query('status')` 校验（BadRequestException）
+- 本地 API 6/6 PASS：processing 3 条（段/视频/生成各 1，segment 带 projId）/ pending 3 条 / gen 标题解析 / bogus 400 / 无 token 401
+
+### ✅ ② 前端（新页面 Tasks + Home 卡片跳转）
+- 新页面 `frontend/src/pages/Tasks/index.tsx`：顶部返回按钮 + 标题「任务中心」+ Segmented Tab（处理中/待处理，切换更新 URL query）+ 「共 N 个任务」+ 三来源统计小卡（AI 生成/创作视频/短剧片段）+ Table（来源 Tag/任务描述/状态 Tag 带 spin/相对时间/查看按钮）；**有 processing 任务时 3s 静默轮询**；空态「当前没有处理中的任务」；行点击跳转（segment→`/drama/:projectId/episodes`、generation→`/generate/history`、video→`/video`）
+- `Home/index.tsx`：任务概览两卡片（处理中/待处理）加 onClick `navigate('/tasks?status=...')` + hover 阴影 cursor pointer
+- `App.tsx`：懒加载路由 `/tasks`
+- 本地 UI 验证：卡片点击跳转 / 表格三类来源 / 标题正确 / Tab 切换 URL 同步 / 空态 / 0 新增 JS 错误（仅存量 antd List deprecation + 修掉了 Space `direction` deprecated → **antd v6 用 `orientation="vertical"`**）
+- ⚠️ 编码坑：**cmd mysql < 中文 SQL 文件必须文件内 `SET NAMES utf8mb4;`**（否则 UTF-8 写文件 → GBK 会话解读报 1366 Incorrect string value）
+
+### ✅ ③ 生产部署与验证
+- 部署：deploy-fe-be-clear.js → pm2 restart（R=49）+ 手动 NODE_ENV=production restart（R=50 PID=176706 online）+ api_health=401/front 200；前端 dist index-BxZUwHr7.js + Tasks-CMGGFa_r.js
+- 生产 5/5：注册 uid=66（清 reg_ip 键）→ seed（gen processing「猫和鱼缸」+ video pending「森林晨雾」）→ tasks?status=processing total=1 标题对 → pending total=1 标题对 → bogus 400 / noauth 401 → 全清理
+
+### 📋 遗留（用户暂缓）
+- 生产 3 条漏洞期 `paid` 订单是否扣回未决
+- git push 未做（用户惯例暂缓）
+- deploy-be-editor.js 的 pm2 restart 缺陷未修（deploy-fe-be-clear.js 已无此问题——pm2 restart 在 deploy.sh 内正常执行，本轮两次部署均自动 restart 成功）
+
 ## 2026-08-19（晚间轮：dashboard 失败任务「清空」按钮 ✅ 已提交 5b31e61 已部署生产实测 4/4 PASS）
 
 > 用户需求：工作台失败任务卡片一键清空历史失败报错。后端新增批量清理接口 + 前端卡片加清空按钮。已部署生产（前后端 dist 同步替换 + 手动 NODE_ENV restart），本地 API 5/5 + 本地 UI 5/5 + 生产 API 4/4 全绿。
