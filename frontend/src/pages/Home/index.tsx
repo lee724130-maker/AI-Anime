@@ -62,7 +62,10 @@ export default function HomePage() {
       ]);
       setSummary(summaryRes.data);
       if (viralRes) setViralStats(viralRes.data);
-    } catch { /* ignore */ }
+    } catch {
+      // 轮询失败保留旧数据；仅当从未成功过（summary 仍为 null）时保持 null
+      setSummary((prev) => prev);
+    }
     setLoading(false);
   };
 
@@ -104,6 +107,8 @@ export default function HomePage() {
   const hasNoProjects = summary && summary.projects.length === 0;
   const hasNoFailed = summary && summary.failedTasks.length === 0;
   const hasNoQueue = summary && summary.processingCount === 0 && summary.pendingCount === 0;
+  const pc = summary?.processingCount ?? 0;
+  const pend = summary?.pendingCount ?? 0;
 
   const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
 
@@ -127,6 +132,21 @@ export default function HomePage() {
         <div style={{ textAlign: 'center', padding: '100px 0' }}>
           <Spin size="large" />
           <div style={{ marginTop: 16, color: '#999' }}>加载中...</div>
+        </div>
+      </UserLayout>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <UserLayout>
+        <div style={{ textAlign: 'center', padding: '100px 0' }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
+          <Text strong style={{ fontSize: 16 }}>工作台数据加载失败</Text>
+          <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>请检查网络连接后重试</div>
+          <Button type="primary" style={{ marginTop: 20, background: '#7c3aed', borderColor: '#7c3aed' }} onClick={() => { setLoading(true); fetchSummary(); }}>
+            重新加载
+          </Button>
         </div>
       </UserLayout>
     );
@@ -315,8 +335,8 @@ export default function HomePage() {
                         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(82,196,26,0.25)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
                       >
-                        <SyncOutlined spin={summary!.processingCount > 0} style={{ fontSize: 18, color: '#52c41a', marginBottom: 4 }} />
-                        <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary!.processingCount}</div>
+                        <SyncOutlined spin={(summary?.processingCount ?? 0) > 0} style={{ fontSize: 18, color: '#52c41a', marginBottom: 4 }} />
+                        <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary?.processingCount ?? 0}</div>
                         <Text type="secondary" style={{ fontSize: 12 }}>处理中</Text>
                       </div>
                     </Col>
@@ -328,13 +348,13 @@ export default function HomePage() {
                         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
                       >
                         <ClockCircleOutlined style={{ fontSize: 18, color: '#faad14', marginBottom: 4 }} />
-                        <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary!.pendingCount}</div>
+                        <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary?.pendingCount ?? 0}</div>
                         <Text type="secondary" style={{ fontSize: 12 }}>待处理</Text>
                       </div>
                     </Col>
                   </Row>
                   <Progress
-                    percent={Math.round((summary!.processingCount / (summary!.processingCount + summary!.pendingCount)) * 100)}
+                    percent={pc + pend > 0 ? Math.round((pc / (pc + pend)) * 100) : 0}
                     strokeColor="#7c3aed" size="small" style={{ marginTop: 14 }} />
                 </>
               )}
@@ -373,7 +393,7 @@ export default function HomePage() {
                 <List
                   size="small"
                   split={false}
-                  dataSource={summary!.failedTasks}
+                  dataSource={summary?.failedTasks ?? []}
                   renderItem={(t) => (
                     <List.Item style={{ padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
                       <List.Item.Meta

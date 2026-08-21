@@ -1,4 +1,4 @@
-import { Typography, Input, InputNumber, Select, Slider, Button, Divider, Empty } from 'antd';
+import { Typography, Input, InputNumber, Select, Slider, Button, Divider, Empty, Checkbox } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import type { TimelineDoc, Selection } from '../types';
 import { TRANSITION_TYPES, FILTER_TYPES, ANIMATION_TYPES, MAX_SECONDS } from '../types';
@@ -87,6 +87,17 @@ export default function PropsPanel({ selected, timeline, onTimelineChange }: Pro
                 onChange={(v) => patch((it) => ({ ...it, nextTransition: { ...it.nextTransition, duration: Number(v) } }))} />
             </div>
           )}
+          <div style={{ marginBottom: 12 }}>
+            <Checkbox
+              checked={!!item.muted}
+              onChange={(e) => patch((it) => ({ ...it, muted: e.target.checked }))}
+              style={{ fontSize: 13 }}>
+              静音（隐藏片段自带音频）
+            </Checkbox>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+              勾选后预览与成片中该片段不再发出自带声音，适合背景音效素材
+            </Text>
+          </div>
         </>
       )}
 
@@ -98,10 +109,36 @@ export default function PropsPanel({ selected, timeline, onTimelineChange }: Pro
               onChange={(v) => patch((it) => ({ ...it, volume: Number(v) }))} />
           </div>
           <div style={{ marginBottom: 12 }}>
-            {label('时长（秒）')}
+            {label('源文件时长')}
+            <Text type="secondary" style={{ fontSize: 13, display: 'block' }}>
+              {Number(item.sourceDuration) > 0 ? `${Number(item.sourceDuration).toFixed(1)} 秒` : '未检测到（加载后自动识别）'}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+              可从源文件中选取一段播放：设置「开始位置」后，时间线上该片段播放的是从源文件该秒数起的区间
+            </Text>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            {label('开始位置（秒，相对源文件）')}
             <InputNumber
-              min={0.5} max={MAX_SECONDS + 10} step={0.5} value={Number(item.duration)}
-              onChange={(v) => patch((it) => ({ ...it, duration: Math.max(0.5, Number(v) || 0.5) }))}
+              min={0} step={0.5}
+              max={Number(item.sourceDuration) > 0 ? Math.max(0, Number(item.sourceDuration) - 0.5) : undefined}
+              value={Number(item.trimIn) || 0}
+              onChange={(v) => patch((it) => {
+                const trim = Math.max(0, Number(v) || 0);
+                const src = Number(it.sourceDuration);
+                const maxDur = (src > 0 ? Math.max(0.5, src - trim) : Number(it.duration));
+                const dur = Math.min(Number(it.duration) || 0.5, maxDur);
+                return { ...it, trimIn: trim, duration: Math.max(0.5, dur) };
+              })}
+              style={{ width: '100%' }} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            {label('时长（秒，从开始位置起）')}
+            <InputNumber
+              min={0.5}
+              max={Number(item.sourceDuration) > 0 ? Math.max(0.5, Number(item.sourceDuration) - (Number(item.trimIn) || 0)) : MAX_SECONDS + 10}
+              step={0.5} value={Number(item.duration)}
+              onChange={(v) => patch((it) => ({ ...it, duration: Math.max(0.5, Math.min(Number(v) || 0.5, Number(it.sourceDuration) > 0 ? Math.max(0.5, Number(it.sourceDuration) - (Number(it.trimIn) || 0)) : MAX_SECONDS + 10)) }))}
               style={{ width: '100%' }} />
           </div>
           <div style={{ marginBottom: 12 }}>

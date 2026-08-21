@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrderService } from './order.service';
 
@@ -23,12 +23,12 @@ export class OrderController {
   }
 
   @Post(':id/mock-pay')
-  mockPay(@Param('id') id: number, @Req() req) {
+  mockPay(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.orderService.mockPay(req.user.id, Number(id));
   }
 
   @Post(':id/cancel')
-  cancel(@Param('id') id: number, @Req() req) {
+  cancel(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.orderService.cancel(req.user.id, Number(id));
   }
 }

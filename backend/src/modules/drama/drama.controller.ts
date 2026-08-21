@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { DramaService } from './drama.service';
 
@@ -21,47 +21,47 @@ export class DramaController {
   }
 
   @Post(':id/analyze')
-  analyze(@Req() req, @Param('id') id: number) {
+  analyze(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.analyze(req.user.id, id);
   }
 
   @Get(':id/analysis')
-  getAnalysis(@Req() req, @Param('id') id: number) {
+  getAnalysis(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.getAnalysis(req.user.id, id);
   }
 
   @Put(':id/analysis')
-  saveAnalysis(@Req() req, @Param('id') id: number, @Body() body: { structured_result: any }) {
+  saveAnalysis(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: { structured_result: any }) {
     return this.dramaService.saveAnalysis(req.user.id, id, body);
   }
 
   @Post(':id/confirm-analysis')
-  confirmAnalysis(@Req() req, @Param('id') id: number) {
+  confirmAnalysis(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.confirmAnalysis(req.user.id, id);
   }
 
   @Post(':id/regenerate-segment')
-  regenerateSegment(@Req() req, @Param('id') id: number, @Body() body: { episodeNo: number; segmentNo?: number }) {
+  regenerateSegment(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: { episodeNo: number; segmentNo?: number }) {
     return this.dramaService.regenerateSegment(req.user.id, id, body);
   }
 
   @Get(':id/episodes')
-  getEpisodes(@Req() req, @Param('id') id: number) {
+  getEpisodes(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.getEpisodes(req.user.id, id);
   }
 
   @Get('episodes/:episodeId')
-  getEpisodeDetail(@Req() req, @Param('episodeId') episodeId: number) {
+  getEpisodeDetail(@Req() req, @Param('episodeId', ParseIntPipe) episodeId: number) {
     return this.dramaService.getEpisodeDetail(req.user.id, episodeId);
   }
 
   @Get(':id/assets')
-  getAssets(@Req() req, @Param('id') id: number) {
+  getAssets(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.getAssets(req.user.id, id);
   }
 
   @Put('assets/:assetId')
-  updateAsset(@Req() req, @Param('assetId') assetId: number, @Body() body: Partial<{
+  updateAsset(@Req() req, @Param('assetId', ParseIntPipe) assetId: number, @Body() body: Partial<{
     name: string; description: string; prompt: string; prompt_cn: string; image_url: string;
     status: string; locked: boolean;
   }>) {
@@ -69,54 +69,54 @@ export class DramaController {
   }
 
   @Post(':id/assets')
-  addAsset(@Req() req, @Param('id') id: number, @Body() body: {
+  addAsset(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: {
     type: string; name: string; description?: string; prompt?: string; prompt_cn?: string;
   }) {
     return this.dramaService.addAsset(req.user.id, id, body);
   }
 
   @Delete('assets/:assetId')
-  removeAsset(@Req() req, @Param('assetId') assetId: number) {
+  removeAsset(@Req() req, @Param('assetId', ParseIntPipe) assetId: number) {
     return this.dramaService.removeAsset(req.user.id, assetId);
   }
 
   @Post(':id/assets/:assetId/generate')
-  generateAsset(@Req() req, @Param('assetId') assetId: number, @Body() body: { width?: number; height?: number; style?: string }) {
+  generateAsset(@Req() req, @Param('assetId', ParseIntPipe) assetId: number, @Body() body: { width?: number; height?: number; style?: string }) {
     return this.dramaService.generateAsset(req.user.id, assetId, body.width, body.height, body.style);
   }
 
   @Post(':id/assets/:assetId/plan-prompt')
-  planAssetPrompt(@Req() req, @Param('assetId') assetId: number) {
+  planAssetPrompt(@Req() req, @Param('assetId', ParseIntPipe) assetId: number) {
     return this.dramaService.planAssetPrompt(req.user.id, assetId);
   }
 
   @Post(':id/assets/:assetId/translate')
-  translateAssetPrompt(@Req() req, @Param('assetId') assetId: number, @Body() body: { text: string }) {
+  translateAssetPrompt(@Req() req, @Param('assetId', ParseIntPipe) assetId: number, @Body() body: { text: string }) {
     return this.dramaService.translateAssetPrompt(req.user.id, assetId, body.text);
   }
 
   @Post(':id/assets/generate-all')
-  generateAllAssets(@Req() req, @Param('id') id: number) {
+  generateAllAssets(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.generateAllAssets(req.user.id, id);
   }
 
   @Post(':id/assets/:assetId/upload')
-  uploadAssetImage(@Req() req, @Param('assetId') assetId: number, @Body() body: { image_url: string }) {
+  uploadAssetImage(@Req() req, @Param('assetId', ParseIntPipe) assetId: number, @Body() body: { image_url: string }) {
     return this.dramaService.uploadAssetImage(req.user.id, assetId, body.image_url);
   }
 
   @Post(':id/assets/import-from-global')
-  importFromGlobal(@Req() req, @Param('id') id: number, @Body() body: { assetIds: number[] }) {
+  importFromGlobal(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: { assetIds: number[] }) {
     return this.dramaService.importFromGlobal(req.user.id, id, body.assetIds);
   }
 
   @Get('episodes/:episodeId/segments')
-  getEpisodeSegments(@Req() req, @Param('episodeId') episodeId: number) {
+  getEpisodeSegments(@Req() req, @Param('episodeId', ParseIntPipe) episodeId: number) {
     return this.dramaService.getEpisodeSegments(req.user.id, episodeId);
   }
 
   @Put('episodes/:episodeId/segments/:segmentId')
-  updateSegment(@Req() req, @Param('segmentId') segmentId: number, @Body() body: Partial<{
+  updateSegment(@Req() req, @Param('segmentId', ParseIntPipe) segmentId: number, @Body() body: Partial<{
     prompt: string; prompt_cn: string; duration: number; character_refs: string;
     prop_refs: string; scene_refs: string;
   }>) {
@@ -124,52 +124,52 @@ export class DramaController {
   }
 
   @Post('episodes/:episodeId/segments/:segmentId/generate')
-  generateSegment(@Req() req, @Param('segmentId') segmentId: number, @Body() body: { candidate_count?: number }) {
+  generateSegment(@Req() req, @Param('segmentId', ParseIntPipe) segmentId: number, @Body() body: { candidate_count?: number }) {
     return this.dramaService.generateSegment(req.user.id, segmentId, body?.candidate_count || 1);
   }
 
   @Get('segments/:segmentId/candidates')
-  listSegmentCandidates(@Req() req, @Param('segmentId') segmentId: number) {
+  listSegmentCandidates(@Req() req, @Param('segmentId', ParseIntPipe) segmentId: number) {
     return this.dramaService.listSegmentCandidates(req.user.id, segmentId);
   }
 
   @Post('candidates/:candidateId/accept')
-  acceptSegmentCandidate(@Req() req, @Param('candidateId') candidateId: number) {
+  acceptSegmentCandidate(@Req() req, @Param('candidateId', ParseIntPipe) candidateId: number) {
     return this.dramaService.acceptSegmentCandidate(req.user.id, candidateId);
   }
 
   @Delete('candidates/:candidateId')
-  deleteSegmentCandidate(@Req() req, @Param('candidateId') candidateId: number) {
+  deleteSegmentCandidate(@Req() req, @Param('candidateId', ParseIntPipe) candidateId: number) {
     return this.dramaService.deleteSegmentCandidate(req.user.id, candidateId);
   }
 
   @Get('episodes/:episodeId/segments/:segmentId/status')
-  getSegmentStatus(@Req() req, @Param('segmentId') segmentId: number) {
+  getSegmentStatus(@Req() req, @Param('segmentId', ParseIntPipe) segmentId: number) {
     return this.dramaService.getSegmentStatus(req.user.id, segmentId);
   }
 
   @Post('episodes/:episodeId/segments/:segmentId/plan')
-  planSegment(@Req() req, @Param('segmentId') segmentId: number) {
+  planSegment(@Req() req, @Param('segmentId', ParseIntPipe) segmentId: number) {
     return this.dramaService.planSegmentDuration(req.user.id, segmentId);
   }
 
   @Post('episodes/:episodeId/generate-all')
-  generateEpisodeSegments(@Req() req, @Param('episodeId') episodeId: number) {
+  generateEpisodeSegments(@Req() req, @Param('episodeId', ParseIntPipe) episodeId: number) {
     return this.dramaService.generateEpisodeSegments(req.user.id, episodeId);
   }
 
   @Post('episodes/:episodeId/stitch')
-  stitchEpisode(@Req() req, @Param('episodeId') episodeId: number) {
+  stitchEpisode(@Req() req, @Param('episodeId', ParseIntPipe) episodeId: number) {
     return this.dramaService.stitchEpisode(req.user.id, episodeId);
   }
 
   @Get('episodes/:episodeId/stitch-status')
-  getStitchStatus(@Req() req, @Param('episodeId') episodeId: number) {
+  getStitchStatus(@Req() req, @Param('episodeId', ParseIntPipe) episodeId: number) {
     return this.dramaService.getEpisodeStitchStatus(req.user.id, episodeId);
   }
 
   @Put('episodes/:episodeId/settings')
-  updateEpisodeSettings(@Req() req, @Param('episodeId') episodeId: number,
+  updateEpisodeSettings(@Req() req, @Param('episodeId', ParseIntPipe) episodeId: number,
     @Body() body: { style?: string; ratio?: string; resolution?: string; audio_lang?: string; tts_voice?: string }) {
     return this.dramaService.updateEpisodeSettings(req.user.id, episodeId, body);
   }
@@ -193,12 +193,12 @@ export class DramaController {
   }
 
   @Get(':id')
-  get(@Req() req, @Param('id') id: number) {
+  get(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.getById(req.user.id, id);
   }
 
   @Put(':id')
-  update(@Req() req, @Param('id') id: number, @Body() body: Partial<{
+  update(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: Partial<{
     title: string; description: string; outline: string;
     status: string; genre: string; episodes: number;
   }>) {
@@ -206,7 +206,7 @@ export class DramaController {
   }
 
   @Delete(':id')
-  delete(@Req() req, @Param('id') id: number) {
+  delete(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.dramaService.delete(req.user.id, id);
   }
 }

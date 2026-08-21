@@ -3,6 +3,11 @@ import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
+let kidSeq = 0;
+// 为场景注入稳定 key（_kid），防止增删后受控输入错位（焦点/IME 漂移到别的场景）
+const ensureSceneKeys = (arr: SceneItem[]): SceneItem[] =>
+  arr.map((s) => (s as any)._kid ? s : { ...s, _kid: `sc_${Date.now()}_${kidSeq++}` });
+
 export interface SceneItem {
   name: string; duration: number; description: string; type: string;
 }
@@ -20,15 +25,15 @@ const SCENE_TYPES = [
 
 export default function SceneEditor({ scenes, onChange }: Props) {
   const addScene = () => {
-    onChange([...scenes, { name: '', duration: 3, description: '', type: 'image' }]);
+    onChange(ensureSceneKeys([...scenes, { name: '', duration: 3, description: '', type: 'image' }]));
   };
   const update = (i: number, field: string, value: any) => {
     const copy = scenes.map(s => ({ ...s }));
     (copy[i] as any)[field] = value;
-    onChange(copy);
+    onChange(ensureSceneKeys(copy));
   };
   const remove = (i: number) => {
-    onChange(scenes.filter((_, idx) => idx !== i));
+    onChange(ensureSceneKeys(scenes.filter((_, idx) => idx !== i)));
   };
 
   return (
@@ -36,7 +41,7 @@ export default function SceneEditor({ scenes, onChange }: Props) {
       title={<Space><div style={{ width: 3, height: 16, background: '#7c3aed', borderRadius: 2 }} />场景分镜</Space>}
       extra={<Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addScene}>添加场景</Button>}>
       {scenes.map((s, i) => (
-        <div key={i} style={{
+        <div key={(s as any)._kid} style={{
           padding: 12, marginBottom: 8, borderRadius: 10,
           background: '#fafafa', border: '1px solid #f0f0f0',
         }}>

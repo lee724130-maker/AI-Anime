@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  ParseIntPipe,
   Req,
   UseGuards,
   Query,
@@ -26,7 +27,7 @@ export class CharacterController {
   }
 
   @Get(':id')
-  detail(@Param('id') id: number, @Req() req) {
+  detail(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.characterService.findOne(id, req.user.id);
   }
 
@@ -40,7 +41,7 @@ export class CharacterController {
 
   @Put(':id')
   update(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: { name?: string; description?: string; avatar_url?: string; reference_image_anime?: string; reference_image_realistic?: string; lora_model_id?: string },
     @Req() req,
   ) {
@@ -48,13 +49,13 @@ export class CharacterController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: number, @Req() req) {
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.characterService.remove(id, req.user.id);
   }
 
   @Post(':id/generate-reference')
   async generateReference(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Query('style') style: string,
     @Req() req,
   ) {

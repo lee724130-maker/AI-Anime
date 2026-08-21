@@ -60,13 +60,13 @@ export class CanvasController {
   // ───── Templates ─────
 
   @Get('templates')
-  listTemplates(@Query() query: ListCanvasTemplateQuery) {
-    return this.service.listTemplates(query);
+  listTemplates(@Req() req, @Query() query: ListCanvasTemplateQuery) {
+    return this.service.listTemplates(req.user.id, query);
   }
 
   @Get('templates/:id')
-  getTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.service.getTemplateById(id);
+  getTemplate(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.getTemplateById(id, req.user.id);
   }
 
   @Post('templates')

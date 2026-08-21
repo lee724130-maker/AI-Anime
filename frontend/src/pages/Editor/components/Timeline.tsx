@@ -40,6 +40,7 @@ interface Props {
   onSelect: (sel: Selection | null) => void;
   onSeek: (t: number) => void;
   onSplit: () => void;
+  onMerge: () => void;
   onDeleteSelected: () => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -59,7 +60,7 @@ const labelOf = (url: string): string => {
 
 export default function Timeline({
   timeline, currentTime, selected, pxPerSec, playing, canUndo, canRedo, onTogglePlay, onPxPerSec,
-  onTimelineChange, onSelect, onSeek, onSplit, onDeleteSelected, onUndo, onRedo,
+  onTimelineChange, onSelect, onSeek, onSplit, onMerge, onDeleteSelected, onUndo, onRedo,
 }: Props) {
   const totalDur = Math.max(timeline.duration, currentTime, 5);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -313,6 +314,7 @@ export default function Timeline({
         </Text>
         <div style={{ width: 1, height: 18, background: '#e5e7eb', flexShrink: 0 }} />
         <ButtonMini icon="✂" label="分割" onClick={onSplit} disabled={!selected} />
+        <ButtonMini icon="🔗" label="合成" onClick={onMerge} disabled={!selected} />
         <ButtonMini icon="🗑" label="删除选中" onClick={onDeleteSelected} disabled={!selected} danger />
         <div style={{ width: 1, height: 18, background: '#e5e7eb', flexShrink: 0 }} />
         <ButtonMini icon="↩" label="撤回" onClick={onUndo} disabled={!canUndo} />

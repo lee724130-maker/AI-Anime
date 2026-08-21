@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository } from 'typeorm';
 import { GlobalAsset } from './global-asset.entity';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { downloadToFile } from '../../common/utils/safe-download.util';
@@ -20,45 +20,49 @@ export class GlobalAssetService {
   async list(query: {
     type?: string; tag?: string; keyword?: string;
     page?: number; limit?: number;
-  }) {
+  }, userId: number) {
     const { type, tag, keyword, page = 1, limit = 20 } = query;
-    const where: any = {};
-    if (type) where.type = type;
-    if (tag) where.tags = Like(`%${tag}%`);
-    if (keyword) {
-      where.name = Like(`%${keyword}%`);
-    }
-    const [items, total] = await this.assetRepo.findAndCount({
-      where,
-      order: { updated_at: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const qb = this.assetRepo.createQueryBuilder('a');
+    qb.where('(a.user_id = :userId OR a.user_id IS NULL)', { userId });
+    if (type) qb.andWhere('a.type = :type', { type });
+    if (tag) qb.andWhere('a.tags LIKE :tag', { tag: `%${tag}%` });
+    if (keyword) qb.andWhere('a.name LIKE :keyword', { keyword: `%${keyword}%` });
+    qb.orderBy('a.updated_at', 'DESC');
+    qb.skip((page - 1) * limit).take(limit);
+    const [items, total] = await qb.getManyAndCount();
     return { items, total, page, limit };
   }
 
-  async getById(id: number) {
+  async getById(id: number, userId?: number) {
     const asset = await this.assetRepo.findOne({ where: { id } });
     if (!asset) throw new NotFoundException('大资产不存在');
+    if (userId !== undefined && asset.user_id !== null && asset.user_id !== userId) {
+      throw new NotFoundException('大资产不存在');
+    }
     return asset;
   }
 
-  async create(data: Partial<GlobalAsset>) {
+  async create(data: Partial<GlobalAsset>, userId: number) {
     if (!data.type || !data.name) throw new BadRequestException('类型和名称不能为空');
-    if (!['character', 'prop', 'scene', 'video'].includes(data.type!))
-      throw new BadRequestException('类型必须为 character/prop/scene/video');
-    const asset = this.assetRepo.create(data);
+    if (!['character', 'prop', 'scene', 'video', 'audio'].includes(data.type!))
+      throw new BadRequestException('类型必须为 character/prop/scene/video/audio');
+    const asset = this.assetRepo.create({ ...data, user_id: userId });
     return this.assetRepo.save(asset);
   }
 
-  async update(id: number, data: Partial<GlobalAsset>) {
+  async update(id: number, data: Partial<GlobalAsset>, userId: number, isAdmin: boolean) {
     const asset = await this.getById(id);
+    if (asset.user_id === null && !isAdmin) throw new ForbiddenException('系统资产只能由管理员编辑');
+    if (asset.user_id !== null && asset.user_id !== userId) throw new NotFoundException('大资产不存在');
+    delete (data as any).user_id;
     Object.assign(asset, data);
     return this.assetRepo.save(asset);
   }
 
-  async remove(id: number) {
+  async remove(id: number, userId: number, isAdmin: boolean) {
     const asset = await this.getById(id);
+    if (asset.user_id === null && !isAdmin) throw new ForbiddenException('系统资产只能由管理员删除');
+    if (asset.user_id !== null && asset.user_id !== userId) throw new NotFoundException('大资产不存在');
     await this.assetRepo.remove(asset);
     return { deleted: true };
   }
@@ -78,8 +82,8 @@ export class GlobalAssetService {
     }
   }
 
-  async generateImage(id: number, width?: number, height?: number, style?: string) {
-    const asset = await this.getById(id);
+  async generateImage(id: number, width?: number, height?: number, style?: string, userId?: number) {
+    const asset = await this.getById(id, userId);
     if (asset.type === 'video') throw new BadRequestException('视频类型不支持图片生成');
     if (!asset.prompt) throw new BadRequestException('资产没有生成提示词');
 
@@ -113,8 +117,8 @@ export class GlobalAssetService {
     }
   }
 
-  async translatePrompt(id: number, chineseText: string) {
-    const asset = await this.getById(id);
+  async translatePrompt(id: number, chineseText: string, userId?: number) {
+    const asset = await this.getById(id, userId);
     const prompt = `你是一个翻译助手。请将以下中文提示词翻译成英文AI绘画提示词，只返回英文翻译结果，不要额外说明。\n\n${chineseText}`;
     const result = await this.aiService.chatCompletion([
       { role: 'user', content: prompt },
@@ -122,8 +126,8 @@ export class GlobalAssetService {
     return { prompt: (result || '').trim() };
   }
 
-  async planPrompt(id: number) {
-    const asset = await this.getById(id);
+  async planPrompt(id: number, userId?: number) {
+    const asset = await this.getById(id, userId);
     const typeLabel: Record<string, string> = { character: '角色', prop: '道具', scene: '场景', video: '视频' };
     const typeCn = typeLabel[asset.type] || asset.type;
 
@@ -195,26 +199,30 @@ export class GlobalAssetService {
     return { prompt: asset.prompt, prompt_cn: asset.prompt_cn };
   }
 
-  async stats() {
-    const [characters, props, scenes, videos] = await Promise.all([
-      this.assetRepo.count({ where: { type: 'character' } }),
-      this.assetRepo.count({ where: { type: 'prop' } }),
-      this.assetRepo.count({ where: { type: 'scene' } }),
-      this.assetRepo.count({ where: { type: 'video' } }),
+  async stats(userId: number) {
+    const countFor = async (type: string) => {
+      return this.assetRepo.count({ where: [{ type, user_id: userId }, { type, user_id: null }] as any });
+    };
+    const [characters, props, scenes, videos, audios] = await Promise.all([
+      countFor('character'), countFor('prop'), countFor('scene'),
+      countFor('video'), countFor('audio'),
     ]);
     const totalUsage = await this.assetRepo
       .createQueryBuilder('a')
       .select('SUM(a.usage_count)', 'total')
       .getRawOne();
     return {
-      characters, props, scenes, videos,
-      total: characters + props + scenes + videos,
+      characters, props, scenes, videos, audios,
+      total: characters + props + scenes + videos + audios,
       totalUsage: Number(totalUsage?.total || 0),
     };
   }
 
-  async getDistinctTags(): Promise<string[]> {
-    const assets = await this.assetRepo.find({ select: ['tags'] });
+  async getDistinctTags(userId: number): Promise<string[]> {
+    const assets = await this.assetRepo.find({
+      select: ['tags'],
+      where: [{ user_id: userId }, { user_id: null }] as any,
+    });
     const tagSet = new Set<string>();
     for (const a of assets) {
       if (a.tags) {

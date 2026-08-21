@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Delete, Body, Param, Req, Res, UseGuards, StreamableFile,
+  Controller, Get, Post, Put, Delete, Body, Param, ParseIntPipe, Req, Res, UseGuards, StreamableFile, BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -20,12 +20,12 @@ export class ScriptController {
   }
 
   @Get(':id')
-  detail(@Param('id') id: number, @Req() req) {
+  detail(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.scriptService.findOne(id, req.user.id);
   }
 
   @Get(':id/export')
-  async exportScript(@Param('id') id: number, @Req() req, @Res({ passthrough: true }) res: Response) {
+  async exportScript(@Param('id', ParseIntPipe) id: number, @Req() req, @Res({ passthrough: true }) res: Response) {
     const script = await this.scriptService.findOne(id, req.user.id);
     const data = {
       title: script.title,
@@ -56,7 +56,7 @@ export class ScriptController {
 
   @Put(':id')
   update(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: { title?: string; content?: string; scenes?: any; status?: string },
     @Req() req,
   ) {
@@ -64,19 +64,19 @@ export class ScriptController {
   }
 
   @Delete(':id')
-  remove(@Param('id') id: number, @Req() req) {
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.scriptService.remove(id, req.user.id);
   }
 
   @Post(':id/split')
-  split(@Param('id') id: number, @Req() req) {
+  split(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.scriptService.splitScenes(id, req.user.id);
   }
 
   @Put(':id/scene/:index')
   updateScene(
-    @Param('id') id: number,
-    @Param('index') index: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('index', ParseIntPipe) index: number,
     @Body() body: { prompt?: string; duration?: number },
     @Req() req,
   ) {
@@ -85,7 +85,7 @@ export class ScriptController {
 
   @Post(':id/generate-all')
   async generateAll(
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() body: {
       character_id?: number;
       character_name?: string;
@@ -101,7 +101,7 @@ export class ScriptController {
   ) {
     const script = await this.scriptService.findOne(id, req.user.id);
     if (!script.scenes || !Array.isArray(script.scenes) || script.scenes.length === 0) {
-      throw new Error('请先拆分场景');
+      throw new BadRequestException('请先拆分场景');
     }
 
     const results: any[] = [];
@@ -158,10 +158,10 @@ export class ScriptController {
   }
 
   @Post(':id/stitch-all')
-  async stitchAll(@Param('id') id: number, @Req() req) {
+  async stitchAll(@Param('id', ParseIntPipe) id: number, @Req() req) {
     const videoIds = await this.scriptService.getCompletedSceneVideoIds(id, req.user.id);
     if (videoIds.length < 2) {
-      throw new Error(`至少需要 2 个已完成场景，当前仅 ${videoIds.length} 个`);
+      throw new BadRequestException(`至少需要 2 个已完成场景，当前仅 ${videoIds.length} 个`);
     }
     return this.videoService.stitch(req.user.id, videoIds);
   }

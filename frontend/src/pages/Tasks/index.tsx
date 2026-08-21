@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Space, Segmented } from 'antd';
 import { ArrowLeftOutlined, SyncOutlined, ClockCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import { parseDateSafe } from '../../utils/date';
 
 const { Title, Text } = Typography;
 
@@ -35,8 +36,8 @@ const sourceLabel = (s: string) => SOURCE_META[s]?.label || s;
 const sourceColor = (s: string) => SOURCE_META[s]?.color || 'default';
 
 const timeText = (t: string) => {
-  if (!t) return '-';
-  const d = new Date(t);
+  const d = parseDateSafe(t);
+  if (!d) return t || '-';
   const diff = Date.now() - d.getTime();
   if (diff < 0) return d.toLocaleString('zh-CN', { hour12: false });
   if (diff < 60_000) return '刚刚';
@@ -51,13 +52,17 @@ export default function TasksPage() {
   const status = (searchParams.get('status') || 'processing') as 'processing' | 'pending';
   const [items, setItems] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const seqRef = useRef(0);
 
   const fetchTasks = useCallback(async (silent = false) => {
+    const seq = ++seqRef.current;
     if (!silent) setLoading(true);
     try {
       const { data } = await api.get('/api/workbench/tasks', { params: { status } });
+      if (seq !== seqRef.current) return;
       setItems(data.items || []);
     } catch { /* ignore */ }
+    if (seq !== seqRef.current) return;
     if (!silent) setLoading(false);
   }, [status]);
 

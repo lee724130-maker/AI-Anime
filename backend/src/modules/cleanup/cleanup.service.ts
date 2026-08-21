@@ -106,8 +106,19 @@ export class CleanupService implements OnModuleDestroy {
       UNION SELECT video_url FROM drama_segment_candidates WHERE video_url LIKE '%/static/%'
       UNION SELECT image_url FROM drama_assets WHERE image_url LIKE '%/static/%'
       UNION SELECT image_url FROM global_assets WHERE image_url LIKE '%/static/%'
+      UNION SELECT video_url FROM global_assets WHERE video_url LIKE '%/static/%'
+      UNION SELECT audio_url FROM global_assets WHERE audio_url LIKE '%/static/%'
       UNION SELECT result_url FROM editor_projects WHERE result_url LIKE '%/static/%'
       UNION SELECT timeline FROM editor_projects WHERE timeline LIKE '%/static/%'
+      UNION SELECT video_url FROM video_tasks WHERE video_url LIKE '%/static/%'
+      UNION SELECT cover_url FROM video_tasks WHERE cover_url LIKE '%/static/%'
+      UNION SELECT reference_image FROM video_tasks WHERE reference_image LIKE '%/static/%'
+      UNION SELECT job_data FROM video_tasks WHERE job_data LIKE '%/static/%'
+      UNION SELECT output_data FROM generation_tasks WHERE output_data LIKE '%/static/%'
+      UNION SELECT input_data FROM generation_tasks WHERE input_data LIKE '%/static/%'
+      UNION SELECT avatar_url FROM characters WHERE avatar_url LIKE '%/static/%'
+      UNION SELECT reference_image_anime FROM characters WHERE reference_image_anime LIKE '%/static/%'
+      UNION SELECT reference_image_realistic FROM characters WHERE reference_image_realistic LIKE '%/static/%'
     `);
     for (const r of rows) {
       if (!r || !r.v) continue;

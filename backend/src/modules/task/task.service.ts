@@ -54,7 +54,9 @@ export class TaskService {
     return saved;
   }
 
-  async getEvents(taskId: number) {
+  async getEvents(userId: number, taskId: number) {
+    const task = await this.taskRepo.findOne({ where: { id: taskId, user_id: userId } });
+    if (!task) throw new NotFoundException('任务不存在');
     return this.eventRepo.find({
       where: { task_id: taskId },
       order: { created_at: 'ASC' },

@@ -226,6 +226,7 @@ export default function CanvasEditor() {
         for (const a of items) {
           if (a.image_url) assets.push({ kind: 'global_asset', type: 'image', url: a.image_url, title: a.name || '资产', thumbnail: a.image_url, ref_id: a.id });
           if (a.video_url) assets.push({ kind: 'global_asset', type: 'video', url: a.video_url, title: a.name || '资产', ref_id: a.id });
+          if (a.audio_url) assets.push({ kind: 'global_asset', type: 'audio', url: a.audio_url, title: a.name || '资产', ref_id: a.id });
         }
         setGlobalAssets(assets);
       }
@@ -268,15 +269,55 @@ export default function CanvasEditor() {
     setAssetLoading(false);
   }, []);
 
+  // Render asset groups (videos + images + audios separated)
+  const renderAssetGroups = (items: AssetItem[], prefix: string) => {
+    if (items.length === 0) {
+      return <Empty description="暂无素材" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '12px 0' }} />;
+    }
+    const videos = items.filter(it => it.type === 'video');
+    const images = items.filter(it => it.type === 'image');
+    const audios = items.filter(it => it.type === 'audio');
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {videos.length > 0 && (
+          <div>
+            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🎬 视频素材 ({videos.length})</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {videos.map((it, i) => <AssetCard key={`${prefix}v${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+            </div>
+          </div>
+        )}
+        {images.length > 0 && (
+          <div style={{ marginTop: videos.length > 0 ? 8 : 0, paddingTop: videos.length > 0 ? 8 : 0, borderTop: videos.length > 0 ? '1px solid #f0f0f0' : 'none' }}>
+            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🖼️ 图片素材 ({images.length})</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {images.map((it, i) => <AssetCard key={`${prefix}i${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+            </div>
+          </div>
+        )}
+        {audios.length > 0 && (
+          <div style={{ marginTop: (videos.length > 0 || images.length > 0) ? 8 : 0, paddingTop: (videos.length > 0 || images.length > 0) ? 8 : 0, borderTop: (videos.length > 0 || images.length > 0) ? '1px solid #f0f0f0' : 'none' }}>
+            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🔊 音频素材 ({audios.length})</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {audios.map((it, i) => <AssetCard key={`${prefix}a${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   useEffect(() => { loadAssets(); }, [loadAssets]);
 
   // Properties panel asset options
-  const assetOptions = useMemo<Record<'video' | 'image', AssetPayload[]>>(() => {
+  const assetOptions = useMemo<Record<'video' | 'image' | 'audio', AssetPayload[]>>(() => {
     const dedupe = (arr: AssetPayload[]) => [...new Map(arr.map((a) => [a.url, a])).values()];
     return {
       video: dedupe([...viralProjects, ...aiTasks.filter((a) => a.type === 'video'), ...dramaClips, ...globalAssets.filter((a) => a.type === 'video')]
         .map((a) => ({ kind: a.kind, type: a.type, url: a.url, title: a.title, thumbnail: a.thumbnail, ref_id: a.ref_id }))),
       image: dedupe([...globalAssets.filter((a) => a.type === 'image'), ...aiTasks.filter((a) => a.type === 'image')]
+        .map((a) => ({ kind: a.kind, type: a.type, url: a.url, title: a.title, thumbnail: a.thumbnail, ref_id: a.ref_id }))),
+      audio: dedupe([...globalAssets.filter((a) => a.type === 'audio')]
         .map((a) => ({ kind: a.kind, type: a.type, url: a.url, title: a.title, thumbnail: a.thumbnail, ref_id: a.ref_id }))),
     };
   }, [viralProjects, aiTasks, dramaClips, globalAssets]);
@@ -540,30 +581,10 @@ export default function CanvasEditor() {
           ) : (
             <Tabs size="small" tabBarStyle={{ marginBottom: 4 }} activeKey={assetTab} onChange={setAssetTab}
               items={[
-                { key: 'ai', label: 'AI历史', children: assetLoading ? <Spin size="small" /> : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {aiTasks.map((it, i) => <AssetCard key={`ai${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
-                    {aiTasks.length === 0 && <Empty description="暂无 AI 素材" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
-                  </div>
-                ) },
-                { key: 'assets', label: '大资产库', children: (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {globalAssets.map((it, i) => <AssetCard key={`ga${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
-                    {globalAssets.length === 0 && <Empty description="暂无资产" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
-                  </div>
-                ) },
-                { key: 'viral', label: '热门创作', children: (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {viralProjects.map((it, i) => <AssetCard key={`vp${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
-                    {viralProjects.length === 0 && <Empty description="暂无成片" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
-                  </div>
-                ) },
-                { key: 'drama', label: '短剧片段', children: (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {dramaClips.map((it, i) => <AssetCard key={`dc${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
-                    {dramaClips.length === 0 && <Empty description="暂无片段" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
-                  </div>
-                ) },
+                { key: 'ai', label: 'AI历史', children: assetLoading ? <Spin size="small" /> : renderAssetGroups(aiTasks, 'ai') },
+                { key: 'assets', label: '大资产库', children: renderAssetGroups(globalAssets, 'assets') },
+                { key: 'viral', label: '热门创作', children: renderAssetGroups(viralProjects, 'viral') },
+                { key: 'drama', label: '短剧片段', children: renderAssetGroups(dramaClips, 'drama') },
               ]}
             />
           )}

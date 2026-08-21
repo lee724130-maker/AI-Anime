@@ -23,7 +23,7 @@ export const NODE_TYPE_ICON: Record<WFNodeType, any> = {
 
 interface Props {
   node: WFNode | null;
-  assetOptions: Record<'video' | 'image', AssetPayload[]>;
+  assetOptions: Record<'video' | 'image' | 'audio', AssetPayload[]>;
   onChange: (node: WFNode) => void;
   onRemove: (id: string) => void;
 }

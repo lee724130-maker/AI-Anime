@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, Card, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined } from '@ant-design/icons';
@@ -12,6 +12,13 @@ export default function RegisterPage() {
   const [countdown, setCountdown] = useState(0);
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
 
   const sendCode = async () => {
     const email = form.getFieldValue('email');
@@ -28,9 +35,10 @@ export default function RegisterPage() {
       const { data } = await api.post('/api/auth/send-code', { email });
       message.success(data.message || '验证码已发送，请查收邮箱');
       setCountdown(60);
-      const timer = setInterval(() => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      countdownRef.current = setInterval(() => {
         setCountdown((c) => {
-          if (c <= 1) { clearInterval(timer); return 0; }
+          if (c <= 1) { if (countdownRef.current) clearInterval(countdownRef.current); countdownRef.current = null; return 0; }
           return c - 1;
         });
       }, 1000);

@@ -1,13 +1,14 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards, UseInterceptors, UploadedFile, BadRequestException, ParseIntPipe } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
+import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { MediaService } from './media.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const ALLOWED_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|mp4|mov|webm|mkv|avi|m4v)$/i;
-const ALLOWED_MIME = /^(image|video)\//;
+const ALLOWED_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|mp4|mov|webm|mkv|avi|m4v|mp3|wav|m4a|flac|ogg|webma)$/i;
+const ALLOWED_MIME = /^(image|video|audio)\//;
 
 function uploadInterceptor() {
   const dir = path.resolve(process.cwd(), 'output');
@@ -25,7 +26,7 @@ function uploadInterceptor() {
     limits: { fileSize: 300 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
       if (ALLOWED_EXT.test(file.originalname) && ALLOWED_MIME.test(file.mimetype)) cb(null, true);
-      else cb(new BadRequestException('不支持的文件类型，仅允许图片/视频（jpg/png/gif/webp/mp4/mov/webm/mkv/avi/m4v）'), false);
+      else cb(new BadRequestException('不支持的文件类型，仅允许图片/视频/音频（jpg/png/gif/webp/mp4/mov/webm/mkv/avi/m4v/mp3/wav/m4a/flac/ogg）'), false);
     },
   });
 }
@@ -33,7 +34,10 @@ function uploadInterceptor() {
 @Controller('api/media')
 @UseGuards(JwtAuthGuard)
 export class MediaController {
-  constructor(private readonly mediaService: MediaService) {}
+  constructor(
+    private readonly mediaService: MediaService,
+    private readonly dataSource: DataSource,
+  ) {}
 
   @Get()
   list(@Req() req, @Query() query: { type?: string; project_id?: number; page?: number; limit?: number }) {
@@ -41,7 +45,7 @@ export class MediaController {
   }
 
   @Get(':id')
-  get(@Req() req, @Param('id') id: number) {
+  get(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.mediaService.getById(req.user.id, id);
   }
 
@@ -49,9 +53,28 @@ export class MediaController {
   @UseInterceptors(uploadInterceptor())
   async upload(@Req() req, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('请上传文件');
+
+    // 单用户存储限额检查（默认 500MB，可配置 user_storage_limit_mb）
+    const limitRows = await this.dataSource.query(
+      `SELECT COALESCE(config_value, '500') AS val FROM system_configs WHERE config_key='user_storage_limit_mb' LIMIT 1`,
+    );
+    const limitMB = limitRows?.[0]?.val ?? '500';
+    const limitBytes = (Number(limitMB) || 500) * 1024 * 1024;
+
+    const usedRows = await this.dataSource.query(
+      'SELECT COALESCE(SUM(file_size), 0) AS used FROM media_files WHERE user_id = ?',
+      [req.user.id],
+    );
+    const used = Number(usedRows?.[0]?.used ?? 0);
+    if (used + file.size > limitBytes) {
+      const usedMB = (used / 1024 / 1024).toFixed(0);
+      const limitMBVal = (limitBytes / 1024 / 1024).toFixed(0);
+      throw new BadRequestException(`存储空间不足（已用 ${usedMB}MB / 限额 ${limitMBVal}MB），请清理后再试`);
+    }
+
     const originalName = path.basename(file.originalname);
     const record = await this.mediaService.create(req.user.id, {
-      type: file.mimetype.startsWith('video') ? 'video' : 'image',
+      type: file.mimetype.startsWith('video') ? 'video' : file.mimetype.startsWith('audio') ? 'audio' : 'image',
       url: `/static/${file.filename}`,
       original_name: originalName,
       mime_type: file.mimetype,
@@ -71,7 +94,7 @@ export class MediaController {
   }
 
   @Delete(':id')
-  delete(@Req() req, @Param('id') id: number) {
+  delete(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.mediaService.delete(req.user.id, id);
   }
 }

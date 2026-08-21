@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import api from '../../services/api';
+import { formatDateSafe } from '../../utils/date';
 import { useAuthStore } from '../../stores/authStore';
 import AppHeader from '../../components/AppHeader';
 
@@ -122,7 +123,7 @@ export default function OrderPage() {
       title: '创建时间',
       dataIndex: 'created_at',
       width: 170,
-      render: (v) => new Date(v).toLocaleString(),
+      render: (v) => formatDateSafe(v),
     },
     {
       title: '操作',

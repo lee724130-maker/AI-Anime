@@ -589,7 +589,14 @@ export class FFmpegUtil {
   ): string {
     const filePath = outputPath || path.join(this.outputDir, `subs_${Date.now()}.srt`);
 
-    const content = subtitles
+    // Sanitize each cue's text before writing: SRT text is interpreted by
+    // subtitle renderers (libass etc.), so raw content can break parsing or
+    // inject styling/override tags. Empty cues after cleaning are dropped.
+    const cues = (subtitles || [])
+      .map((sub) => ({ start: sub.start, end: sub.end, text: this.sanitizeSubtitleText(sub.text) }))
+      .filter((c) => c.text.length > 0);
+
+    const content = cues
       .map((sub, i) => {
         const start = this.formatTime(sub.start);
         const end = this.formatTime(sub.end);
@@ -599,6 +606,28 @@ export class FFmpegUtil {
 
     fs.writeFileSync(filePath, content, 'utf-8');
     return filePath;
+  }
+
+  /**
+   * Strip anything that could break or hijack SRT rendering:
+   * - ASS override blocks `{...}` (position/speed/style injection)
+   * - HTML-ish tags `<...>` (mispelled styling / XSS-ish markup)
+   * - `-->` sequences inside the text (would fake a cue boundary)
+   * - control characters (keeps \n so multi-line captions still work)
+   * - repeated whitespace/tabs (normalized per line)
+   */
+  private sanitizeSubtitleText(text: string): string {
+    let s = String(text ?? '');
+    s = s.replace(/\{[^}]*\}/g, '');
+    s = s.replace(/<\/?[a-zA-Z][^>]*>/g, '');
+    s = s.replace(/-->/g, '→');
+    s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+    s = s
+      .split('\n')
+      .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+      .filter((line) => line.length > 0)
+      .join('\n');
+    return s.trim();
   }
 
   /**
@@ -1078,47 +1107,51 @@ export class FFmpegUtil {
     const outPath = options?.outputPath || path.join(this.outputDir, `text_${Date.now()}.mp4`);
     const [w, h] = resolution.split('x').map(Number);
 
-    // Escape text for FFmpeg filter: wrap long lines, escape special chars
+    // 文字经 textfile 写入临时文件：内容零 filter 转义、特殊字符（`, $(), 引号,
+    // 反斜杠, 分号等）天然免疫，绝无 filter/命令注入面。路径仅需转义盘符冒号。
+    const isHexColor = (c?: string) => !!c && /^#[0-9a-fA-F]{3,8}$/.test(c);
+    const bgHex = (isHexColor(bgColor) ? bgColor : '#7C3AED').replace('#', '');
+    const fg = isHexColor(textColor) ? textColor : '#FFFFFF';
+    const txtPath = path.join(this.outputDir, `textfile_${Date.now()}.txt`);
+    fs.writeFileSync(txtPath, text, 'utf8');
+    const txtArg = `textfile='${txtPath.split(path.sep).join('/').replace(/:/g, '\\:')}'`;
+    const fontArg = detectFontFile();
+    const fontPart = fontArg ? fontArg + ':' : '';
+
     const maxCharsPerLine = Math.floor(w / (fontSize * 0.55));
     const lines = this.wrapText(text, maxCharsPerLine);
-    const escapeText = (t: string) =>
-      t.replace(/'/g, "'\\\\\\''").replace(/:/g, '\\\\:').replace(/,/g, '\\\\,');
-
-    // Build drawtext filter for each line
     const lineHeight = fontSize * 1.4;
-    const totalTextHeight = lines.length * lineHeight;
-    const startY = (h - totalTextHeight) / 2;
-
-    const drawTextFilters = lines.map((line, i) => {
-      const y = startY + i * lineHeight;
-      const fontArg = detectFontFile();
-      const fontPart = fontArg ? fontArg + ':' : '';
-      return `drawtext=text='${escapeText(line)}':fontcolor=${textColor}:${fontPart}fontsize=${fontSize}:x=(w-text_w)/2:y=${y}:enable='between(t,0,${duration})'`;
-    });
+    const startY = Math.round((h - lines.length * lineHeight) / 2);
 
     const fadeIn = 0.5;
     const fadeOut = Math.min(0.6, duration / 3);
     const filter =
-      `${drawTextFilters.join(',')}` +
+      `drawtext=${txtArg}:fontcolor=${fg}:${fontPart}fontsize=${fontSize}:x=(w-text_w)/2:y=${startY}:enable='between(t,0,${duration})'` +
       `,fade=t=in:st=0:d=${fadeIn}` +
       `,fade=t=out:st=${Math.max(duration - fadeOut, 0)}:d=${fadeOut}`;
 
     try {
-      await this.ff(
-        `-y -f lavfi -i "color=c=0x${bgColor.replace('#', '')}:s=${resolution}:d=${duration}:r=${fps}" ` +
-        `-vf "${filter}" -c:v libx264 -preset fast -crf 23 "${outPath}"`,
+      await this.ffArr(
+        [
+          '-y', '-f', 'lavfi', '-i', `color=c=0x${bgHex}:s=${resolution}:d=${duration}:r=${fps}`,
+          '-vf', filter, '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', outPath,
+        ],
         { timeout: 30000 },
       );
       this.logger.log(`Text video generated: ${outPath}`);
+      try { fs.unlinkSync(txtPath); } catch { /* ignore */ }
       return outPath;
     } catch (err: any) {
       this.logger.error(`Text video generation failed: ${err.message}`);
       // Fallback: create a simple video without text
-      await this.ff(
-        `-y -f lavfi -i "color=c=0x${bgColor.replace('#', '')}:s=${resolution}:d=${duration}:r=${fps}" ` +
-        `-c:v libx264 -preset fast -crf 23 "${outPath}"`,
+      await this.ffArr(
+        [
+          '-y', '-f', 'lavfi', '-i', `color=c=0x${bgHex}:s=${resolution}:d=${duration}:r=${fps}`,
+          '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', outPath,
+        ],
         { timeout: 30000 },
       );
+      try { fs.unlinkSync(txtPath); } catch { /* ignore */ }
       return outPath;
     }
   }
@@ -1204,36 +1237,35 @@ export class FFmpegUtil {
 
     const maxCharsPerLine = Math.max(4, Math.floor(w / (fontSize * 0.55)));
     const lines = this.wrapText(text, maxCharsPerLine);
-    const escapeText = (t: string) =>
-      t.replace(/'/g, "'\\\\\\''").replace(/:/g, '\\\\:').replace(/,/g, '\\\\,');
     const lineHeight = fontSize * 1.4;
     const totalTextHeight = lines.length * lineHeight;
-    const startY = y * h - totalTextHeight / 2;
+    const startY = Math.round(y * h - totalTextHeight / 2);
 
-    // The overlay stream plays on its own timeline [0, duration]; it is only
-    // shifted by `start` when placed onto the base video (see overlayClipOnVideo:
-    // setpts=PTS-STARTPTS+start/TB). Therefore ALL drawtext/fade timings below
-    // must use the overlay's own clock `t` (which starts at 0 when it becomes
-    // visible on the base timeline) — absolute timings (t-start, st=start) would
-    // be shifted a second time and silently delay/no-op the animations.
+    // 同 generateTextVideo：文字走 textfile 临时文件，内容零 filter 转义，注入天然免疫。
+    const txtPath = path.join(this.outputDir, `textfile_${Date.now()}.txt`);
+    fs.writeFileSync(txtPath, text, 'utf8');
+    const txtArg = `textfile='${txtPath.split(path.sep).join('/').replace(/:/g, '\\:')}'`;
+    const isHexColor = (c?: string) => !!c && /^#[0-9a-fA-F]{3,8}$/.test(c);
+    const fg = isHexColor(textColor) ? textColor : '#FFFFFF';
+    const fontArg = detectFontFile();
+    const fontPart = fontArg ? fontArg + ':' : '';
+    const cleanupTxt = () => { try { fs.unlinkSync(txtPath); } catch { /* ignore */ } };
+
     const anim = `max(0,(${0.6} - t)/0.6)`;
     const xxBase = `${(x * w).toFixed(2)}-text_w/2`;
-    const yBase = (lineIndex: number) => Math.max(startY + lineIndex * lineHeight, 0);
+    const yBase = Math.max(startY, 0);
 
-    const drawTextFilters = lines.map((line, i) => {
-      const fontPart = detectFontFile();
-      const textArgs = `text='${escapeText(line)}':fontcolor=${textColor}:alpha=${opacity}:${fontPart ? fontPart + ':' : ''}x='${xxBase}'`;
-      if (animation === 'slide_up') {
-        return `drawtext=${textArgs}:fontsize=${fontSize}:y='${yBase(i)}+${h * 0.15}*${anim}'`;
-      }
-      if (animation === 'slide_down') {
-        return `drawtext=${textArgs}:fontsize=${fontSize}:y='${yBase(i)}-${h * 0.15}*${anim}'`;
-      }
-      if (animation === 'zoom_in') {
-        return `drawtext=${textArgs}:fontsize='${fontSize}*(1+${anim}*0.2)':y='${yBase(i)}'`;
-      }
-      return `drawtext=${textArgs}:fontsize=${fontSize}:y='${yBase(i)}'`;
-    });
+    const base = `drawtext=${txtArg}:fontcolor=${fg}:alpha=${opacity}:${fontPart}x='${xxBase}'`;
+    let textFilter: string;
+    if (animation === 'slide_up') {
+      textFilter = `${base}:fontsize=${fontSize}:y='${yBase}+${h * 0.15}*${anim}'`;
+    } else if (animation === 'slide_down') {
+      textFilter = `${base}:fontsize=${fontSize}:y='${yBase}-${h * 0.15}*${anim}'`;
+    } else if (animation === 'zoom_in') {
+      textFilter = `${base}:fontsize='${fontSize}*(1+${anim}*0.2)':y='${yBase}'`;
+    } else {
+      textFilter = `${base}:fontsize=${fontSize}:y='${yBase}'`;
+    }
 
     // Fade in/out on the overlay's own clock: fade-in starts at 0 (right when
     // the overlay becomes visible), fade-out ends exactly at the clip end.
@@ -1246,15 +1278,19 @@ export class FFmpegUtil {
         : `,fade=t=in:st=0:d=${fadeIn}:alpha=1,fade=t=out:st=${Math.max(duration - fadeOut, 0).toFixed(3)}:d=${fadeOut}:alpha=1`;
 
     try {
-      await this.ff(
-        `-y -f lavfi -i "color=black@0:s=${resolution}:d=${duration}:r=${fps},format=rgba" ` +
-        `-vf "${drawTextFilters.join(',')}${alphaFilter}" ` +
-        `-c:v png -pix_fmt rgba "${outPath}"`,
+      await this.ffArr(
+        [
+          '-y', '-f', 'lavfi', '-i', `color=black@0:s=${resolution}:d=${duration}:r=${fps},format=rgba`,
+          '-vf', `${textFilter}${alphaFilter}`,
+          '-c:v', 'png', '-pix_fmt', 'rgba', outPath,
+        ],
         { timeout: 60000 },
       );
       this.logger.log(`Overlay text video generated: ${outPath}`);
+      cleanupTxt();
       return outPath;
     } catch (err: any) {
+      cleanupTxt();
       this.logger.error(`Overlay text video failed: ${err.message}`);
       throw new Error(`文字叠加渲染失败: ${err.message}`);
     }
@@ -1331,6 +1367,8 @@ export class FFmpegUtil {
       start?: number; // seconds offset
       fadeIn?: number;
       fadeOut?: number;
+      trimIn?: number; // seconds to skip from the source's beginning (portion start)
+      duration?: number; // portion length in seconds
     }>,
     outputPath?: string,
   ): Promise<string> {
@@ -1347,7 +1385,13 @@ export class FFmpegUtil {
     const silentIdx = valid.length + 1;
 
     // Build per-track filters: volume → adelay → fade in/out → apad to total length
-    const inputArgs = valid.map((t) => `-i "${t.audioPath}"`).join(' ')
+    // (trimIn/duration are applied as input seek options `-ss`/`-t` so the
+    // track only reads the selected portion of the source file)
+    const inputArgs = valid.map((t) => {
+      const seek = t.trimIn && t.trimIn > 0 ? `-ss ${t.trimIn.toFixed(3)} ` : '';
+      const len = t.duration && t.duration > 0 ? `-t ${t.duration.toFixed(3)} ` : '';
+      return `${seek}${len}-i "${t.audioPath}"`;
+    }).join(' ')
       + (hasVideoAudio ? '' : ` -f lavfi -i "anullsrc=r=44100:cl=stereo"`);
     const parts: string[] = [];
     const base = hasVideoAudio

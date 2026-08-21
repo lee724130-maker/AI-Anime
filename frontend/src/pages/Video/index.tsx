@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Tag, Space, Popconfirm, message, Empty, Progress, Segmented, Row, Col, Tooltip, Input, Select } from 'antd';
 import {
@@ -45,8 +45,10 @@ export default function VideoListPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [sortBy, setSortBy] = useState('created_at');
   const navigate = useNavigate();
+  const seqRef = useRef(0);
 
   const fetchVideos = async (qs?: string) => {
+    const seq = ++seqRef.current;
     try {
       const kw = qs !== undefined ? qs : searchText;
       const params: any = {};
@@ -55,8 +57,10 @@ export default function VideoListPage() {
       if (kw) params.search = kw;
       if (sortBy) params.sort_by = sortBy;
       const { data } = await api.get('/api/video/list', { params });
+      if (seq !== seqRef.current) return;
       setVideos(data.items || []);
     } catch {
+      if (seq !== seqRef.current) return;
       message.error('获取视频列表失败');
     }
   };
@@ -112,9 +116,9 @@ export default function VideoListPage() {
   useEffect(() => {
     const hasProcessing = videos.some((v) => v.status === 'pending' || v.status === 'processing');
     if (!hasProcessing) return;
-    const timer = setInterval(fetchVideos, 5000);
+    const timer = setInterval(() => fetchVideos(), 5000);
     return () => clearInterval(timer);
-  }, [videos]);
+  }, [videos, searchText]);
 
   const filtered = useMemo(
     () => filter === 'all' ? videos : videos.filter(v => v.status === filter),

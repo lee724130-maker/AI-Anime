@@ -282,7 +282,7 @@ export class EditorService {
           position: { x: 60 + i * 260, y: 60 },
           source: { kind: isImg ? 'image' : 'video', url: trimmedUrls[v.id] || v.url },
           duration: Number(v.duration) || 3,
-          params: {},
+          params: { muted: !!v.muted },
         });
         if (v.filter && v.filter !== 'none') {
           const effId = `ef_${v.id}`;
@@ -357,6 +357,8 @@ export class EditorService {
             start: Number(a.start) || 0,
             fade_in: Number(a.fadeIn) || 0,
             fade_out: Number(a.fadeOut) || 0,
+            trim_in: Math.max(0, Number(a.trimIn) || 0),
+            duration: Math.max(0.5, Number(a.duration) || 5),
           },
         });
         edges.push({ id: `e_a_${a.id}`, from: nodeId, to: 'output' });
@@ -393,6 +395,19 @@ export class EditorService {
         try { fs.rmSync(f, { force: true }); } catch { /* ignore */ }
       }
     }
+  }
+
+  // ═══════════ Concat (merge two videos) ═══════════
+
+  async concatVideos(urlA: string, urlB: string): Promise<{ url: string; duration: number }> {
+    const localA = await this.localPathOf(urlA);
+    const localB = await this.localPathOf(urlB);
+    if (!localA || !localB) throw new BadRequestException('视频文件不存在或无法访问');
+
+    const mergedPath = await this.ffmpeg.mergeVideos([localA, localB]);
+    const rel = path.basename(mergedPath);
+    const info = await this.ffmpeg.getVideoInfo(mergedPath);
+    return { url: `/static/${rel}`, duration: info?.duration || 0 };
   }
 
   private async localPathOf(url: string): Promise<string | null> {

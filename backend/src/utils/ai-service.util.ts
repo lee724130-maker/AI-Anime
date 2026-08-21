@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AdminService } from '../modules/admin/admin.service';
 import { ModelConfigService } from '../modules/admin/model-config.service';
 import axios, { AxiosInstance } from 'axios';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { assertSafeRemoteUrl } from '../common/utils/safe-download.util';
+import { assertSafeRemoteUrl, resolveSafeStaticPath } from '../common/utils/safe-download.util';
 
 export interface ImageGenerationOptions {
   prompt: string;
@@ -736,9 +736,9 @@ export class AIServiceUtil {
             try {
               const ext = path.extname(url).toLowerCase();
               const mime = ext === '.png' ? 'image/png' : 'image/jpeg';
-              const localPath = path.join(process.cwd(), 'output', url.replace('/static/', ''));
-              if (!fs.existsSync(localPath)) {
-                this.logger.warn(`File not found for base64 conversion: ${localPath}`);
+              const localPath = resolveSafeStaticPath(url);
+              if (!localPath || !fs.existsSync(localPath)) {
+                this.logger.warn(`File not found for base64 conversion: ${url}`);
                 return url;
               }
               const b64 = fs.readFileSync(localPath).toString('base64');
@@ -989,19 +989,22 @@ export class AIServiceUtil {
 
     try {
       // If imageUrl is a local file, use it; otherwise generate test pattern
-      if (options.imageUrl && options.imageUrl.length > 0 && !options.imageUrl.startsWith('http') && fs.existsSync(options.imageUrl)) {
-        execSync(
-          `ffmpeg -y -loop 1 -i "${options.imageUrl}" -t ${dur} -r 24 -vf "scale=${resStr}" ` +
-          `-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p "${outputPath}"`,
+      const safeImg = options.imageUrl ? resolveSafeStaticPath(options.imageUrl) : null;
+      if (safeImg && fs.existsSync(safeImg)) {
+        execFileSync(
+          'ffmpeg',
+          ['-y', '-loop', '1', '-i', safeImg, '-t', String(dur), '-r', '24', '-vf', `scale=${resStr}`,
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', outputPath],
           { timeout: 15000, stdio: 'pipe' },
         );
         this.logger.log(`Placeholder video created from image (${resStr}, ${dur}s): ${outputPath}`);
         return outputPath;
       } else {
         // Generate test pattern video
-        execSync(
-          `ffmpeg -y -f lavfi -i "testsrc=duration=${dur}:size=${resStr}:rate=24" ` +
-          `-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p "${outputPath}"`,
+        execFileSync(
+          'ffmpeg',
+          ['-y', '-f', 'lavfi', '-i', `testsrc=duration=${dur}:size=${resStr}:rate=24`,
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', outputPath],
           { timeout: 15000, stdio: 'pipe' },
         );
         this.logger.log(`Placeholder test-pattern video created (${resStr}, ${dur}s): ${outputPath}`);
@@ -1027,20 +1030,22 @@ export class AIServiceUtil {
 
     try {
       // Generate a colored test card with text — very simple, very reliable
-      execSync(
-        `ffmpeg -y -f lavfi -i "color=c=0x7C3AED:s=${width}x${height}:d=${duration}:r=24" ` +
-        `-c:v libx264 -preset ultrafast -crf 28 -pix_fmt yuv420p "${outputPath}"`,
-        { timeout: 15000, stdio: 'pipe' },
-      );
+      execFileSync(
+          'ffmpeg',
+          ['-y', '-f', 'lavfi', '-i', `color=c=0x7C3AED:s=${width}x${height}:d=${duration}:r=24`,
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', outputPath],
+          { timeout: 15000, stdio: 'pipe' },
+        );
       this.logger.log(`Emergency placeholder created: ${outputPath}`);
       return outputPath;
     } catch (err: any) {
       // Absolute last resort — create a minimal valid mp4 via ffmpeg's most basic command
       this.logger.error(`Emergency placeholder failed: ${err.message}`);
       try {
-        execSync(
-          `ffmpeg -y -f lavfi -i "color=c=0x000000:s=320x240:d=1:r=1" ` +
-          `-c:v libx264 -preset ultrafast -crf 35 "${outputPath}"`,
+        execFileSync(
+          'ffmpeg',
+          ['-y', '-f', 'lavfi', '-i', 'color=c=0x000000:s=320x240:d=1:r=1',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35', outputPath],
           { timeout: 10000, stdio: 'pipe' },
         );
         return outputPath;
@@ -1134,24 +1139,29 @@ export class AIServiceUtil {
           this.logger.warn(`Seedance image base64 conversion failed: ${err.message}, falling back to raw URL`);
           contentItems.push({ type: 'image_url', image_url: { url: options.imageUrl }, role: 'first_frame' });
         }
-      } else if (fs.existsSync(options.imageUrl)) {
+      } else {
         // Read local file and encode as base64 data URI
-        const imgBuffer = fs.readFileSync(options.imageUrl);
-        const ext = path.extname(options.imageUrl).toLowerCase();
-        const mimeTypes: Record<string, string> = {
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.webp': 'image/webp',
-          '.bmp': 'image/bmp',
-        };
-        const mime = mimeTypes[ext] || 'image/png';
-        const dataUri = `data:${mime};base64,${imgBuffer.toString('base64')}`;
-        contentItems.push({
-          type: 'image_url',
-          image_url: { url: dataUri },
-          role: 'first_frame',
-        });
+        const safePath = resolveSafeStaticPath(options.imageUrl);
+        if (!safePath || !fs.existsSync(safePath)) {
+          this.logger.warn(`Seedance image path rejected or missing: ${options.imageUrl}`);
+        } else {
+          const imgBuffer = fs.readFileSync(safePath);
+          const ext = path.extname(safePath).toLowerCase();
+          const mimeTypes: Record<string, string> = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.webp': 'image/webp',
+            '.bmp': 'image/bmp',
+          };
+          const mime = mimeTypes[ext] || 'image/png';
+          const dataUri = `data:${mime};base64,${imgBuffer.toString('base64')}`;
+          contentItems.push({
+            type: 'image_url',
+            image_url: { url: dataUri },
+            role: 'first_frame',
+          });
+        }
       }
     }
 
@@ -2172,36 +2182,14 @@ ${strictRules[strictness]}
         throw new Error(`无效的 data URI 格式`);
       }
 
-      // 处理本地文件路径
+      // 处理本地文件路径（仅允许 output 目录内：/static/xxx、纯文件名、output 内绝对路径）
       if (!imagePath.startsWith('http')) {
-        // 尝试多种可能的路径格式
-        let filePath = imagePath;
-        
-        // 如果是 /static/xxx 格式，转换为实际路径
-        if (filePath.startsWith('/static/')) {
-          filePath = path.join(process.cwd(), 'output', filePath.replace('/static/', ''));
+        const safePath = resolveSafeStaticPath(imagePath);
+        if (!safePath || !fs.existsSync(safePath)) {
+          throw new Error(`本地文件不存在或路径不安全: ${imagePath}`);
         }
-        
-        // 绝对路径只允许输出目录内的文件（防任意文件读取）
-        if (path.isAbsolute(filePath)) {
-          const resolved = path.resolve(filePath);
-          const outputDir = path.resolve(process.cwd(), 'output');
-          if (!resolved.startsWith(outputDir + path.sep)) {
-            throw new Error(`不允许读取输出目录外的本地文件: ${imagePath}`);
-          }
-          filePath = resolved;
-        } else if (!fs.existsSync(filePath)) {
-          // 其他相对路径，尝试从 output 目录查找
-          const altPath = path.join(process.cwd(), 'output', path.basename(filePath));
-          if (fs.existsSync(altPath)) {
-            filePath = altPath;
-          }
-        }
-        
-        if (!fs.existsSync(filePath)) {
-          throw new Error(`本地文件不存在: ${filePath}`);
-        }
-        
+        const filePath = safePath;
+
         const data = fs.readFileSync(filePath);
         if (data.length < 100) {
           throw new Error(`文件太小 (${data.length} bytes)，可能无效: ${filePath}`);

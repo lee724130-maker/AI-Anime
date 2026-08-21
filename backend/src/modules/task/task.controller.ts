@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, Req, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { TaskService } from './task.service';
 
@@ -13,7 +13,7 @@ export class TaskController {
   }
 
   @Get(':id')
-  get(@Req() req, @Param('id') id: number) {
+  get(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.taskService.getById(req.user.id, id);
   }
 
@@ -26,12 +26,12 @@ export class TaskController {
   }
 
   @Put(':id/status')
-  updateStatus(@Req() req, @Param('id') id: number, @Body() body: { status: string; progress?: number; error_msg?: string; output_data?: string }) {
+  updateStatus(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: { status: string; progress?: number; error_msg?: string; output_data?: string }) {
     return this.taskService.updateStatus(req.user.id, id, body.status, body);
   }
 
   @Get(':id/events')
-  getEvents(@Req() req, @Param('id') id: number) {
-    return this.taskService.getEvents(id);
+  getEvents(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.taskService.getEvents(req.user.id, id);
   }
 }

@@ -77,7 +77,7 @@ export default function GlobalAssetPicker({ open, onClose, selected, onSelect }:
             assets.length === 0 ? <Empty description={`暂无${t.label}素材`} /> :
             <Row gutter={[12, 12]}>
               {assets.map(a => {
-                const url = API_BASE + a.image_url;
+                const url = a.image_url?.startsWith('http') ? a.image_url : API_BASE + a.image_url;
                 const isSelected = localSelected.includes(url);
                 return (
                   <Col key={a.id} xs={12} sm={8} md={6}>

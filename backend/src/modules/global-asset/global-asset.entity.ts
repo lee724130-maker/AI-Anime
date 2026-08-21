@@ -5,6 +5,9 @@ export class GlobalAsset {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ name: 'user_id', type: 'int', nullable: true })
+  user_id: number | null;
+
   @Column({ length: 20 })
   type: string;
 
@@ -25,6 +28,9 @@ export class GlobalAsset {
 
   @Column({ name: 'video_url', length: 500, nullable: true })
   video_url: string;
+
+  @Column({ name: 'audio_url', length: 500, nullable: true })
+  audio_url: string;
 
   @Column({ type: 'text', nullable: true })
   candidates: string;

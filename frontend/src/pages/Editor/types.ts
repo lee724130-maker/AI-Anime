@@ -6,6 +6,8 @@ export interface TimelineVideoItem {
   trimIn: number;
   filter: string;
   nextTransition: { type: string; duration: number } | null;
+  /** 隐藏片段自带音频（播放/渲染时静音该片段） */
+  muted?: boolean;
 }
 
 export interface TimelineAudioItem {
@@ -16,6 +18,10 @@ export interface TimelineAudioItem {
   volume: number;
   fadeIn: number;
   fadeOut: number;
+  /** 从源音频开头跳过的秒数（选区起点） */
+  trimIn: number;
+  /** 源音频总时长（秒），播放/渲染时长上限依据 */
+  sourceDuration?: number;
 }
 
 export interface TimelineTextItem {

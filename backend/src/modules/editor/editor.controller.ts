@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe,
-  UseGuards, Req, UploadedFile, UseInterceptors,
+  UseGuards, Req, UploadedFile, UseInterceptors, BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -57,6 +57,14 @@ export class EditorController {
     return this.service.getProjectResult(id, req.user.id);
   }
 
+  // ───── Concat (merge two videos) ─────
+
+  @Post('concat')
+  concat(@Body() body: { urlA: string; urlB: string }) {
+    if (!body.urlA || !body.urlB) throw new BadRequestException('urlA and urlB are required');
+    return this.service.concatVideos(body.urlA, body.urlB);
+  }
+
   // ───── Local upload (video/image/audio for the timeline) ─────
 
   @Post('upload')
@@ -81,7 +89,7 @@ export class EditorController {
     }),
   )
   uploadFile(@Req() req, @UploadedFile() file: any) {
-    if (!file) throw new Error('文件上传失败');
+    if (!file) throw new BadRequestException('文件上传失败');
     return { url: `/static/${file.filename}`, original_name: file.originalname };
   }
 }

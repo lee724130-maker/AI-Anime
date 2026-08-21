@@ -11,10 +11,11 @@ import {
   UseGuards,
   StreamableFile,
   NotFoundException,
+  ParseIntPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Public } from '../../common/decorators/public.decorator';
+
 import { VideoService } from './video.service';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -86,8 +87,7 @@ export class VideoController {
     return this.videoService.findByTaskId(req.user.id, taskId);
   }
 
-  /** Public endpoint: serve video/image files so browser can play them */
-  @Public()
+  /** Serve video/image files (requires auth) */
   @Get('file/:filename')
   serveFile(@Param('filename') filename: string, @Res({ passthrough: true }) res: Response) {
     const outputDir = path.resolve(process.cwd(), 'output');
@@ -174,17 +174,17 @@ export class VideoController {
   }
 
   @Post(':id/retry')
-  retry(@Param('id') id: number, @Req() req) {
+  retry(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.videoService.retry(id, req.user.id);
   }
 
   @Get(':id')
-  detail(@Param('id') id: number, @Req() req) {
+  detail(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.videoService.findOne(id, req.user.id);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: number, @Req() req) {
+  remove(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.videoService.remove(id, req.user.id);
   }
 }

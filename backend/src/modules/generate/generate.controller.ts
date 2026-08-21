@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { GenerateService } from './generate.service';
 
@@ -82,12 +82,12 @@ export class GenerateController {
   }
 
   @Post('tasks/:id/retry')
-  retryTask(@Req() req, @Param('id') id: number) {
+  retryTask(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.generateService.retryTask(req.user.id, id);
   }
 
   @Delete('tasks/:id')
-  deleteTask(@Req() req, @Param('id') id: number) {
+  deleteTask(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.generateService.deleteTask(req.user.id, id);
   }
 }

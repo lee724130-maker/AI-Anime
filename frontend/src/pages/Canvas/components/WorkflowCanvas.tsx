@@ -14,7 +14,7 @@ const { Text } = Typography;
 
 export interface AssetPayload {
   kind: string;
-  type: 'video' | 'image';
+  type: 'video' | 'image' | 'audio';
   url: string;
   title: string;
   thumbnail?: string;

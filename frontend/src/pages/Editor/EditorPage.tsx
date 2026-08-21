@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, SaveOutlined, PlayCircleOutlined, PauseCircleOutlined, DownloadOutlined,
-  VideoCameraOutlined, FontSizeOutlined, SoundOutlined,
+  VideoCameraOutlined, FontSizeOutlined, SoundOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 import AssetCard from '../Canvas/components/AssetPanel';
@@ -22,6 +22,19 @@ const { Text } = Typography;
 interface RenderStatus { status: string; progress: number; result_url?: string | null; error_msg?: string | null; }
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
+
+const CSS_FILTERS: Record<string, string> = {
+  grayscale: 'grayscale(1)',
+  sepia: 'sepia(0.8)',
+  warm: 'sepia(0.3) saturate(1.4)',
+  cool: 'saturate(0.8) hue-rotate(20deg)',
+  vintage: 'sepia(0.4) saturate(0.8) brightness(0.9)',
+  bright: 'brightness(1.3)',
+  dark: 'brightness(0.7)',
+  contrast: 'contrast(1.4)',
+  soft: 'blur(0.5px) brightness(1.1)',
+  vivid: 'saturate(1.8) contrast(1.1)',
+};
 
 export default function EditorPage() {
   const { id } = useParams();
@@ -54,6 +67,7 @@ export default function EditorPage() {
   const [uploading, setUploading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load project ──
@@ -145,6 +159,7 @@ export default function EditorPage() {
         for (const a of items) {
           if (a.image_url) assets.push({ kind: 'global_asset', type: 'image', url: a.image_url, title: a.name || '资产', thumbnail: a.image_url, ref_id: a.id });
           if (a.video_url) assets.push({ kind: 'global_asset', type: 'video', url: a.video_url, title: a.name || '资产', ref_id: a.id });
+          if (a.audio_url) assets.push({ kind: 'global_asset', type: 'audio', url: a.audio_url, title: a.name || '资产', ref_id: a.id });
         }
         setGlobalAssets(assets);
       }
@@ -243,35 +258,50 @@ export default function EditorPage() {
   useEffect(() => { timelineRef.current = timeline; }, [timeline]);
   const [undoStack, setUndoStack] = useState<TimelineDoc[]>([]);
   const [redoStack, setRedoStack] = useState<TimelineDoc[]>([]);
+  // Snapshot push is debounced (400ms window) so drag-move / typing bursts
+  // collapse into one undo step instead of flooding the stack per mousemove.
+  const pushTimerRef = useRef<any>(null);
+  const flushHistoryTimer = useCallback(() => {
+    if (pushTimerRef.current) { clearTimeout(pushTimerRef.current); pushTimerRef.current = null; }
+  }, []);
+  useEffect(() => () => flushHistoryTimer(), [flushHistoryTimer]);
 
-  const commitTimeline = useCallback((t: TimelineDoc, skipHistory = false) => {
-    if (!skipHistory) {
+  const pushHistory = useCallback(() => {
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(() => {
+      pushTimerRef.current = null;
       setUndoStack((prev) => {
         const next = [...prev, JSON.parse(JSON.stringify(timelineRef.current))];
         return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
       });
       setRedoStack([]);
-    }
-    setTimeline({ ...t, duration: round1(timelineDuration(t)) });
+    }, 400);
   }, []);
 
+  const commitTimeline = useCallback((t: TimelineDoc, skipHistory = false) => {
+    if (!skipHistory) pushHistory();
+    setTimeline({ ...t, duration: round1(timelineDuration(t)) });
+  }, [pushHistory]);
+
   const undo = useCallback(() => {
+    flushHistoryTimer();
     if (undoStack.length === 0) return;
     const snapshot = undoStack[undoStack.length - 1];
     setUndoStack(undoStack.slice(0, -1));
     setRedoStack((r) => [...r, JSON.parse(JSON.stringify(timelineRef.current))]);
     setTimeline({ ...snapshot, duration: round1(timelineDuration(snapshot)) });
     setSelected(null);
-  }, [undoStack]);
+  }, [undoStack, flushHistoryTimer]);
 
   const redo = useCallback(() => {
+    flushHistoryTimer();
     if (redoStack.length === 0) return;
     const snapshot = redoStack[redoStack.length - 1];
     setRedoStack(redoStack.slice(0, -1));
     setUndoStack((u) => [...u, JSON.parse(JSON.stringify(timelineRef.current))]);
     setTimeline({ ...snapshot, duration: round1(timelineDuration(snapshot)) });
     setSelected(null);
-  }, [redoStack]);
+  }, [redoStack, flushHistoryTimer]);
 
   const addToTrack = useCallback((track: TrackKey, item: any) => {
     const arr = (timeline as any)[track] as any[];
@@ -303,19 +333,67 @@ export default function EditorPage() {
     setTimeout(() => { if (!isFinite(v.duration) || v.duration <= 0) done(3); }, 8000);
   }), []);
 
+  // Probe an audio file's real duration (used as the track's sourceDuration /
+  // duration cap when added to the audio track)
+  const probeAudioDuration = useCallback((url: string) => new Promise<number>((resolve) => {
+    const a = document.createElement('audio');
+    a.preload = 'metadata';
+    const done = (d: number) => {
+      a.removeAttribute('src');
+      a.load();
+      resolve(isFinite(d) && d > 0 ? d : 0);
+    };
+    a.onloadedmetadata = () => done(a.duration);
+    a.onerror = () => done(0);
+    a.src = url;
+    setTimeout(() => { if (!isFinite(a.duration) || a.duration <= 0) done(0); }, 8000);
+  }), []);
+
   const handleAddFromAssetPanel = useCallback(async (a: AssetItem) => {
     const url = toStaticUrl(a.url) || '';
     if (isAudioUrl(url)) {
+      const srcDur = await probeAudioDuration(url);
       addToTrack('audio', {
-        id: genId('a'), url, start: 0, duration: 5, volume: 0.8, fadeIn: 0, fadeOut: 2,
+        id: genId('a'), url, start: 0, duration: Math.max(0.5, Math.min(srcDur || 5, MAX_SECONDS)),
+        volume: 0.8, fadeIn: 0, fadeOut: 0, trimIn: 0,
+        sourceDuration: srcDur > 0 ? srcDur : undefined,
       } as TimelineAudioItem);
       return;
     }
     const dur = isVideoUrl(url) ? round1(await probeVideoDuration(url)) : 3;
     addToTrack('video', {
-      id: genId('v'), url, start: videoEnd, duration: dur, trimIn: 0, filter: 'none', nextTransition: null,
+      id: genId('v'), url, start: videoEnd, duration: dur, trimIn: 0, filter: 'none', nextTransition: null, muted: false,
     } as TimelineVideoItem);
-  }, [addToTrack, videoEnd, probeVideoDuration]);
+  }, [addToTrack, videoEnd, probeVideoDuration, probeAudioDuration]);
+
+  // Render asset groups (videos + images separated)
+  const renderAssetGroups = (items: AssetItem[]) => {
+    if (items.length === 0) {
+      return <Empty description="暂无素材" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '12px 0' }} />;
+    }
+    const videos = items.filter(it => it.type === 'video');
+    const images = items.filter(it => it.type === 'image');
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {videos.length > 0 && (
+          <div>
+            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🎬 视频素材 ({videos.length})</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {videos.map((it, i) => <AssetCard key={`v${assetTab}${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+            </div>
+          </div>
+        )}
+        {images.length > 0 && (
+          <div style={{ marginTop: videos.length > 0 ? 8 : 0, paddingTop: videos.length > 0 ? 8 : 0, borderTop: videos.length > 0 ? '1px solid #f0f0f0' : 'none' }}>
+            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🖼️ 图片素材 ({images.length})</Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {images.map((it, i) => <AssetCard key={`i${assetTab}${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const addText = () => {
     addToTrack('text', {
@@ -327,6 +405,7 @@ export default function EditorPage() {
   // Drag a text overlay on the preview to reposition it (0..1 ratio)
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const updateTextPos = useCallback((id: string, x: number, y: number) => {
+    pushHistory();
     setTimeline((prev) => {
       const next: TimelineDoc = {
         ...prev,
@@ -368,13 +447,16 @@ export default function EditorPage() {
       const url = res.data.url;
       if (isAudioUrl(url)) {
         setAudioItems((arr) => [...arr, { kind: 'upload', type: 'video', url, title: res.data.original_name || '音频' }]);
+        const srcDur = await probeAudioDuration(url);
         addToTrack('audio', {
-          id: genId('a'), url, start: 0, duration: 5, volume: 0.8, fadeIn: 0, fadeOut: 2,
+          id: genId('a'), url, start: 0, duration: Math.max(0.5, Math.min(srcDur || 5, MAX_SECONDS)),
+          volume: 0.8, fadeIn: 0, fadeOut: 0, trimIn: 0,
+          sourceDuration: srcDur > 0 ? srcDur : undefined,
         } as TimelineAudioItem);
       } else {
         const dur = isVideoUrl(url) ? round1(await probeVideoDuration(url)) : 3;
         addToTrack('video', {
-          id: genId('v'), url, start: videoEnd, duration: dur, trimIn: 0, filter: 'none', nextTransition: null,
+          id: genId('v'), url, start: videoEnd, duration: dur, trimIn: 0, filter: 'none', nextTransition: null, muted: false,
         } as TimelineVideoItem);
       }
       message.success('上传成功并已添加');
@@ -414,6 +496,53 @@ export default function EditorPage() {
     setPlaying(false);
   };
 
+  const handleMerge = async () => {
+    if (!selected || selected.track !== 'video') { message.warning('请先在视频轨上选中片段'); return; }
+    const sorted = [...timeline.video].sort((a, b) => (a.start || 0) - (b.start || 0));
+    const sortedIdx = sorted.findIndex((x) => x.id === selected.id);
+    if (sortedIdx < 0) return;
+    if (sortedIdx >= sorted.length - 1) { message.warning('没有可合并的下一段（已是最后一段）'); return; }
+    const cur = sorted[sortedIdx];
+    const next = sorted[sortedIdx + 1];
+    const curStart = Number(cur.start) || 0;
+    const nextEnd = (Number(next.start) || 0) + (Number(next.duration) || 0);
+
+    // Same URL → simple duration merge
+    if (cur.url === next.url) {
+      const merged: TimelineVideoItem = {
+        ...cur,
+        duration: round1(nextEnd - curStart),
+        nextTransition: next.nextTransition || null,
+      };
+      const newArr = sorted.filter((x) => x.id !== next.id).map((x) => x.id === cur.id ? merged : x);
+      commitTimeline({ ...timeline, video: newArr });
+      setSelected({ track: 'video', id: cur.id });
+      setPlaying(false);
+      message.success('已合成');
+      return;
+    }
+
+    // Different URLs → ffmpeg concat via backend
+    message.loading({ content: '正在拼接视频...', key: 'merge', duration: 0 });
+    try {
+      const { data } = await api.post('/api/editor/concat', { urlA: cur.url, urlB: next.url });
+      const merged: TimelineVideoItem = {
+        ...cur,
+        url: data.url,
+        duration: round1(data.duration || (nextEnd - curStart)),
+        trimIn: 0,
+        nextTransition: next.nextTransition || null,
+      };
+      const newArr = sorted.filter((x) => x.id !== next.id).map((x) => x.id === cur.id ? merged : x);
+      commitTimeline({ ...timeline, video: newArr });
+      setSelected({ track: 'video', id: cur.id });
+      setPlaying(false);
+      message.success({ content: '拼接完成', key: 'merge' });
+    } catch (err: any) {
+      message.error({ content: '拼接失败: ' + (err.response?.data?.message || err.message), key: 'merge' });
+    }
+  };
+
   const handleDeleteSelected = () => {
     if (!selected) return;
     commitTimeline({ ...timeline, [selected.track]: (timeline as any)[selected.track].filter((x: any) => x.id !== selected.id) });
@@ -436,7 +565,7 @@ export default function EditorPage() {
   const playerSrc = renderOK && render.result_url
     ? render.result_url
     : fallbackVideo ? toStaticUrl(fallbackVideo.url) : undefined;
-  const playerCanPlay = renderOK ? !!playerSrc : playableSegs.length > 0;
+  const playerCanPlay = renderOK ? !!playerSrc : playableSegs.length > 0 || timeline.audio.length > 0;
   // The <video> element must stay visible while the timeline preview drives it
   // via bindSeg (it is hidden only when there is nothing video-like to show).
   const showVideoEl = renderOK ? !!playerSrc : timeline.video.length > 0;
@@ -449,6 +578,8 @@ export default function EditorPage() {
   // must never cover the video area)
   const boundSegRef = useRef<TimelineVideoItem | null>(null);
   const [previewImg, setPreviewImg] = useState<string | null>(null);
+  const [previewFilter, setPreviewFilter] = useState<string>('none');
+  const [transitionOpacity, setTransitionOpacity] = useState<number>(0);
   const previewImgShown = previewImg;
 
   // When a bound segment is removed from the timeline, clear its stale preview
@@ -463,13 +594,28 @@ export default function EditorPage() {
 
   // Bind a segment to the player (video: play; image: pause video + show static img)
 const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOffset: number) => {
+    const prevSeg = boundSegRef.current;
     boundSegRef.current = seg;
     if (isImageUrl(seg.url)) {
       v.pause();
       setPreviewImg(toStaticUrl(seg.url) || null);
+      setPreviewFilter('none');
       return;
     }
     setPreviewImg(null);
+    // Apply CSS filter for preview
+    setPreviewFilter(seg.filter || 'none');
+    // Fade transition: briefly show overlay when switching segments
+    if (prevSeg && prevSeg.id !== seg.id) {
+      const trans = prevSeg.nextTransition;
+      if (trans && trans.type !== 'none') {
+        setTransitionOpacity(1);
+        setTimeout(() => setTransitionOpacity(0), 200);
+      }
+    }
+    // The <video> element only carries the clip's own audio; the mute toggle
+    // on the segment hides it during preview (matching the 最终成片行为).
+    v.muted = !!seg.muted;
     const url = toStaticUrl(seg.url) || '';
     const local = Math.max(0, segOffset + (Number(seg.trimIn) || 0));
     // duration may still be NaN right after assigning src (or when the source
@@ -497,12 +643,70 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
   const playingRef = useRef(false);
   useEffect(() => { playingRef.current = playing; }, [playing]);
 
+  // Drive the audio-track elements in sync with the timeline playhead.
+  // The <video> element only carries video segments' native audio; the audio
+  // track (BGM / narration) is a SEPARATE hidden <audio> element that follows
+  // the active item at the current playhead (respecting start / trimIn /
+  // duration / volume). Skipped after a render, since the exported file has
+  // the mixed audio baked in.
+  const syncAudio = useCallback(() => {
+    // ⚡ 关键：先同步 playingRef，避免闭包 stale 导致的无效返回
+    playingRef.current = playing;
+    const el = audioRef.current;
+    if (!el) return;
+    if (renderOK) {
+      if (!el.paused) el.pause();
+      return;
+    }
+    const t = playheadRef.current;
+    // ⚡ 容差 ±0.2s 兼容浮点比较不精确与播放头抖动
+    const active = ((timeline.audio as TimelineAudioItem[]) || []).find(
+      (a) => t > (Number(a.start) || 0) - 0.2 && t < (Number(a.start) || 0) + (Number(a.duration) || 0) + 0.2,
+    ) || null;
+    if (!active) {
+      if (!el.paused) el.pause();
+      return;
+    }
+    const url = toStaticUrl(active.url) || '';
+    if (!url) { el.src = ''; if (!el.paused) el.pause(); return; }
+    const local = Math.max(0, t - (Number(active.start) || 0) + (Number(active.trimIn) || 0));
+    const baseVol = Math.max(0, Math.min(1, Number(active.volume) ?? 0.8));
+    const fadeIn = Number(active.fadeIn) || 0;
+    const fadeOut = Number(active.fadeOut) || 0;
+    const dur = Number(active.duration) || 0;
+    let vol = baseVol;
+    if (fadeIn > 0 && local < fadeIn) vol = baseVol * (local / fadeIn);
+    if (fadeOut > 0 && dur > 0 && local > dur - fadeOut) vol = baseVol * ((dur - local) / fadeOut);
+    vol = Math.max(0, Math.min(1, vol));
+    const playIt = () => el.play().catch(() => { /* ignore autoplay errors */ });
+    if (el.getAttribute('src') !== url) {
+      el.src = url;
+      el.onloadedmetadata = () => {
+        const d = el.duration;
+        if (isFinite(d) && d > 0) { try { el.currentTime = Math.min(local, Math.max(0, d - 0.05)); } catch { /* ignore */ } }
+        el.volume = vol;
+        playIt();
+      };
+    } else {
+      // ⚡ 已有 src 时，若偏差超过 0.3s 才重新 seek，避免每帧抖动
+      if (Math.abs(el.currentTime - local) > 0.3) { try { el.currentTime = local; } catch { /* ignore */ } }
+      el.volume = vol;
+      playIt();
+    }
+  }, [timeline.audio, renderOK, playing]); // ← 新增 playing 依赖，确保 playing 变化时重新计算
+
   // Start / restart playback from the current playhead (or selected clip start)
   useEffect(() => {
     const v = videoRef.current;
+    const a = audioRef.current;
     if (!v) return;
-    if (!playing) { v.pause(); return; }
+    if (!playing) {
+      v.pause();
+      if (a && !a.paused) a.pause();
+      return;
+    }
     if (renderOK) {
+      v.muted = false;
       v.play().catch(() => { /* ignore autoplay errors */ });
       return;
     }
@@ -511,8 +715,17 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
     const target = playableSegs.find((s) => t0 >= (s.start || 0) && t0 < (s.start || 0) + (s.duration || 0))
       || playableSegs.find((s) => (s.start || 0) + (s.duration || 0) > t0)
       || null;
-    if (!target) { setPlaying(false); return; }
-    bindSeg(v, target, Math.max(0, t0 - (target.start || 0)));
+    if (target) {
+      bindSeg(v, target, Math.max(0, t0 - (target.start || 0)));
+    } else {
+      // No video segment under the playhead (audio-only project, or between
+      // segments): keep playing — the interval loop advances the playhead by
+      // wall time and will stop at the end.
+      v.pause();
+      boundSegRef.current = null;
+      setPreviewImg(null);
+    }
+    syncAudio();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
@@ -536,50 +749,62 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
     const cur = boundSegRef.current;
     const from = cur ? (cur.start || 0) + (cur.duration || 0) : playheadRef.current;
     const next = playableSegs.find((s) => (s.start || 0) + (s.duration || 0) > from + 0.03) || null;
-    if (!next) { setPlaying(false); return; }
+    if (!next) { setPlaying(false); setPlayhead(0); return; }
     bindSeg(v, next, 0);
   }, [playableSegs, bindSeg]);
 
   // Preview master loop: image segments advance the playhead by wall time;
-  // video segment ends are detected via the timeupdate handler below
+  // video segment ends are detected via the timeupdate handler below;
+  // gaps / audio-only sections advance by wall time too (audio track keeps playing)
   useEffect(() => {
     if (!playing || renderOK) return;
     let last = 0;
     const iv = window.setInterval(() => {
       const v = videoRef.current;
       if (!v || !playingRef.current) return;
-      const boundId = boundSegRef.current?.id;
-      const seg = (boundId && playableSegs.find((s) => s.id === boundId)) || null;
-      if (!seg) {
-        advanceToNext(v);
-        return;
-      }
-      if (!isImageUrl(seg.url)) {
-        const advance = v.currentTime >= (seg.duration || 0) - 0.08;
-        if (advance) setPlayhead((seg.start || 0) + (seg.duration || 0));
-        else setPlayhead((seg.start || 0) + v.currentTime - (Number(seg.trimIn) || 0));
-        if (advance) advanceToNext(v);
-        return;
-      }
-      // image segment: advance playhead by elapsed wall time
       const now = Date.now();
       const dt = last ? (now - last) / 1000 : 0;
       last = now;
-      const end = (seg.start || 0) + (seg.duration || 0);
-      const nt = Math.min(playheadRef.current + dt, end - 0.05);
-      setPlayhead(nt);
-      if (nt >= end - 0.05) advanceToNext(v);
+      const boundId = boundSegRef.current?.id;
+      const seg = (boundId && playableSegs.find((s) => s.id === boundId)) || null;
+      if (seg) {
+        if (!isImageUrl(seg.url)) {
+          const advance = v.currentTime >= (seg.duration || 0) - 0.08;
+          if (advance) setPlayhead((seg.start || 0) + (seg.duration || 0));
+          else setPlayhead((seg.start || 0) + v.currentTime - (Number(seg.trimIn) || 0));
+          if (advance) advanceToNext(v);
+          syncAudio();
+          return;
+        }
+        // image segment: advance playhead by elapsed wall time
+        const end = (seg.start || 0) + (seg.duration || 0);
+        const nt = Math.min(playheadRef.current + dt, end - 0.05);
+        setPlayhead(nt);
+        if (nt >= end - 0.05) advanceToNext(v);
+        syncAudio();
+        return;
+      }
+      // no bound video segment: wall-clock advance (audio-only project or gap)
+      const totalEnd = timelineDuration(timeline);
+      const nt2 = Math.min(playheadRef.current + dt, totalEnd);
+      setPlayhead(nt2);
+      // entering a video segment from a gap → bind it
+      const target = playableSegs.find((s) => nt2 >= (s.start || 0) && nt2 < (s.start || 0) + (s.duration || 0));
+      if (target) bindSeg(v, target, Math.max(0, nt2 - (target.start || 0)));
+      if (nt2 >= totalEnd - 0.02) { setPlaying(false); setPlayhead(0); }
+      syncAudio();
     }, 120);
     return () => window.clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, renderOK, playableSegs]);
+  }, [playing, renderOK, playableSegs, timeline, syncAudio]);
 
   const handleTimeUpdate = () => {
     const v = videoRef.current;
     if (!v || !playing) return;
     if (renderOK) {
       setPlayhead(v.currentTime);
-      if (v.currentTime >= v.duration - 0.12) setPlaying(false);
+      syncAudio();
+      if (v.currentTime >= v.duration - 0.12) { setPlaying(false); setPlayhead(0); }
       return;
     }
     // timeline preview: resolve the bound segment against the latest timeline data
@@ -593,6 +818,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
     if (local >= (seg.duration || 0) - 0.08) { advanceToNext(v); return; }
     const globalT = (seg.start || 0) + local - (Number(seg.trimIn) || 0);
     if (Math.abs(playheadRef.current - globalT) > 0.1) setPlayhead(globalT);
+    syncAudio();
   };
 
   const handleSeek = (t: number) => {
@@ -609,6 +835,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
           boundSegRef.current = null;
         }
       }
+      syncAudio();
       return;
     }
     const v = videoRef.current;
@@ -721,29 +948,52 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
             <Radio.Button value="drama">短剧片段</Radio.Button>
             <Radio.Button value="audio">音频 BGM</Radio.Button>
           </Radio.Group>
-          {assetTab !== 'audio' ? (
-            assetLoading ? <Spin size="small" style={{ margin: '20px auto', display: 'block' }} /> : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {(assetTab === 'ai' ? aiTasks : assetTab === 'assets' ? globalAssets : assetTab === 'viral' ? viralProjects : dramaClips)
-                  .map((it, i) => <AssetCard key={`${assetTab}${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
-                {(assetTab === 'ai' ? aiTasks : assetTab === 'assets' ? globalAssets : assetTab === 'viral' ? viralProjects : dramaClips).length === 0 &&
-                  <Empty description="暂无素材" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
-              </div>
-            )
+{assetTab !== 'audio' ? (
+            assetLoading
+              ? <Spin size="small" style={{ margin: '20px auto', display: 'block' }} />
+              : renderAssetGroups(
+                  assetTab === 'ai' ? aiTasks : assetTab === 'assets' ? globalAssets : assetTab === 'viral' ? viralProjects : dramaClips
+                )
           ) : (
             <div>
               <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
                 上传 mp3/wav/m4a 音频作为 BGM 或配音；点击左侧「上传」后自动加入音频轨
               </Text>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {audioItems.map((it, i) => (
-                  <div key={i} onClick={() => handleAddFromAssetPanel(it)}
-                    style={{ cursor: 'pointer', border: '1px solid #f0f0f0', borderRadius: 10, padding: 12, textAlign: 'center', background: '#fff' }}>
-                    <SoundOutlined style={{ fontSize: 22, color: '#0ea5e9' }} />
-                    <Text style={{ fontSize: 11, color: '#888', display: 'block', marginTop: 6 }} ellipsis={{ tooltip: it.title }}>{it.title}</Text>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {globalAssets.filter(it => it.type === 'audio').map((it, i) => (
+                  <div key={`global-audio-${i}`}
+                    onClick={() => handleAddFromAssetPanel(it)}
+                    style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 12, background: '#fff', cursor: 'pointer', transition: 'border-color .2s' }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#7c3aed')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#f0f0f0')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <SoundOutlined style={{ fontSize: 22, color: '#0ea5e9' }} />
+                      <Text style={{ fontSize: 11, color: '#888', flex: 1 }} ellipsis={{ tooltip: it.title }}>{it.title}</Text>
+                      <Tag color="blue">大资产库</Tag>
+                    </div>
+                    <audio src={toStaticUrl(it.url)} controls onClick={e => e.stopPropagation()} style={{ width: '100%' }} />
                   </div>
                 ))}
-                {audioItems.length === 0 && <Empty description="暂无音频" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ gridColumn: '1 / -1', margin: '12px 0' }} />}
+                {audioItems.map((it, i) => (
+                  <div key={`upload-${i}`}
+                    onClick={() => handleAddFromAssetPanel(it)}
+                    style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 12, background: '#fff', cursor: 'pointer', transition: 'border-color .2s' }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#10b981')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#f0f0f0')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <SoundOutlined style={{ fontSize: 22, color: '#0ea5e9' }} />
+                      <Text style={{ fontSize: 11, color: '#888', flex: 1 }} ellipsis={{ tooltip: it.title }}>{it.title}</Text>
+                      <Tag color="green">上传</Tag>
+                    </div>
+                    <audio src={toStaticUrl(it.url)} controls onClick={e => e.stopPropagation()} style={{ width: '100%' }} />
+                  </div>
+                ))}
+                {(globalAssets.filter(it => it.type === 'audio').length === 0 && audioItems.length === 0) && (
+                  <Empty description="暂无音频" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '12px 0' }} />
+                )}
+                <Text type="secondary" style={{ fontSize: 10, textAlign: 'center' }}>点击卡片将音频添加到音频轨</Text>
               </div>
             </div>
           )}
@@ -753,11 +1003,17 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {/* Player */}
           <div ref={previewWrapRef} style={{ background: previewImgShown ? '#000' : '#111', borderRadius: 12, height: 300, flexShrink: 0, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {/* hidden audio element drives the audio-track (BGM/narration) during preview */}
+            <audio ref={audioRef} preload="auto" style={{ display: 'none' }} />
             {!showVideoEl ? (
               <video ref={videoRef} onTimeUpdate={handleTimeUpdate} preload="auto" style={{ display: 'none' }} />
             ) : (
               <video ref={videoRef} src={playerSrc && !isImageUrl(playerSrc) ? playerSrc : undefined} onTimeUpdate={handleTimeUpdate} preload="auto"
-                style={{ width: '100%', height: '100%', objectFit: 'contain', display: previewImgShown ? 'none' : undefined }} />
+                style={{ width: '100%', height: '100%', objectFit: 'contain', display: previewImgShown ? 'none' : undefined,
+                  filter: previewFilter !== 'none' ? (CSS_FILTERS[previewFilter] || 'none') : undefined }} />
+            )}
+            {transitionOpacity > 0 && (
+              <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: transitionOpacity * 0.6, zIndex: 15, pointerEvents: 'none', transition: 'opacity 0.2s' }} />
             )}
             {previewImgShown && (
               <img src={previewImgShown} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 10 }} />
@@ -789,12 +1045,18 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
                 </div>
               );
             })}
-            <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)' }}>
+            <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
               <Button
                 icon={playing ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
                 disabled={!playerCanPlay}
                 style={{ borderRadius: 20, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}
                 onClick={() => setPlaying(!playing)}
+              />
+              <Button
+                icon={<ReloadOutlined />}
+                disabled={!playerCanPlay}
+                style={{ borderRadius: 20, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}
+                onClick={() => { setPlayhead(0); setPlaying(false); const v = videoRef.current; if (v) { v.currentTime = 0; v.pause(); } }}
               />
             </div>
           </div>
@@ -813,6 +1075,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
               onSelect={(s) => { setSelected(s); if (s) { setPlaying(false); } }}
               onSeek={handleSeek}
               onSplit={handleSplit}
+              onMerge={handleMerge}
               onDeleteSelected={handleDeleteSelected}
               onUndo={undo}
               onRedo={redo}
@@ -837,10 +1100,12 @@ function normalizeTimeline(tl: any): TimelineDoc {
   const video = Array.isArray(tl?.video) ? tl.video.map((v: any) => ({
     id: v.id, url: toStaticUrl(v.url) || '', start: Number(v.start) || 0, duration: Number(v.duration) || 3,
     trimIn: Number(v.trimIn) || 0, filter: v.filter || 'none', nextTransition: v.nextTransition || null,
+    muted: !!v.muted,
   })) : [];
   const audio = Array.isArray(tl?.audio) ? tl.audio.map((a: any) => ({
     id: a.id, url: toStaticUrl(a.url) || '', start: Number(a.start) || 0, duration: Number(a.duration) || 5,
     volume: numOr(a.volume, 0.8), fadeIn: Number(a.fadeIn) || 0, fadeOut: Number(a.fadeOut) || 0,
+    trimIn: Number(a.trimIn) || 0, sourceDuration: a.sourceDuration ? Number(a.sourceDuration) : undefined,
   })) : [];
   const text = Array.isArray(tl?.text) ? tl.text.map((t: any) => ({
     id: t.id, text: String(t.text || ''), start: Number(t.start) || 0, duration: Number(t.duration) || 3,

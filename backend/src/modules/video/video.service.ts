@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
+﻿import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, DataSource } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
@@ -538,7 +538,7 @@ export class VideoService {
     archive.pipe(res);
 
     for (const task of userTasks) {
-      const filename = task.video_url?.replace('/static/', '') || '';
+      const filename = path.basename(task.video_url?.replace('/static/', '') || '');
       const filePath = path.join(outputDir, filename);
       if (fs.existsSync(filePath)) {
         const displayName = `${task.id}_${task.script?.title || 'video'}${path.extname(filename)}`;
@@ -652,11 +652,11 @@ export class VideoService {
       ? clips.map(c => {
           const task = userTasks.find(t => t.id === c.id);
           if (!task) throw new NotFoundException(`视频任务 #${c.id} 不存在`);
-          const filename = task.video_url?.replace('/static/', '') || '';
+          const filename = path.basename(task.video_url?.replace('/static/', '') || '');
           return { path: path.join(outputDir, filename), start: c.start, end: c.end };
         })
       : userTasks.map(t => {
-          const filename = t.video_url?.replace('/static/', '') || '';
+          const filename = path.basename(t.video_url?.replace('/static/', '') || '');
           return { path: path.join(outputDir, filename) };
         });
 

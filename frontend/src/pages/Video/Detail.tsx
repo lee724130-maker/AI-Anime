@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Tag, Descriptions, Spin, message, Result, Progress, Space } from 'antd';
 import {
@@ -35,15 +35,19 @@ export default function VideoDetailPage() {
   const navigate = useNavigate();
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const seqRef = useRef(0);
 
   const fetchTask = async () => {
+    const seq = ++seqRef.current;
     try {
       const { data } = await api.get(`/api/video/${id}`);
+      if (seq !== seqRef.current) return;
       setTask(data);
     } catch {
+      if (seq !== seqRef.current) return;
       message.error('获取任务详情失败');
     } finally {
-      setLoading(false);
+      if (seq === seqRef.current) setLoading(false);
     }
   };
 

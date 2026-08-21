@@ -45,13 +45,18 @@ export default function ViralProjectDetail() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [fetchProject]);
 
+  const startPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(fetchProject, 3000);
+  };
+
   const startGeneration = async () => {
     setGenerating(true);
     try {
       await api.post(`/api/viral/projects/${id}/generate`);
       message.success('开始生成');
       // Start polling
-      pollRef.current = setInterval(fetchProject, 3000);
+      startPolling();
     } catch (err: any) {
       message.error(err?.response?.data?.message || '启动生成失败');
       setGenerating(false);
@@ -66,7 +71,7 @@ export default function ViralProjectDetail() {
         try {
           await api.post(`/api/viral/projects/${id}/regenerate-scene`, { sceneIndex });
           message.success('场景重新生成中');
-          pollRef.current = setInterval(fetchProject, 3000);
+          startPolling();
         } catch (err: any) {
           message.error(err?.response?.data?.message || '重新生成失败');
         }

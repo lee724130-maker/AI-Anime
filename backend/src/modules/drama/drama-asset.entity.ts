@@ -26,6 +26,9 @@ export class DramaAsset {
   @Column({ name: 'image_url', length: 500, nullable: true })
   image_url: string;
 
+  @Column({ name: 'audio_url', length: 500, nullable: true })
+  audio_url: string;
+
   @Column({ length: 20, default: 'pending' })
   status: string;
 

@@ -1,6 +1,6 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+﻿import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Like } from 'typeorm';
+import { Repository, Like, IsNull } from 'typeorm';
 import { CanvasProject } from './canvas-project.entity';
 import { CanvasTemplate } from './canvas-template.entity';
 import { FFmpegUtil, runFfmpegQueued } from '../../utils/ffmpeg.util';
@@ -83,6 +83,7 @@ export class CanvasService {
     if (dto.template_id) {
       const tpl = await this.templateRepo.findOne({ where: { id: dto.template_id } });
       if (!tpl) throw new NotFoundException('画布模板不存在');
+      this.assertTemplateVisible(tpl, userId);
       const varMap: Record<string, string> = dto.variable_values || {};
       // substitute {{var}} over the full raw JSON (covers nodes + edges + params)
       // JSON-escape values so quotes/backslashes cannot break the nodes JSON
@@ -173,18 +174,30 @@ export class CanvasService {
 
   // ═══════════ Templates ═══════════
 
-  async listTemplates(query: any) {
+  async listTemplates(userId: number, query: any) {
     const { category, keyword } = query;
-    const where: any = { status: 'active' };
-    if (category && category !== 'all') where.category = category;
-    if (keyword) where.name = Like(`%${keyword}%`);
-    const items = await this.templateRepo.find({ where, order: { created_at: 'DESC' } });
+    // 仅系统模板（user_id IS NULL / is_system）+ 自己的私有模板，其他人私有模板不可见
+    const baseWhere: any = { status: 'active' };
+    if (category && category !== 'all') baseWhere.category = category;
+    if (keyword) baseWhere.name = Like(`%${keyword}%`);
+    const items = await this.templateRepo.find({
+      where: [{ ...baseWhere, user_id: IsNull() }, { ...baseWhere, user_id: userId }],
+      order: { created_at: 'DESC' },
+    });
     return items.map((t) => ({ ...t, nodes: this.parseNodes(t.nodes), edges: this.parseEdges(t.nodes), variables: this.parseJson(t.variables) }));
   }
 
-  async getTemplateById(id: number) {
+  private assertTemplateVisible(t: CanvasTemplate, userId: number) {
+    // 私有模板仅创建者可见/可复制；系统模板所有人可见（404 防枚举）
+    if (t.user_id !== null && t.user_id !== userId) {
+      throw new NotFoundException('画布模板不存在');
+    }
+  }
+
+  async getTemplateById(id: number, userId: number) {
     const t = await this.templateRepo.findOne({ where: { id } });
     if (!t) throw new NotFoundException('画布模板不存在');
+    this.assertTemplateVisible(t, userId);
     return { ...t, nodes: this.parseNodes(t.nodes), edges: this.parseEdges(t.nodes), variables: this.parseJson(t.variables) };
   }
 
@@ -205,7 +218,7 @@ export class CanvasService {
       status: 'active',
     });
     await this.templateRepo.save(tpl);
-    return this.getTemplateById(tpl.id);
+    return this.getTemplateById(tpl.id, user.id);
   }
 
   async updateTemplate(id: number, dto: any, user: any) {
@@ -226,7 +239,7 @@ export class CanvasService {
     if (dto.variables !== undefined) t.variables = typeof dto.variables === 'string' ? dto.variables : JSON.stringify(dto.variables);
     if (dto.status !== undefined) t.status = dto.status;
     await this.templateRepo.save(t);
-    return this.getTemplateById(id);
+    return this.getTemplateById(id, user.id);
   }
 
   async deleteTemplate(id: number, user: any) {
@@ -240,6 +253,7 @@ export class CanvasService {
   async duplicateTemplate(userId: number, id: number) {
     const t = await this.templateRepo.findOne({ where: { id } });
     if (!t) throw new NotFoundException('画布模板不存在');
+    this.assertTemplateVisible(t, userId);
     const copy = this.templateRepo.create({
       user_id: userId,
       name: `${t.name} (副本)`,
@@ -254,7 +268,7 @@ export class CanvasService {
       status: 'active',
     });
     await this.templateRepo.save(copy);
-    return this.getTemplateById(copy.id);
+    return this.getTemplateById(copy.id, userId);
   }
 
   async saveAsTemplate(projectId: number, userId: number, dto: any) {
@@ -274,7 +288,7 @@ export class CanvasService {
       status: 'active',
     });
     await this.templateRepo.save(tpl);
-    return this.getTemplateById(tpl.id);
+    return this.getTemplateById(tpl.id, userId);
   }
 
   // ═══════════ Render engine ═══════════
@@ -519,6 +533,10 @@ export class CanvasService {
           }
           clip = await this.ffmpeg.fitToExactDuration(fitted, path.join(workDir, `clip_${i}.mp4`), dur);
           clip = await this.normalizeToRes(clip, res, workDir, `clip_${i}_norm`);
+          // muted: hide the clip's own audio (merge inserts silence in its range)
+          if (node.params?.muted) {
+            clip = await this.stripClipAudio(clip, workDir, `clip_${i}_mute`);
+          }
         }
         // Apply per-clip filter effect (effect node feeding INTO this clip)
         const filterEffect = (wfEdges || []).find((e: any) => {
@@ -603,16 +621,22 @@ export class CanvasService {
 
     // ── Step 4: mix audio tracks (audio nodes + BGM) ──
     await update({ progress: 85 });
-    const tracks: Array<{ audioPath: string; volume?: number; start?: number; fadeIn?: number; fadeOut?: number }> = [];
+    const tracks: Array<{ audioPath: string; volume?: number; start?: number; fadeIn?: number; fadeOut?: number; trimIn?: number; duration?: number }> = [];
     for (const a of audioNodes) {
       const p = await this.downloadToLocal(this.resolveSourceUrl(a), workDir, `aud_${a.id}`);
-      if (p) tracks.push({
-        audioPath: p,
-        volume: a.params?.volume ?? 0.8,
-        start: a.params?.start ?? 0,
-        fadeIn: a.params?.fade_in || 0,
-        fadeOut: a.params?.fade_out || 0,
-      });
+      if (p) {
+        const aTrim = Number(a.params?.trim_in);
+        const aDur = Number(a.params?.duration);
+        tracks.push({
+          audioPath: p,
+          volume: a.params?.volume ?? 0.8,
+          start: a.params?.start ?? 0,
+          fadeIn: a.params?.fade_in || 0,
+          fadeOut: a.params?.fade_out || 0,
+          trimIn: Number.isFinite(aTrim) && aTrim > 0 ? aTrim : undefined,
+          duration: Number.isFinite(aDur) && aDur > 0 ? aDur : undefined,
+        });
+      }
     }
     if (project.bgm_url) {
       const bgmPath = await this.downloadToLocal(project.bgm_url, workDir, 'bgm');
@@ -656,6 +680,25 @@ export class CanvasService {
     } catch (err: any) {
       this.logger.warn(`overlayClipOnVideo failed (${err.message}), using base`);
       return base;
+    }
+  }
+
+  /**
+   * Re-encode a clip dropping its audio stream (video stream copied as-is).
+   * Used for muted video segments so the merge step inserts silence there
+   * instead of the clip's own audio.
+   */
+  private async stripClipAudio(clip: string, workDir: string, prefix: string): Promise<string> {
+    const outPath = path.join(workDir, `${prefix}.mp4`);
+    try {
+      await runFfmpegQueued(
+        `"${(this.ffmpeg as any).ffmpegPath || 'ffmpeg'}" -y -i "${clip}" -map 0:v -c:v copy -an "${outPath}"`,
+        { timeout: 120000 },
+      );
+      return fs.existsSync(outPath) ? outPath : clip;
+    } catch (err: any) {
+      this.logger.warn(`stripClipAudio failed (${err.message}), keeping clip audio`);
+      return clip;
     }
   }
 

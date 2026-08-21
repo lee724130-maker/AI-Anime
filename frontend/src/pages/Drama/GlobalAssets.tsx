@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Typography, Button, Card, Tag, Space, Spin, message, Tabs, Modal,
-  Input, Select, Upload, Image, Row, Col, Popconfirm,
+  Input, Select, Upload, Image, Row, Col, Popconfirm, Progress,
 } from 'antd';
 import {
   ArrowLeftOutlined, PlusOutlined, DeleteOutlined,
   ThunderboltOutlined, UploadOutlined,
   SyncOutlined, EyeOutlined, AimOutlined, SearchOutlined,
-  PlayCircleFilled, VideoCameraOutlined,
+  PlayCircleFilled, VideoCameraOutlined, AudioOutlined, PictureOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -22,7 +22,7 @@ const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + 
 interface GlobalAsset {
   id: number; type: string; name: string;
   description: string | null; prompt: string | null; prompt_cn: string | null;
-  image_url: string | null; video_url: string | null; status: string;
+  image_url: string | null; video_url: string | null; audio_url: string | null; status: string;
   candidates: string | null; tags: string | null;
   source_type: string; source_project_id: number | null;
   usage_count: number; created_at: string; updated_at: string;
@@ -39,16 +39,18 @@ export default function GlobalAssetsPage() {
   const [activeTab, setActiveTab] = useState('character');
   const [search, setSearch] = useState('');
   const [addModal, setAddModal] = useState(false);
-  const [addType, setAddType] = useState<'character' | 'prop' | 'scene' | 'video'>('character');
+  const [addType, setAddType] = useState<'character' | 'prop' | 'scene' | 'video' | 'audio'>('character');
   const [addName, setAddName] = useState('');
   const [addDesc, setAddDesc] = useState('');
   const [addPrompt, setAddPrompt] = useState('');
   const [addPromptCn, setAddPromptCn] = useState('');
   const [addTags, setAddTags] = useState('');
+  
   const [editModal, setEditModal] = useState<{ visible: boolean; asset: GlobalAsset | null; promptCn: string; prompt: string; planning: boolean; translating: boolean }>({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false });
   const [generateModal, setGenerateModal] = useState<{ visible: boolean; assetId: number | null; ratio: string; size: string; style: string }>({ visible: false, assetId: null, ratio: '9:16', size: 'hd', style: 'anime' });
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
   const [previewVideoVisible, setPreviewVideoVisible] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ percent: number; filename: string } | null>(null);
 
   const stylePresets = [
     { label: '动漫', value: 'anime' },
@@ -160,6 +162,97 @@ export default function GlobalAssetsPage() {
     } catch { message.error('添加失败'); }
   };
 
+  const handleAudioUpload = async (file: File) => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      setUploadProgress({ percent: 0, filename: file.name });
+      const { data } = await api.post('/api/media/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => { if (e.total) setUploadProgress({ percent: Math.round(e.loaded * 100 / e.total), filename: file.name }); },
+      });
+      const audioUrl = data.url;
+      const name = addName.trim() || file.name.replace(/\.[^/.]+$/, '');
+      await api.post('/api/global-assets', {
+        type: 'audio',
+        name,
+        audio_url: audioUrl,
+        description: addDesc.trim() || undefined,
+        tags: addTags.trim() || undefined,
+      });
+      message.success('音频上传并保存成功');
+      setAddModal(false);
+      setAddName(''); setAddDesc(''); setAddTags('');
+      fetchData();
+      fetchStats();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '音频上传失败');
+    }
+    setUploadProgress(null);
+  };
+
+  const handleImageUpload = async (file: File) => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      setUploadProgress({ percent: 0, filename: file.name });
+      const { data } = await api.post('/api/media/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => { if (e.total) setUploadProgress({ percent: Math.round(e.loaded * 100 / e.total), filename: file.name }); },
+      });
+      const imageUrl = data.url;
+      const name = addName.trim() || file.name.replace(/\.[^/.]+$/, '');
+      await api.post('/api/global-assets', {
+        type: addType,
+        name,
+        image_url: imageUrl,
+        description: addDesc.trim() || undefined,
+        prompt: addPrompt.trim() || undefined,
+        prompt_cn: addPromptCn.trim() || undefined,
+        tags: addTags.trim() || undefined,
+      });
+      message.success('图片上传并保存成功');
+      setAddModal(false);
+      setAddName(''); setAddDesc(''); setAddPrompt(''); setAddPromptCn(''); setAddTags('');
+      fetchData();
+      fetchStats();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '图片上传失败');
+    }
+    setUploadProgress(null);
+  };
+
+  const handleVideoUpload = async (file: File) => {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      setUploadProgress({ percent: 0, filename: file.name });
+      const { data } = await api.post('/api/media/upload', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => { if (e.total) setUploadProgress({ percent: Math.round(e.loaded * 100 / e.total), filename: file.name }); },
+      });
+      const videoUrl = data.url;
+      const name = addName.trim() || file.name.replace(/\.[^/.]+$/, '');
+      await api.post('/api/global-assets', {
+        type: 'video',
+        name,
+        video_url: videoUrl,
+        description: addDesc.trim() || undefined,
+        prompt: addPrompt.trim() || undefined,
+        prompt_cn: addPromptCn.trim() || undefined,
+        tags: addTags.trim() || undefined,
+      });
+      message.success('视频上传并保存成功');
+      setAddModal(false);
+      setAddName(''); setAddDesc(''); setAddPrompt(''); setAddPromptCn(''); setAddTags('');
+      fetchData();
+      fetchStats();
+    } catch (err: any) {
+      message.error(err.response?.data?.message || '视频上传失败');
+    }
+    setUploadProgress(null);
+  };
+
   const handleEdit = (asset: GlobalAsset) => {
     setEditModal({ visible: true, asset, promptCn: asset.prompt_cn || '', prompt: asset.prompt || '', planning: false, translating: false });
   };
@@ -203,15 +296,24 @@ export default function GlobalAssetsPage() {
     setEditModal(prev => ({ ...prev, translating: false }));
   };
 
-  const handleUpload = async (assetId: number, file: File) => {
+  const handleUpload = async (assetId: number, file: File, assetType: string) => {
     const form = new FormData();
     form.append('file', file);
     try {
-      const { data } = await api.post(`/api/media/upload`, form);
-      await api.put(`/api/global-assets/${assetId}`, { image_url: data.url });
+      setUploadProgress({ percent: 0, filename: file.name });
+      const { data } = await api.post(`/api/media/upload`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        onUploadProgress: (e) => { if (e.total) setUploadProgress({ percent: Math.round(e.loaded * 100 / e.total), filename: file.name }); },
+      });
+      const updatePayload: any = {};
+      if (assetType === 'audio') updatePayload.audio_url = data.url;
+      else if (assetType === 'video') updatePayload.video_url = data.url;
+      else updatePayload.image_url = data.url;
+      await api.put(`/api/global-assets/${assetId}`, updatePayload);
       message.success('上传成功');
       fetchData();
     } catch { message.error('上传失败'); }
+    setUploadProgress(null);
   };
 
   if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
@@ -219,7 +321,8 @@ export default function GlobalAssetsPage() {
   const renderCard = (asset: GlobalAsset) => {
     const isGenerating = generating.has(asset.id);
     const isVideo = asset.type === 'video';
-    const hasMedia = isVideo ? asset.video_url : asset.image_url;
+    const isAudio = asset.type === 'audio';
+    const hasMedia = isVideo ? asset.video_url : isAudio ? asset.audio_url : asset.image_url;
     return (
       <Card
         key={asset.id}
@@ -230,7 +333,7 @@ export default function GlobalAssetsPage() {
           <Space size={4}>
             <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
             <Tag color={hasMedia ? 'success' : 'default'} style={{ fontSize: 11 }}>
-              {isVideo ? (hasMedia ? '有视频' : '无视频') : (hasMedia ? '有图' : '无图')}
+              {isVideo ? (hasMedia ? '有视频' : '无视频') : isAudio ? (hasMedia ? '有音频' : '无音频') : (hasMedia ? '有图' : '无图')}
             </Tag>
             {asset.usage_count > 0 && (
               <Tag style={{ fontSize: 10 }}>引用{asset.usage_count}</Tag>
@@ -270,6 +373,31 @@ export default function GlobalAssetsPage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', flexDirection: 'column', gap: 8 }}>
                 <VideoCameraOutlined style={{ fontSize: 36, color: '#888' }} />
                 <span style={{ fontSize: 12, color: '#888' }}>暂无视频</span>
+                <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file, asset.type); return false; }}>
+                  <Button size="small" type="primary" ghost icon={<UploadOutlined />} style={{ fontSize: 11 }}>
+                    上传视频
+                  </Button>
+                </Upload>
+              </div>
+            )
+          ) : isAudio ? (
+            asset.audio_url ? (
+              <div style={{ width: '100%', background: 'linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%)', borderRadius: 8, padding: 12, color: '#fff' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <AudioOutlined style={{ fontSize: 24 }} />
+                  <Text strong style={{ fontSize: 13 }}>音频文件</Text>
+                </div>
+                <audio
+                  src={getUrl(asset.audio_url)}
+                  controls
+                  style={{ width: '100%', marginTop: 8 }}
+                />
+              </div>
+            ) : (
+              <div style={{ width: '100%', height: 100, background: '#f5f5f5', borderRadius: 8,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc', flexDirection: 'column', gap: 8 }}>
+                <AudioOutlined style={{ fontSize: 28, color: '#888' }} />
+                <span style={{ fontSize: 12, color: '#888' }}>暂无音频</span>
               </div>
             )
           ) : (
@@ -280,8 +408,13 @@ export default function GlobalAssetsPage() {
               />
             ) : (
               <div style={{ width: '100%', height: 140, background: '#f5f5f5', borderRadius: 4,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc' }}>
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc', flexDirection: 'column', gap: 4 }}>
                 {asset.prompt ? '点击⚡生成' : '无提示词'}
+                <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file, asset.type); return false; }}>
+                  <Button size="small" type="link" icon={<UploadOutlined />} style={{ fontSize: 11 }}>
+                    上传图片
+                  </Button>
+                </Upload>
               </div>
             )
           )}
@@ -322,13 +455,11 @@ export default function GlobalAssetsPage() {
             onClick={() => handleEdit(asset)} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
             编辑提示词
           </Button>
-          {!isVideo && (
-            <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file); return false; }}>
-              <Button type="text" size="small" icon={<UploadOutlined />} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
-                上传替换
-              </Button>
-            </Upload>
-          )}
+          <Upload showUploadList={false} beforeUpload={(file) => { handleUpload(asset.id, file, asset.type); return false; }}>
+            <Button type="text" size="small" icon={<UploadOutlined />} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
+              {hasMedia ? '上传替换' : '上传'}
+            </Button>
+          </Upload>
           <Popconfirm title="确定删除？被引用的资产删除后可能影响已有项目" onConfirm={() => handleDelete(asset.id)}>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 11, height: 24, paddingInline: 4 }}>
               删除
@@ -352,7 +483,7 @@ export default function GlobalAssetsPage() {
           <Col>
             <Title level={4} style={{ margin: 0 }}>大资产库</Title>
             <Text type="secondary">
-              {stats ? `共 ${stats.total} 个资产 · 人物 ${stats.characters} · 物品 ${stats.props} · 场景 ${stats.scenes} · 视频 ${stats.videos || 0}` : '加载中...'}
+              {stats ? `共 ${stats.total} 个资产 · 人物 ${stats.characters} · 物品 ${stats.props} · 场景 ${stats.scenes} · 视频 ${stats.videos || 0} · 音频 ${stats.audios || 0}` : '加载中...'}
             </Text>
           </Col>
           <Col>
@@ -391,6 +522,12 @@ export default function GlobalAssetsPage() {
               {assets.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderCard(a)}</Col>)}
             </Row>
           )},
+          { key: 'audio', label: `音频 (${stats?.audios || 0})`, children: (
+            <Row gutter={[12, 12]}>
+              {assets.length === 0 && <Col span={24}><Text type="secondary">暂无音频资产</Text></Col>}
+              {assets.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderCard(a)}</Col>)}
+            </Row>
+          )},
         ]}
       />
 
@@ -404,12 +541,75 @@ export default function GlobalAssetsPage() {
               <Select.Option value="prop">物品</Select.Option>
               <Select.Option value="scene">场景</Select.Option>
               <Select.Option value="video">视频</Select.Option>
+              <Select.Option value="audio">音频</Select.Option>
             </Select>
           </div>
           <Input placeholder="资产名称" value={addName} onChange={e => setAddName(e.target.value)} />
           <TextArea placeholder="资产描述（可选）" value={addDesc} onChange={e => setAddDesc(e.target.value)} rows={2} />
-          <TextArea placeholder={addType === 'video' ? "英文视频提示词（给AI用，可选）" : "英文提示词（给AI用，可选）"} value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
-          <TextArea placeholder={addType === 'video' ? "中文视频提示词描述（给你看，可选）" : "中文提示词描述（给你看，可选）"} value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
+          {addType === 'audio' ? (
+            <Upload.Dragger
+              beforeUpload={async (file) => {
+                await handleAudioUpload(file);
+                return false;
+              }}
+              accept="audio/*"
+              showUploadList={false}
+              style={{ marginTop: 8 }}
+            >
+              <p className="ant-upload-drag-icon">
+                <AudioOutlined style={{ fontSize: 32, color: '#0ea5e9' }} />
+              </p>
+              <p className="ant-upload-text">点击或拖拽上传音频文件</p>
+              <p className="ant-upload-hint">支持格式：mp3, wav, m4a, flac, ogg</p>
+            </Upload.Dragger>
+          ) : addType === 'video' ? (
+            <>
+              <TextArea placeholder="英文视频提示词（给AI用，可选）" value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
+              <TextArea placeholder="中文视频提示词描述（给你看，可选）" value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
+              <Upload.Dragger
+                beforeUpload={async (file) => {
+                  await handleVideoUpload(file);
+                  return false;
+                }}
+                accept="video/mp4,video/webm,video/quicktime,video/x-matroska,video/avi,video/x-m4v"
+                showUploadList={false}
+                style={{ marginTop: 8 }}
+              >
+                <p className="ant-upload-drag-icon">
+                  <VideoCameraOutlined style={{ fontSize: 32, color: '#7c3aed' }} />
+                </p>
+                <p className="ant-upload-text">点击或拖拽上传本地视频</p>
+                <p className="ant-upload-hint">支持格式：mp4, webm, mov, mkv, avi, m4v（也可稍后在卡片上上传）</p>
+              </Upload.Dragger>
+            </>
+          ) : (
+            <>
+              <TextArea placeholder="英文提示词（给AI用，可选）" value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
+              <TextArea placeholder="中文提示词描述（给你看，可选）" value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <Upload.Dragger
+                  beforeUpload={async (file) => {
+                    await handleImageUpload(file);
+                    return false;
+                  }}
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+                  showUploadList={false}
+                  style={{ flex: 1 }}
+                >
+                  <p className="ant-upload-drag-icon">
+                    <PictureOutlined style={{ fontSize: 28, color: '#7c3aed' }} />
+                  </p>
+                  <p className="ant-upload-text" style={{ fontSize: 13 }}>上传本地图片</p>
+                  <p className="ant-upload-hint">png, jpg, webp, gif</p>
+                </Upload.Dragger>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', border: '1px dashed #d9d9d9', borderRadius: 8, padding: 16, color: '#8c8c8c' }}>
+                  <ThunderboltOutlined style={{ fontSize: 28, color: '#7c3aed', marginBottom: 4 }} />
+                  <span style={{ fontSize: 13 }}>或由 AI 生成</span>
+                  <span style={{ fontSize: 11, color: '#bbb' }}>填写提示词后创建，在卡片上生成</span>
+                </div>
+              </div>
+            </>
+          )}
           <Input placeholder="标签，用逗号分隔（如：古风,仙侠,主角）" value={addTags} onChange={e => setAddTags(e.target.value)} />
         </Space>
       </Modal>
@@ -520,6 +720,30 @@ export default function GlobalAssetsPage() {
           />
         )}
       </Modal>
+
+      {uploadProgress && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.45)', zIndex: 1000,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#fff', borderRadius: 12, padding: '28px 36px',
+            minWidth: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+            textAlign: 'center',
+          }}>
+            <UploadOutlined style={{ fontSize: 32, color: '#7c3aed', marginBottom: 12 }} />
+            <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+              正在上传：{uploadProgress.filename}
+            </div>
+            <Progress percent={uploadProgress.percent} strokeColor="#7c3aed"
+              style={{ margin: '12px 0 0' }} />
+            <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 4 }}>
+              {uploadProgress.percent >= 100 ? '上传完成，正在保存...' : '请勿关闭页面'}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

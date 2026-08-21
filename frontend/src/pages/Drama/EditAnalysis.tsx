@@ -10,6 +10,18 @@ import api from '../../services/api';
 const { Title, Text } = Typography;
 const { TextArea } = Input;
 
+const ASSET_TYPES = ['characters', 'props', 'scenes'] as const;
+let kidSeq = 0;
+// 为资产注入稳定 key（_kid），避免增删后受控输入错位导致焦点/内容漂移
+const ensureAssetKeys = (r: any) => {
+  for (const type of ASSET_TYPES) {
+    (r.assets?.[type] || []).forEach((a: any) => {
+      if (!a._kid) a._kid = `as_${Date.now()}_${kidSeq++}`;
+    });
+  }
+  return r;
+};
+
 export default function EditAnalysisPage() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -23,7 +35,7 @@ export default function EditAnalysisPage() {
     if (!id) return;
     setLoading(true);
     api.get(`/api/drama/${id}/analysis`)
-      .then(({ data }) => setResult(data.structured_result || data))
+      .then(({ data }) => { const r = data.structured_result || data; setResult(ensureAssetKeys(r)); })
       .catch(() => { message.error('加载分析结果失败'); navigate(`/drama/${id}`); })
       .finally(() => setLoading(false));
   }, [id]);
@@ -81,8 +93,11 @@ export default function EditAnalysisPage() {
           props: [...(r.assets?.props || [])],
           scenes: [...(r.assets?.scenes || [])],
         };
-        for (const type of ['characters', 'props', 'scenes']) {
-          for (const a of data.newAssets[type] || []) r.assets[type].push(a);
+        for (const type of ASSET_TYPES) {
+          for (const a of data.newAssets[type] || []) {
+            if (!a._kid) a._kid = `as_${Date.now()}_${kidSeq++}`;
+            r.assets[type].push(a);
+          }
         }
       }
       setResult(r);
@@ -95,7 +110,7 @@ export default function EditAnalysisPage() {
 
   const addAsset = (type: string) => {
     const r = { ...result };
-    r.assets[type] = [...(r.assets[type] || []), { name: '', description: '', prompt: '', prompt_cn: '' }];
+    r.assets[type] = [...(r.assets[type] || []), { _kid: `as_${Date.now()}_${kidSeq++}`, name: '', description: '', prompt: '', prompt_cn: '' }];
     setResult(r);
   };
 
@@ -171,7 +186,7 @@ export default function EditAnalysisPage() {
           children: (
             <div>
               {(result.episodes || []).map((ep: any, epIndex: number) => (
-                <Card key={epIndex} title={
+                <Card key={ep.episodeNo} title={
                   <Space wrap style={{ flex: 1 }}>
                     <Tag color="purple">第{ep.episodeNo}集</Tag>
                     <Input value={ep.title} onChange={(e) => updateEpisode(epIndex, 'title', e.target.value)}
@@ -184,7 +199,7 @@ export default function EditAnalysisPage() {
                     rows={2} style={{ width: '100%', maxWidth: 400 }} placeholder="剧情概要" />
                 }>
                   {(ep.segments || []).map((seg: any, segIndex: number) => (
-                    <Card key={segIndex} type="inner" size="small" style={{ marginBottom: 8 }}
+                    <Card key={seg.segmentNo} type="inner" size="small" style={{ marginBottom: 8 }}
                       extra={
                         <Space size={4}>
                           <Button type="link" size="small" icon={<ReloadOutlined />}
@@ -234,7 +249,7 @@ export default function EditAnalysisPage() {
                     <Button type="link" size="small" onClick={() => addAsset(type)}>+ 新增</Button>
                   </Title>
                   {(result.assets?.[type] || []).map((asset: any, idx: number) => (
-                    <Card key={idx} size="small" style={{ marginBottom: 8 }}
+                    <Card key={asset._kid || `${type}-${idx}`} size="small" style={{ marginBottom: 8 }}
                       extra={<Button type="link" danger size="small" onClick={() => removeAsset(type, idx)}>删除</Button>}>
                       <Space orientation="vertical" style={{ width: '100%' }}>
                         <Space>

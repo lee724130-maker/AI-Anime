@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Table, Tag, Button, Space, Image, Modal, Input, Select, Typography, Tooltip, message,
 } from 'antd';
@@ -6,6 +6,7 @@ import {
   PictureOutlined, VideoCameraOutlined, ReloadOutlined, SaveOutlined, PlayCircleFilled, DeleteOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import { formatDateSafe } from '../../utils/date';
 
 const { Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -34,16 +35,20 @@ export default function HistoryTable({ pageSize = 8, showFilters = false, showPa
   const [saveModal, setSaveModal] = useState<{ visible: boolean; record: any; name: string; type: string; description: string; promptCn: string }>({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' });
   const [previewUrl, setPreviewUrl] = useState('');
   const [previewVisible, setPreviewVisible] = useState(false);
+  const seqRef = useRef(0);
 
   const fetch = useCallback(async (silent = false) => {
+    const seq = ++seqRef.current;
     if (!silent) setLoading(true);
     try {
       const { data } = await api.get('/api/generate/tasks', {
         params: { page, limit: pageSize, type: filterType, status: filterStatus },
       });
+      if (seq !== seqRef.current) return;
       setItems(data.items || []);
       setTotal(data.total || 0);
     } catch { /* ignore */ }
+    if (seq !== seqRef.current) return;
     if (!silent) setLoading(false);
   }, [page, pageSize, filterType, filterStatus]);
 
@@ -129,7 +134,7 @@ export default function HistoryTable({ pageSize = 8, showFilters = false, showPa
     { title: '状态', dataIndex: 'status', width: 90, render: (v: string) => (
       <Tag color={statusColor[v] || 'default'}>{statusLabel[v] || v}</Tag>
     )},
-    { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => new Date(v).toLocaleString() },
+    { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v: string) => formatDateSafe(v) },
     { title: '结果', dataIndex: 'output_data', width: 200, render: (v: string, r: any) => {
       if (!v) return '-';
       try {

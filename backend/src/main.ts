@@ -32,6 +32,14 @@ async function bootstrap() {
         res.setHeader('Content-Type', 'video/mp4');
         res.setHeader('Accept-Ranges', 'bytes');
       }
+      if (filePath.match(/\.(mp3|wav|m4a|flac|ogg)$/i)) {
+        res.setHeader('Accept-Ranges', 'bytes');
+        if (filePath.endsWith('.mp3')) res.setHeader('Content-Type', 'audio/mpeg');
+        else if (filePath.endsWith('.wav')) res.setHeader('Content-Type', 'audio/wav');
+        else if (filePath.endsWith('.m4a')) res.setHeader('Content-Type', 'audio/mp4');
+        else if (filePath.endsWith('.flac')) res.setHeader('Content-Type', 'audio/flac');
+        else if (filePath.endsWith('.ogg')) res.setHeader('Content-Type', 'audio/ogg');
+      }
     },
   });
 

@@ -1,5 +1,81 @@
 # 修复日志
 
+## 2026-08-21（代码审计修复 + 部署生产）
+
+> 全面审计后端安全与健壮性，修复 6 项问题，已部署生产验证通过。
+
+### ✅ 已完成
+1. **H1: global_assets 加 user_id 归属**：entity 加 user_id 列（nullable，synchronize 自动建列）；service 所有方法加 userId/isAdmin 参数，普通用户只能操作自己的资产；controller 所有端点传递 req.user
+2. **H2: video.controller.ts 移除 @Public()**：dead endpoint `serveFile` 不应公开，移除 `@Public()` 装饰器和 import
+3. **H3: task events 归属校验**：`getEvents` 新增 userId 参数，先查 task 归属再返回 events（防越权查看他人事件）
+4. **M1: ParseIntPipe × 65 处**：9 个 controller 全部 `@Param('id')` 加 `ParseIntPipe`，防止非数字 id 进入 service 层
+5. **M3/M4: throw Error → BadRequestException**：script.controller.ts 2 处 + editor.controller.ts 1 处，保证 Nest 正确返回 400
+6. **M5: admin recharge 金额上限**：从 `>0` 改为 `Number.isFinite && >0 && <=100000 && isInteger`，防止超大/负数/小数充值
+
+### 部署
+- dist-backend.tar.gz → scp 上传 → 服务器解压替换 dist → pm2 restart
+- 验证：Front 200 / GlobalAssets 401 / PM2 online / Nest started
+- **功能测试 17/17 全绿**（生产 API 实测）：H1 用户隔离 4/4 + H2 视频鉴权 1/1 + H3 事件归属 2/2 + M1 ParseIntPipe 5/5 + M5 recharge 5/5
+
+### 相关文件变更
+| 文件 | 变更 |
+|------|------|
+| `global-asset.entity.ts` | 新增 user_id 列 |
+| `global-asset.service.ts` | 所有方法加 userId/isAdmin 参数 |
+| `global-asset.controller.ts` | 所有端点传递 req.user |
+| `video.controller.ts` | 移除 @Public() 和 import |
+| `task.controller.ts` | getEvents 传 req.user.id |
+| `task.service.ts` | getEvents 加归属校验 |
+| 9 个 controller | ParseIntPipe 批量修复 |
+| `script.controller.ts` | throw Error → BadRequestException |
+| `editor.controller.ts` | throw Error → BadRequestException |
+| `admin.service.ts` | recharge 金额上限 |
+
+---
+
+## 2026-08-20（大资产库音频功能 + 素材库布局优化 + 音频同步问题待解决）
+
+> 今日完成：大资产库音频上传/播放/统计、剪辑页/画布页素材库单列分组布局、类型系统扩展支持 audio；**遗留：剪辑页音频 BGM Tab 未显示大资产库音频，待明日排查**。
+
+### ✅ ① 大资产库音频功能
+- **后端**：`global_asset` 实体新增 `audio_url` 列；Service/Controller 类型校验加 `'audio'`；统计接口返回 `audios` 计数
+- **前端 GlobalAssets.tsx**：新增「音频」Tab（badge 显示数量）、拖拽上传（仅 `audio/*`）、原生 `<audio controls>` 播放预览、空态占位、统计栏含音频数
+- **新增资产 Modal**：类型下拉含「音频」，选中时显示上传区，上传后自动创建 `type=audio` 资产
+
+### ✅ ② 素材库布局优化（剪辑页 + 画布页）
+- **单列垂直布局**：`flexDirection: 'column'` + `gap: 8/12`，卡片独占一行
+- **视频/图片/音频分组**：各 Tab 内按 `type` 分组，组标题显示数量（🎬 视频素材 (3) / 🖼️ 图片素材 (2) / 🔊 音频素材 (1)），组间分隔线
+- **无横向滚动**：单列天然适配 210px 容器，标题 `ellipsis` 展开 tooltip
+
+### ✅ ③ 类型系统扩展
+- `AssetItem.type` / `AssetPayload.type`：`'video' | 'image' | 'audio'`
+- `assetOptions`：`{ video: [...], image: [...], audio: [...] }` 三分组
+- Canvas 编辑器属性面板 Props 类型同步扩展
+
+### ❌ 遗留：剪辑页音频 BGM Tab 未显示大资产库音频
+- **现象**：`globalAssets` 已解析 `audio_url`，但「音频 BGM」Tab 仅显示上传音频，大资产库音频为空
+- **已确认代码**：
+  - `EditorPage.tsx loadAssets()` 第 147 行已加 `if (a.audio_url) assets.push({ kind: 'global_asset', type: 'audio', url: a.audio_url, ... })`
+  - 音频 Tab 渲染逻辑：`globalAssets.filter(it => it.type === 'audio')` 合并渲染
+- **待排查**：
+  1. 后端 `/api/global-assets?type=audio` 是否返回 `audio_url` 字段
+  2. 数据库 `global_assets` 表是否有 `audio_url` 列及数据（TypeORM `synchronize` 是否自动加列）
+  3. 前端 `globalAssets` 状态是否正确更新、React 是否重渲染
+  4. 浏览器缓存旧 JS（已 `npm run build` 重启，需硬刷新验证）
+- **明日首项**：`curl -H "Authorization: Bearer <token>" http://localhost:3000/api/global-assets?type=audio` 确认字段存在 → 再定位前端渲染断点
+
+### 相关文件变更
+| 文件 | 变更 |
+|------|------|
+| `backend/src/modules/global-asset/global-asset.entity.ts` | 新增 `audio_url` 列 |
+| `backend/src/modules/global-asset/global-asset.service.ts` | 类型校验含 `'audio'` |
+| `frontend/src/pages/Drama/GlobalAssets.tsx` | 音频 Tab、上传、播放、统计 |
+| `frontend/src/pages/Editor/EditorPage.tsx` | `loadAssets` 解析 `audio_url`、音频 Tab 合并渲染、单列分组布局 |
+| `frontend/src/pages/Canvas/components/AssetPanel.tsx` | `AssetItem.type` 加 `'audio'` |
+| `frontend/src/pages/Canvas/components/WorkflowCanvas.tsx` | `AssetPayload.type` 加 `'audio'` |
+| `frontend/src/pages/Canvas/Editor.tsx` | `assetOptions` 加 `audio` 分组 |
+| `frontend/src/pages/Canvas/components/PropertiesPanel.tsx` | Props 类型扩展 |
+
 ## 2026-08-19（Generate 页 Tab 标签行移动端布局修复 + 生产/本地同步检查 ✅ 已提交已部署生产，index-SyBuwWeP.js + Generate-B9wgkI6H.js）
 
 > 用户反馈：/generate 页「文字生图片/文字生视频/图片生视频/多图合并」四个按钮（自绘 Tab 行）排列不整齐。原因：自绘 button 固定 `padding:12px 16px`，4 项总宽 ≈490px > 375px 手机 → 溢出/错乱。

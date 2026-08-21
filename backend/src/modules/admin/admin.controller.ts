@@ -10,6 +10,7 @@ import {
   Req,
   UseGuards,
   ForbiddenException,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -70,19 +71,19 @@ export class AdminController {
 
   @Put('users/:id/ban')
   @Roles('admin')
-  toggleBan(@Param('id') id: number, @Body() body: { banned: boolean }, @Req() req) {
+  toggleBan(@Param('id', ParseIntPipe) id: number, @Body() body: { banned: boolean }, @Req() req) {
     return this.adminService.toggleBan(id, body.banned, req.user.id);
   }
 
   @Post('users/:id/recharge')
   @Roles('admin')
-  recharge(@Param('id') id: number, @Body() body: { amount: number }, @Req() req) {
+  recharge(@Param('id', ParseIntPipe) id: number, @Body() body: { amount: number }, @Req() req) {
     return this.adminService.recharge(id, body.amount, req.user.id);
   }
 
   @Delete('users/:id')
   @Roles('admin')
-  deleteUser(@Param('id') id: number, @Req() req) {
+  deleteUser(@Param('id', ParseIntPipe) id: number, @Req() req) {
     return this.adminService.deleteUser(id, req.user.id);
   }
 
@@ -112,7 +113,7 @@ export class AdminController {
 
   @Put('notifications/:id/read')
   @Roles('admin')
-  markRead(@Param('id') id: number) {
+  markRead(@Param('id', ParseIntPipe) id: number) {
     return this.notificationService.markRead(id);
   }
 
@@ -133,7 +134,7 @@ export class AdminController {
 
   @Get('models/:id')
   @Roles('admin')
-  getModel(@Param('id') id: number) {
+  getModel(@Param('id', ParseIntPipe) id: number) {
     return this.modelConfigService.getById(id);
   }
 
@@ -145,13 +146,13 @@ export class AdminController {
 
   @Put('models/:id')
   @Roles('admin')
-  updateModel(@Param('id') id: number, @Body() body: Partial<import('./model-config.entity').ModelConfig>) {
+  updateModel(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<import('./model-config.entity').ModelConfig>) {
     return this.modelConfigService.update(id, body);
   }
 
   @Delete('models/:id')
   @Roles('admin')
-  deleteModel(@Param('id') id: number) {
+  deleteModel(@Param('id', ParseIntPipe) id: number) {
     return this.modelConfigService.delete(id);
   }
 
@@ -165,7 +166,7 @@ export class AdminController {
 
   @Get('prompt-templates/:id')
   @Roles('admin')
-  getPromptTemplate(@Param('id') id: number) {
+  getPromptTemplate(@Param('id', ParseIntPipe) id: number) {
     return this.promptTemplateService.getById(id);
   }
 
@@ -177,13 +178,13 @@ export class AdminController {
 
   @Put('prompt-templates/:id')
   @Roles('admin')
-  updatePromptTemplate(@Param('id') id: number, @Body() body: Partial<import('./prompt-template.entity').PromptTemplate>) {
+  updatePromptTemplate(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<import('./prompt-template.entity').PromptTemplate>) {
     return this.promptTemplateService.update(id, body);
   }
 
   @Delete('prompt-templates/:id')
   @Roles('admin')
-  deletePromptTemplate(@Param('id') id: number) {
+  deletePromptTemplate(@Param('id', ParseIntPipe) id: number) {
     return this.promptTemplateService.delete(id);
   }
 

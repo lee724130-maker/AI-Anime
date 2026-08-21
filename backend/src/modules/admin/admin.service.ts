@@ -293,7 +293,9 @@ export class AdminService {
   }
 
   async recharge(userId: number, amount: number, adminId?: number) {
-    if (!amount || amount <= 0) throw new BadRequestException('充值数量必须大于 0');
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100000 || !Number.isInteger(amount)) {
+      throw new BadRequestException('充值数量必须为 1~100000 的整数');
+    }
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('用户不存在');
     user.credits = (user.credits || 0) + amount;

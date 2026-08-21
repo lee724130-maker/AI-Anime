@@ -1,9 +1,44 @@
 import * as dns from 'dns';
 import * as net from 'net';
 import * as fs from 'fs';
+import * as path from 'path';
 import axios from 'axios';
 
 const DEFAULT_MAX_BYTES = 500 * 1024 * 1024;
+
+/** backend/output 目录（/static/ 静态资源映射根） */
+export function getOutputDir(): string {
+  return path.resolve(process.cwd(), 'output');
+}
+
+/**
+ * 将用户可控路径安全解析到 output 目录内（防任意文件读取 / 目录穿越）。
+ * 支持三种格式：
+ *  - /static/xxx        → output/xxx（xxx 禁止含 .. 与分隔符穿越）
+ *  - output 内的绝对路径 → 原样放行
+ *  - 纯文件名           → output/xxx
+ * 其余（相对路径、含 .. / 分隔符、输出目录外的绝对路径）一律返回 null。
+ */
+export function resolveSafeStaticPath(input: string): string | null {
+  if (typeof input !== 'string' || !input.trim()) return null;
+  let rel: string;
+  if (input.startsWith('/static/')) {
+    rel = input.slice('/static/'.length);
+  } else if (path.isAbsolute(input)) {
+    const outDir = getOutputDir();
+    const resolved = path.resolve(input);
+    if (!resolved.startsWith(outDir + path.sep)) return null;
+    return resolved;
+  } else {
+    if (input.includes('\\') || input.includes('/') || input.startsWith('.')) return null;
+    rel = input;
+  }
+  if (!rel || rel.includes('..')) return null;
+  const outDir = getOutputDir();
+  const full = path.resolve(outDir, rel);
+  if (!full.startsWith(outDir + path.sep)) return null;
+  return full;
+}
 
 function isPrivateIp(ip: string): boolean {
   if (net.isIP(ip) === 0) return true;
