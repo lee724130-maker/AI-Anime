@@ -1,8 +1,8 @@
 # 修复日志
 
-## 2026-08-21（代码审计修复 + 部署生产）
+## 2026-08-21（代码审计修复 + GlobalAssets 上传进度条 + 部署生产）
 
-> 全面审计后端安全与健壮性，修复 6 项问题，已部署生产验证通过。
+> 全面审计后端安全与健壮性，修复 6 项问题；新增 GlobalAssets 上传进度条；已部署生产验证通过，已 git push。
 
 ### ✅ 已完成
 1. **H1: global_assets 加 user_id 归属**：entity 加 user_id 列（nullable，synchronize 自动建列）；service 所有方法加 userId/isAdmin 参数，普通用户只能操作自己的资产；controller 所有端点传递 req.user
@@ -11,11 +11,14 @@
 4. **M1: ParseIntPipe × 65 处**：9 个 controller 全部 `@Param('id')` 加 `ParseIntPipe`，防止非数字 id 进入 service 层
 5. **M3/M4: throw Error → BadRequestException**：script.controller.ts 2 处 + editor.controller.ts 1 处，保证 Nest 正确返回 400
 6. **M5: admin recharge 金额上限**：从 `>0` 改为 `Number.isFinite && >0 && <=100000 && isInteger`，防止超大/负数/小数充值
+7. **GlobalAssets 上传进度条**：4 个上传函数（audio/image/video/card-replace）均加 `onUploadProgress` 追踪 + 全屏 Progress overlay（紫主题、文件名显示、百分比进度、完成态提示）
 
 ### 部署
-- dist-backend.tar.gz → scp 上传 → 服务器解压替换 dist → pm2 restart
-- 验证：Front 200 / GlobalAssets 401 / PM2 online / Nest started
+- 后端：dist-backend.tar.gz → scp → 解压替换 dist → pm2 restart → 审计代码确认（ParseIntPipe×38 / user_id×3 / Number.isFinite×1 / BadRequestException×2）
+- 前端：dist-frontend.tar.gz → scp → 解压替换 dist → hash 一致 `index-D6dNmXuK.js` / 91 assets
+- 验证：Front 200 / API 401 / PM2 online (PID 212586) / 日志无 error
 - **功能测试 17/17 全绿**（生产 API 实测）：H1 用户隔离 4/4 + H2 视频鉴权 1/1 + H3 事件归属 2/2 + M1 ParseIntPipe 5/5 + M5 recharge 5/5
+- git commit `2e91902` + push 到 origin/main
 
 ### 相关文件变更
 | 文件 | 变更 |
@@ -30,6 +33,7 @@
 | `script.controller.ts` | throw Error → BadRequestException |
 | `editor.controller.ts` | throw Error → BadRequestException |
 | `admin.service.ts` | recharge 金额上限 |
+| `GlobalAssets.tsx` | 上传进度条（onUploadProgress + Progress overlay） |
 
 ---
 
