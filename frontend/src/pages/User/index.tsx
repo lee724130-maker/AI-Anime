@@ -117,20 +117,20 @@ export default function UserPage() {
           style={{ borderRadius: 16, border: '1px solid #f0f0f0' }}
           styles={{ body: { padding: 24 } }}>
           {profile && (
-            <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
-              <Descriptions.Item label="用户 ID">{profile.id}</Descriptions.Item>
+            <Descriptions column={2} bordered size="small">
               <Descriptions.Item label="用户名">{profile.username}</Descriptions.Item>
-              <Descriptions.Item label="手机号">{profile.phone || '未绑定'}</Descriptions.Item>
-              <Descriptions.Item label="电子邮箱">{profile.email || '未绑定'}</Descriptions.Item>
               <Descriptions.Item label="角色">
                 <Tag color={profile.role === 'admin' ? 'purple' : 'blue'}>
                   {profile.role === 'admin' ? '管理员' : '普通用户'}
                 </Tag>
               </Descriptions.Item>
+              <Descriptions.Item label="电子邮箱">{profile.email || '未绑定'}</Descriptions.Item>
+              <Descriptions.Item label="手机号">{profile.phone || '未绑定'}</Descriptions.Item>
+              <Descriptions.Item label="用户 ID">{profile.id}</Descriptions.Item>
               <Descriptions.Item label="剩余算力">
-                <Text strong style={{ color: '#f59e0b' }}>{profile.credits}</Text>
+                <Text strong style={{ color: '#f59e0b' }}>{profile.credits} 分</Text>
               </Descriptions.Item>
-              <Descriptions.Item label="注册时间">
+              <Descriptions.Item label="注册时间" span={2}>
                 {new Date(profile.created_at).toLocaleDateString('zh-CN')}
               </Descriptions.Item>
             </Descriptions>
