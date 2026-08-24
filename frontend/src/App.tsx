@@ -6,6 +6,7 @@ import LoginPage from './pages/Auth/LoginPage';
 import RegisterPage from './pages/Auth/RegisterPage';
 import UserLayout from './components/UserLayout';
 import TestNoticeModal from './components/TestNoticeModal';
+import SessionExpiredModal from './components/SessionExpiredModal';
 
 const HomePage = lazy(() => import('./pages/Home'));
 const TasksPage = lazy(() => import('./pages/Tasks'));
@@ -111,6 +112,7 @@ export default function App() {
         </Routes>
       </Suspense>
       <TestNoticeModal />
+      <SessionExpiredModal />
     </BrowserRouter>
   );
 }
