@@ -1,0 +1,264 @@
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[FFmpegUtil] [39m[32mFFmpeg binary: C:\Users\Administrator\Desktop\AI-Anime\backend\tools\ffmpeg\ffmpeg.exe[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[FFmpegUtil] [39m[32mFFprobe binary: C:\Users\Administrator\Desktop\AI-Anime\backend\tools\ffmpeg\ffprobe.exe[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[FFmpegUtil] [39m[32mFFmpeg output directory: C:\Users\Administrator\Desktop\AI-Anime\backend\output[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +4ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPassportModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigHostModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mThrottlerModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mWinstonModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDiscoveryModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:49 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +1728ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mJwtModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mSecurityModule dependencies initialized[39m[38;5;3m +6ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:51 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mBullModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmCoreModule dependencies initialized[39m[38;5;3m +443ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCleanupModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCreditsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mUtilsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mQueueModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mUserModule dependencies initialized[39m[38;5;3m +3ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAdminModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mOrderModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTaskModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mWorkbenchModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCanvasModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mMediaModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mEditorModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mCharacterModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mGlobalAssetModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mViralModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mVideoModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDramaModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mGenerateModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 20124  - [39m2026/08/24 14:25:52 [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mScriptModule dependencies initialized[39m[38;5;3m +0ms[39m
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] AuthController {/api/auth}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/auth/send-code, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/auth/register, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/auth/login, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] UserController {/api/user}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/user/profile, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/user/dismiss-test-notice, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/user/dashboard, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] ScriptController {/api/script}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/list, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id/export, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/import, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id/split, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id/scene/:index, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id/generate-all, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/script/:id/stitch-all, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] VideoController {/api/video}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/generate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/batch-generate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/list, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/task/:taskId, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/file/:filename, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/defaults, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/stitch, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/batch-delete, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/batch-download, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/:id/retry, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/video/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] AdminController {/api/admin}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/site/config, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/api-keys, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/api-keys, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/dashboard, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/generation-logs, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/users, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/users/:id/ban, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/users/:id/recharge, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/users/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/system/config, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/system/config, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/notifications, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/notifications/unread, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/notifications/:id/read, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/notifications/read-all, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/models, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/models/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/models, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/models/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/models/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/prompt-templates, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/prompt-templates/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/prompt-templates, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/prompt-templates/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/prompt-templates/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/logs, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] CharacterController {/api/character}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/character/list, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/character/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/character, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/character/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/character/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/character/:id/generate-reference, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] OrderController {/api/order}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/order/plans, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/order/create, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/order/list, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/order/:id/mock-pay, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/order/:id/cancel, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] DramaController {/api/drama}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/analyze, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/analysis, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/analysis, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/confirm-analysis, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/regenerate-segment, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/episodes, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/assets/:assetId, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/assets/:assetId, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets/:assetId/generate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets/:assetId/plan-prompt, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets/:assetId/translate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets/generate-all, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets/:assetId/upload, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id/assets/import-from-global, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/segments, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/segments/:segmentId, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/segments/:segmentId/generate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/segments/:segmentId/candidates, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/candidates/:candidateId/accept, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/candidates/:candidateId, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/segments/:segmentId/status, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/segments/:segmentId/plan, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/generate-all, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/stitch, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/stitch-status, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/episodes/:episodeId/settings, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/model-info, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/ping, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/credit-rules, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/drama/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] MediaController {/api/media}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/media, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/media/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/media/upload, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/media, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/media/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] TaskController {/api/tasks}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/tasks, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/tasks/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/tasks, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/tasks/:id/status, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/tasks/:id/events, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] GenerateController {/api/generate}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/text-to-image, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/text-to-video, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/image-to-video, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/image-merge, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/smart-describe, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/smart-plan, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/tts-voices, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/tasks, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/credit-rules, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/tasks/:id/retry, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/generate/tasks/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] GlobalAssetController {/api/global-assets}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/stats, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/tags, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/:id/generate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/:id/translate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/global-assets/:id/plan-prompt, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] ViralController {/api/viral}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/analyze, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/analyze-upload, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/:id/duplicate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/:id/refresh-source, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/templates/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/categories, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects/:id/generate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects/:id/regenerate-scene, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/projects/:id/result, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/stats, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/viral/credit-rules, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] CanvasController {/api/canvas}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects/:id/render, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects/:id/export, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/projects/:id/save-as-template, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/templates, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/templates/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/templates, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/templates/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/templates/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/canvas/templates/:id/duplicate, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] EditorController {/api/editor}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects/:id, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects/:id, PUT} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects/:id, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects/:id/render, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/projects/:id/export, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/concat, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/editor/upload, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] WorkbenchController {/api/workbench}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/workbench/summary, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/workbench/projects, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/workbench/tasks, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/workbench/failed-tasks, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/workbench/failed-tasks, DELETE} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/workbench/disk-usage, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RoutesResolver] SecurityController {/api/admin/access}:
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/access/summary, GET} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/access/ban, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [RouterExplorer] Mapped {/api/admin/access/unban, POST} route
+2026-08-24 14:25:52 [[32minfo[39m] [NestApplication] Nest application successfully started
+2026-08-24 14:25:52 [[32minfo[39m] [GenerateService] [gen-queue] 并发上限 = 3
