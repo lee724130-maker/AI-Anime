@@ -17,6 +17,7 @@ interface Profile {
   id: number;
   username: string;
   phone?: string;
+  email?: string;
   credits: number;
   role: string;
   created_at: string;
@@ -78,6 +79,11 @@ export default function UserPage() {
                     <Text>{profile.phone}</Text>
                   </Space>
                 )}
+                {profile?.email && (
+                  <Space>
+                    <Text type="secondary">{profile.email}</Text>
+                  </Space>
+                )}
                 <Space>
                   <CalendarOutlined style={{ color: '#1890ff' }} />
                   <Text type="secondary">
@@ -115,6 +121,7 @@ export default function UserPage() {
               <Descriptions.Item label="用户 ID">{profile.id}</Descriptions.Item>
               <Descriptions.Item label="用户名">{profile.username}</Descriptions.Item>
               <Descriptions.Item label="手机号">{profile.phone || '未绑定'}</Descriptions.Item>
+              <Descriptions.Item label="电子邮箱">{profile.email || '未绑定'}</Descriptions.Item>
               <Descriptions.Item label="角色">
                 <Tag color={profile.role === 'admin' ? 'purple' : 'blue'}>
                   {profile.role === 'admin' ? '管理员' : '普通用户'}

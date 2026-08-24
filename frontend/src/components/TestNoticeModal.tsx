@@ -11,14 +11,15 @@ export default function TestNoticeModal() {
   const [visible, setVisible] = useState(false);
   const [noAgain, setNoAgain] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     if (!token || !user) return;
 
     const sessionKey = `tn_shown_${user.id}`;
-    if (sessionStorage.getItem(sessionKey)) return;
+    if (sessionStorage.getItem(sessionKey)) { setChecked(true); return; }
     const dismissKey = `tn_dismissed_${user.id}`;
-    if (localStorage.getItem(dismissKey)) return;
+    if (localStorage.getItem(dismissKey)) { setChecked(true); return; }
 
     let cancelled = false;
     (async () => {
@@ -27,18 +28,23 @@ export default function TestNoticeModal() {
         if (cancelled) return;
         if (data && data.test_notice_dismissed) {
           localStorage.setItem(dismissKey, '1');
+          setChecked(true);
           return;
         }
         setVisible(true);
         sessionStorage.setItem(sessionKey, '1');
       } catch {
         if (!cancelled) setVisible(true);
+      } finally {
+        if (!cancelled) setChecked(true);
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [token, user]);
+
+  if (!checked) return null;
 
   const handleConfirm = async () => {
     setLoading(true);

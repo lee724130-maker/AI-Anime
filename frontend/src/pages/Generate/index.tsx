@@ -237,11 +237,7 @@ export default function GeneratePage() {
       }
       form.setFieldsValue(patch);
       hideLoading();
-      if (data.has_image_analysis) {
-        message.success('智能规划完成（已结合图片分析）！');
-      } else {
-        message.success('智能规划完成！');
-      }
+      message.success('智能规划完成！');
     } catch (err: any) {
       hideLoading();
       message.error(err.response?.data?.message || '智能规划失败');

@@ -5,7 +5,10 @@ interface User {
   id: number;
   username: string;
   phone?: string;
+  email?: string;
   credits: number;
+  role?: string;
+  test_notice_dismissed?: boolean;
   created_at: string;
 }
 
