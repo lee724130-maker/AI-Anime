@@ -31,8 +31,6 @@ const ViralProjectDetail = lazy(() => import('./pages/Viral/ProjectDetail'));
 const ViralTemplateList = lazy(() => import('./pages/Viral/TemplateList'));
 const CanvasIndex = lazy(() => import('./pages/Canvas'));
 const CanvasEditor = lazy(() => import('./pages/Canvas/Editor'));
-const EditorIndex = lazy(() => import('./pages/Editor'));
-const EditorPage = lazy(() => import('./pages/Editor/EditorPage'));
 const GeneratePage = lazy(() => import('./pages/Generate'));
 const GenerateHistoryPage = lazy(() => import('./pages/Generate/History'));
 const DramaListPage = lazy(() => import('./pages/Drama'));
@@ -107,8 +105,9 @@ export default function App() {
           <Route path="/canvas" element={<ProtectedRoute><UserLayout><CanvasIndex /></UserLayout></ProtectedRoute>} />
           {/* 画布编辑器：网页全屏工作台（无导航栏，独占整屏） */}
           <Route path="/canvas/editor/:id" element={<ProtectedRoute><CanvasEditor /></ProtectedRoute>} />
-          <Route path="/editor" element={<ProtectedRoute><UserLayout><EditorIndex /></UserLayout></ProtectedRoute>} />
-          <Route path="/editor/:id" element={<ProtectedRoute><UserLayout><EditorPage /></UserLayout></ProtectedRoute>} />
+          {/* 剪辑功能暂时关闭（服务器内存不足），后续升级服务器后开放 */}
+          <Route path="/editor" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
+          <Route path="/editor/:id" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
         </Routes>
       </Suspense>
       <TestNoticeModal />

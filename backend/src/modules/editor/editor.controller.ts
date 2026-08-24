@@ -1,11 +1,14 @@
 import {
   Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe,
-  UseGuards, Req, UploadedFile, UseInterceptors, BadRequestException,
+  UseGuards, Req, UploadedFile, UseInterceptors, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { SystemConfig } from '../admin/admin.entity';
 import { EditorService } from './editor.service';
 import { CreateEditorProjectDto, UpdateEditorProjectDto } from './editor.dto';
 
@@ -18,7 +21,23 @@ const ALLOWED_EXT = new Set([
 @Controller('api/editor')
 @UseGuards(JwtAuthGuard)
 export class EditorController {
-  constructor(private readonly service: EditorService) {}
+  private editorEnabled = true;
+
+  constructor(
+    private readonly service: EditorService,
+    @InjectRepository(SystemConfig)
+    private readonly configRepo: Repository<SystemConfig>,
+  ) {
+    this.configRepo.findOne({ where: { config_key: 'editor_enabled' } })
+      .then(r => { this.editorEnabled = r?.config_value !== '0'; })
+      .catch(() => {});
+  }
+
+  private assertEnabled() {
+    if (!this.editorEnabled) {
+      throw new ForbiddenException('剪辑功能暂时关闭，后续升级服务器后开放');
+    }
+  }
 
   // ───── Projects ─────
 
@@ -29,6 +48,7 @@ export class EditorController {
 
   @Post('projects')
   createProject(@Req() req, @Body() dto: CreateEditorProjectDto) {
+    this.assertEnabled();
     return this.service.createProject(req.user.id, dto);
   }
 
@@ -39,16 +59,19 @@ export class EditorController {
 
   @Put('projects/:id')
   updateProject(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEditorProjectDto) {
+    this.assertEnabled();
     return this.service.updateProject(id, req.user.id, dto);
   }
 
   @Delete('projects/:id')
   deleteProject(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    this.assertEnabled();
     return this.service.deleteProject(id, req.user.id);
   }
 
   @Post('projects/:id/render')
   renderProject(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    this.assertEnabled();
     return this.service.startRender(id, req.user.id);
   }
 
@@ -61,6 +84,7 @@ export class EditorController {
 
   @Post('concat')
   concat(@Body() body: { urlA: string; urlB: string }) {
+    this.assertEnabled();
     if (!body.urlA || !body.urlB) throw new BadRequestException('urlA and urlB are required');
     return this.service.concatVideos(body.urlA, body.urlB);
   }
@@ -89,6 +113,7 @@ export class EditorController {
     }),
   )
   uploadFile(@Req() req, @UploadedFile() file: any) {
+    this.assertEnabled();
     if (!file) throw new BadRequestException('文件上传失败');
     return { url: `/static/${file.filename}`, original_name: file.originalname };
   }
