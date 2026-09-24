@@ -61,7 +61,39 @@ export class DramaService {
       skip: (page - 1) * limit,
       take: limit,
     });
-    return { items, total, page, limit };
+    const projectIds = items.map(p => p.id);
+    let coverMap: Record<number, string | null> = {};
+    if (projectIds.length) {
+      const episodes = await this.episodeRepo
+        .createQueryBuilder('ep')
+        .select(['ep.project_id', 'ep.video_url'])
+        .where('ep.project_id IN (:...ids)', { ids: projectIds })
+        .andWhere('ep.video_url IS NOT NULL')
+        .orderBy('ep.episode_no', 'ASC')
+        .getMany();
+      for (const ep of episodes) {
+        if (!coverMap[ep.project_id]) coverMap[ep.project_id] = ep.video_url;
+      }
+      const missingIds = projectIds.filter(id => !coverMap[id]);
+      if (missingIds.length) {
+        const segments = await this.segmentRepo
+          .createQueryBuilder('seg')
+          .innerJoin(DramaEpisode, 'ep', 'ep.id = seg.episode_id AND ep.project_id IN (:...ids)', { ids: missingIds })
+          .select(['ep.project_id AS project_id', 'seg.video_url AS video_url'])
+          .where('seg.video_url IS NOT NULL')
+          .orderBy('ep.project_id, ep.episode_no, seg.segment_no', 'ASC')
+          .limit(missingIds.length * 3)
+          .getRawMany();
+        for (const seg of segments) {
+          if (!coverMap[seg.project_id]) coverMap[seg.project_id] = seg.video_url;
+        }
+      }
+    }
+    const result = items.map(p => ({
+      ...p,
+      cover_url: p.cover_url || coverMap[p.id] || null,
+    }));
+    return { items: result, total, page, limit };
   }
 
   async getById(userId: number, id: number) {
@@ -191,7 +223,7 @@ export class DramaService {
         scenes: (structure.assets?.scenes || []).map((s: any) => ({ name: s.name, description: s.description })),
       });
 
-      // 每批 3 集并行（阶段 2 显式走 qwen-plus，3 并发生产已验证；GLM 并发上限问题仅在阶段 1 单发，不受影响）
+      // 每批 3 集并行（3 并发生产已验证；GLM 并发上限问题仅在阶段 1 单发，不受影响）
       const batchSize = 3;
       for (let i = 0; i < episodes.length; i += batchSize) {
         const batch = episodes.slice(i, i + batchSize);
@@ -205,8 +237,7 @@ export class DramaService {
               + `\n\n画面风格要求：${styleName}（prompt 中必须体现该风格词汇）`;
             const raw = await this.aiService.chatCompletion(
               [{ role: 'user', content: expandPrompt }],
-              // 阶段 2 属批量机械扩展：显式用 qwen-plus（快、已验证质量足够），阶段 1 的智能结构走 GLM-4.5-Air
-              { temperature: 0.3, maxTokens: 4096, model: 'qwen-plus' },
+              { temperature: 0.3, maxTokens: 4096 },
             );
             if (!raw || raw.trim() === '') {
               throw new Error('LLM 返回了空结果，请检查 API Key 是否已配置且可用');
@@ -244,7 +275,7 @@ export class DramaService {
       }
       await this.outlineRepo.save(outline);
       // 分析失败 → 退全款
-      await this.credits.refund(userId, analyzeCost).catch(() => undefined);
+      await this.credits.refund(userId, analyzeCost, `drama_analyze_${projectId}`).catch(() => undefined);
       const msg = err.message.includes('JSON')
         ? `AI 返回内容无法解析为有效 JSON，请重试或检查 LLM 配置。原始返回：${(outline.raw_response || '').substring(0, 200)}`
         : err.message;
@@ -577,7 +608,7 @@ export class DramaService {
       asset.status = 'failed';
       await this.assetRepo.save(asset);
       // 生成失败 → 退全款
-      await this.credits.refund(userId, assetCost).catch(() => undefined);
+      await this.credits.refund(userId, assetCost, `drama_asset_${asset.id}`).catch(() => undefined);
       throw new BadRequestException(`资产生成失败: ${err.message}`);
     }
   }
@@ -797,7 +828,9 @@ export class DramaService {
     if (!episode) throw new NotFoundException('分集不存在');
     await this.getById(userId, episode.project_id);
     if (!segment.prompt) throw new BadRequestException('片段没有提示词，请先编辑');
-
+    const segCost = await this.credits.dramaSegmentCost(episode.resolution);
+    const totalCost = segCost * count;
+    await this.credits.assertSufficient(userId, totalCost, '片段生成');
     const job = await this.segmentQueue.add('generate', { userId, segmentId, candidateCount: count });
     return { jobId: job.id, segmentId, status: 'queued', candidateCount: count };
   }
@@ -917,11 +950,14 @@ export class DramaService {
     } catch (err: any) {
       this.runningSegments.delete(segmentId);
       segment.status = 'failed';
+      const errMsg = (err.message || '未知错误').slice(0, 500);
+      segment.progress_message = errMsg;
       await this.segmentRepo.save(segment);
       // 片段生成失败 → 退全款（含候选数倍扣费）
-      await this.credits.refund(userId, totalCost).catch(() => undefined);
-      this.logger.log(`[credits] 片段 ${segmentId} 生成失败，已退还 ${totalCost} 积分`);
-      throw new BadRequestException(`片段生成失败: ${err.message}`);
+      const refundKey = `drama_seg_${segmentId}_${Date.now()}`;
+      await this.credits.refund(userId, totalCost, refundKey).catch(() => undefined);
+      this.logger.log(`[credits] 片段 ${segmentId} 生成失败，已退还 ${totalCost} 积分（key=${refundKey}）`);
+      throw new BadRequestException(`片段生成失败: ${errMsg}`);
     }
   }
 
@@ -1410,18 +1446,8 @@ export class DramaService {
           localPath = path.join(outputDir, path.basename(localPath));
         }
         if (!fs.existsSync(localPath)) {
-          this.logger.warn(`片段 ${seg.segment_no} 视频文件缺失，尝试重新生成`);
-          await updateStitchProgress(`片段 ${seg.segment_no} 文件缺失，正在重新生成...`, 15 + Math.round((i / segments.length) * 30));
-          try {
-            const result = await this.executeSegmentGeneration(userId, seg.id);
-            localPath = result.video_url;
-            if (localPath.startsWith('/static/')) {
-              localPath = path.join(outputDir, path.basename(localPath));
-            }
-            if (!fs.existsSync(localPath)) throw new Error('重新生成后文件仍不存在');
-          } catch (regErr: any) {
-            throw new Error(`片段 ${seg.segment_no} 视频文件不存在且重新生成失败: ${regErr.message}`);
-          }
+          this.logger.warn(`片段 ${seg.segment_no} 视频文件缺失`);
+          throw new BadRequestException(`片段 ${seg.segment_no} 的视频文件不存在，请返回重新生成该片段后再合成`);
         }
         clips.push({ path: localPath });
       }
@@ -1449,7 +1475,6 @@ export class DramaService {
       await this.episodeRepo.save(episode);
       throw new BadRequestException(`本集合成失败: ${err.message}`);
     } finally {
-      await this.episodeRepo.update(episodeId, { stitch_progress_message: '正在清理临时文件...', stitch_progress_percent: 95 });
       // Clean up any downloaded temp files (not original segment videos)
       for (const clip of clips) {
         const p = clip.path;

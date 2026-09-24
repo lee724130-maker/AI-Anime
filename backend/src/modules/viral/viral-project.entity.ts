@@ -14,8 +14,8 @@ export class ViralProject {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ name: 'template_id' })
-  template_id: number;
+  @Column({ name: 'template_id', type: 'int', nullable: true })
+  template_id: number | null;
 
   @ManyToOne(() => ViralTemplate)
   @JoinColumn({ name: 'template_id' })

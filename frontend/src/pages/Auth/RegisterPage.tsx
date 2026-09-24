@@ -1,10 +1,24 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, message } from 'antd';
-import { UserOutlined, LockOutlined, MailOutlined, SmileOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Typography, message } from 'antd';
 import api from '../../services/api';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
+
+function passwordStrength(pw: string) {
+  if (!pw) return { level: 0, label: '', color: '' };
+  let score = 0;
+  if (pw.length >= 6) score++;
+  if (pw.length >= 10) score++;
+  if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++;
+  if (/\d/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  return score <= 2
+    ? { level: 1, label: '弱', color: '#ef4444' }
+    : score <= 3
+      ? { level: 2, label: '中', color: '#f59e0b' }
+      : { level: 3, label: '强', color: '#22c55e' };
+}
 
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
@@ -13,6 +27,8 @@ export default function RegisterPage() {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const passwordValue = Form.useWatch('password', form) || '';
+  const strength = useMemo(() => passwordStrength(passwordValue), [passwordValue]);
 
   useEffect(() => {
     return () => {
@@ -38,7 +54,11 @@ export default function RegisterPage() {
       if (countdownRef.current) clearInterval(countdownRef.current);
       countdownRef.current = setInterval(() => {
         setCountdown((c) => {
-          if (c <= 1) { if (countdownRef.current) clearInterval(countdownRef.current); countdownRef.current = null; return 0; }
+          if (c <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            return 0;
+          }
           return c - 1;
         });
       }, 1000);
@@ -49,7 +69,12 @@ export default function RegisterPage() {
     }
   };
 
-  const onFinish = async (values: { username: string; email: string; code: string; password: string }) => {
+  const onFinish = async (values: {
+    username: string;
+    email: string;
+    code: string;
+    password: string;
+  }) => {
     setLoading(true);
     try {
       await api.post('/api/auth/register', values);
@@ -62,74 +87,145 @@ export default function RegisterPage() {
     }
   };
 
+  const inputStyle = { height: 48, borderRadius: 8, fontSize: 14, border: '1px solid var(--border)' };
+
   return (
-    <div className="auth-screen" style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 16,
-      background: 'linear-gradient(135deg, #ede9fe 0%, #fce7f3 50%, #fef3c7 100%)',
-    }}>
-      <Card style={{ width: '100%', maxWidth: 420, borderRadius: 16, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
-        {/* Hero banner */}
-        <div style={{
-          background: 'linear-gradient(135deg, #059669 0%, #10b981 40%, #34d399 100%)',
-          padding: '40px 24px 32px',
-          textAlign: 'center',
-        }}>
-          <SmileOutlined style={{ fontSize: 52, color: '#fff', marginBottom: 12 }} />
-          <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>
-            加入我们
-          </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14 }}>
-            创建账号，开始AI创作之旅
+    <div
+      className="auth-screen"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '48px 24px',
+        background: 'var(--bg)',
+        minHeight: '100vh',
+      }}
+    >
+      <div style={{ width: '100%', maxWidth: 360 }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div
+            style={{
+              fontSize: 32,
+              fontWeight: 800,
+              letterSpacing: '-1px',
+              background: 'linear-gradient(135deg, #7c3aed, #a855f7, #ec4899)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              lineHeight: 1.2,
+              marginBottom: 8,
+            }}
+          >
+            AI Anime
+          </div>
+          <Text style={{ display: 'block', fontSize: 14, color: 'var(--text-muted)' }}>
+            创建你的账号
           </Text>
         </div>
-
-        {/* Form */}
-        <div style={{ padding: '32px 36px 36px' }}>
-          <Form form={form} onFinish={onFinish} size="large">
-            <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3位' }]}>
-              <Input prefix={<UserOutlined style={{ color: '#10b981' }} />} placeholder="用户名（登录使用，3-50位）" />
-            </Form.Item>
-            <Form.Item name="email" rules={[{ required: true, type: 'email', message: '请输入正确的邮箱' }]}>
-              <Input prefix={<MailOutlined style={{ color: '#10b981' }} />} placeholder="邮箱（接收验证码）" />
-            </Form.Item>
-            <Form.Item name="code" rules={[{ required: true, len: 6, message: '请输入6位验证码' }]}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Input prefix={<LockOutlined style={{ color: '#10b981' }} />} placeholder="6位验证码" maxLength={6} />
-                <Button
-                  onClick={sendCode}
-                  loading={sending}
-                  disabled={countdown > 0}
-                  style={{ width: 132, borderRadius: 8, flexShrink: 0 }}
-                >
-                  {countdown > 0 ? `${countdown}s 后重发` : '发送验证码'}
-                </Button>
-              </div>
-            </Form.Item>
-            <Form.Item name="password" rules={[{ required: true, min: 6, message: '密码至少6位' }]}>
-              <Input.Password prefix={<LockOutlined style={{ color: '#10b981' }} />} placeholder="密码（至少6位）" />
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 12 }}>
+        <h1
+          style={{
+            fontSize: 24,
+            fontWeight: 400,
+            color: 'var(--text)',
+            marginBottom: 8,
+            textAlign: 'center',
+            lineHeight: 1.4,
+          }}
+        >
+          注册新账号
+        </h1>
+        <Text
+          style={{
+            display: 'block',
+            textAlign: 'center',
+            fontSize: 14,
+            color: 'var(--text-secondary)',
+            marginBottom: 32,
+          }}
+        >
+          注册即送 100 积分，免费体验全部功能
+        </Text>
+        <Form
+          form={form}
+          onFinish={onFinish}
+          layout="vertical"
+          size="large"
+          requiredMark={false}
+          style={{ marginBottom: 0 }}
+        >
+          <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3位' }]}>
+            <Input placeholder="用户名" style={inputStyle} />
+          </Form.Item>
+          <Form.Item
+            name="email"
+            rules={[{ required: true, type: 'email', message: '请输入正确的邮箱' }]}
+          >
+            <Input placeholder="邮箱" style={inputStyle} />
+          </Form.Item>
+          <Form.Item name="code" rules={[{ required: true, len: 6, message: '请输入6位验证码' }]}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input placeholder="验证码" maxLength={6} style={{ ...inputStyle, flex: 1 }} />
               <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-                block
-                size="large"
-                style={{ background: 'linear-gradient(135deg, #059669, #10b981)', border: 'none' }}
+                onClick={sendCode}
+                loading={sending}
+                disabled={countdown > 0}
+                style={{
+                  width: 120,
+                  height: 48,
+                  flexShrink: 0,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
               >
-                注册
+                {countdown > 0 ? `${countdown}s` : '发送验证码'}
               </Button>
-            </Form.Item>
-          </Form>
-          <div style={{ textAlign: 'center' }}>
-            <Text type="secondary">已有账号？</Text>{' '}
-            <Link to="/login" style={{ color: '#059669', fontWeight: 500 }}>去登录</Link>
-          </div>
+            </div>
+          </Form.Item>
+          <Form.Item name="password" rules={[{ required: true, min: 6, message: '密码至少6位' }]}>
+            <Input.Password placeholder="密码（至少6位）" style={inputStyle} />
+          </Form.Item>
+          {passwordValue && (
+            <div style={{ marginTop: -12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[1, 2, 3].map((n) => (
+                  <div
+                    key={n}
+                    style={{
+                      flex: 1,
+                      height: 3,
+                      borderRadius: 2,
+                      background: strength.level >= n ? strength.color : 'var(--border)',
+                      transition: 'background 0.25s ease',
+                    }}
+                  />
+                ))}
+              </div>
+              <div style={{ fontSize: 12, marginTop: 4, color: strength.color, fontWeight: 500 }}>
+                密码强度：{strength.label}
+              </div>
+            </div>
+          )}
+          <Form.Item style={{ marginBottom: 16 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              block
+              style={{ height: 44, borderRadius: 8, fontSize: 14, fontWeight: 600 }}
+            >
+              注册
+            </Button>
+          </Form.Item>
+        </Form>
+        <div style={{ textAlign: 'center' }}>
+          <Text style={{ color: 'var(--text-muted)', fontSize: 13 }}>{'已有账号？ '}</Text>
+          <Link to="/login" style={{ color: 'var(--primary)', fontWeight: 500, fontSize: 13 }}>
+            去登录
+          </Link>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Repository, EntityManager } from 'typeorm';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
 import { ModelConfigService } from '../admin/model-config.service';
+import { CreditsService } from '../credits/credits.service';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import { MediaFile } from '../media/media-file.entity';
 import { GenerationTask } from '../task/generation-task.entity';
@@ -28,6 +29,7 @@ export class GenerateService {
     private readonly aiService: AIServiceUtil,
     private readonly ffmpeg: FFmpegUtil,
     private readonly modelConfigService: ModelConfigService,
+    private readonly creditsService: CreditsService,
     @InjectRepository(MediaFile)
     private readonly mediaRepo: Repository<MediaFile>,
     @InjectRepository(GenerationTask)
@@ -37,7 +39,7 @@ export class GenerateService {
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
   ) {
-    this.getConfigInt('max_concurrent_generations', 3).then((n) => {
+    this.creditsService.getConfigInt('max_concurrent_generations', 3).then((n) => {
       if (n >= 1 && n <= 20) this.maxConcurrent = n;
       this.logger.log(`[gen-queue] 并发上限 = ${this.maxConcurrent}`);
     }).catch(() => undefined);
@@ -73,59 +75,26 @@ export class GenerateService {
     await this.taskRepo.update(task.id, { progress });
   }
 
-  /** 估算生成积分成本（system_configs 可配置） */
-  private async getConfigInt(key: string, def: number): Promise<number> {
-    try {
-      const rows: any = await this.entityManager.query(
-        'SELECT config_value FROM system_configs WHERE config_key = ? LIMIT 1', [key],
-      );
-      const val = rows?.[0]?.config_value ?? rows?.config_value;
-      const n = Number(val);
-      return Number.isFinite(n) && n > 0 ? n : def;
-    } catch {
-      return def;
-    }
-  }
-
   /** 图：5 分/张；视频：480p=10/720p=20/1080p=40 × ceil(时长/5) */
   private async estimateCreditCost(dto: any): Promise<number> {
     if (dto.type === 'image') {
-      const per = await this.getConfigInt('credit_cost_image', 5);
+      const per = await this.creditsService.getConfigInt('credit_cost_image', 5);
       return per * (dto.num_images || 1);
     }
     const res = dto.resolution || '720p';
     const defaults: Record<string, number> = { '480p': 10, '720p': 20, '1080p': 40 };
-    const base = await this.getConfigInt(`credit_cost_${res}`, defaults[res] ?? 20);
+    const base = await this.creditsService.getConfigInt(`credit_cost_${res}`, defaults[res] ?? 20);
     const mult = Math.max(1, Math.ceil(Number(dto.duration || 5) / 5));
     return base * mult;
-  }
-
-  /** 原子预扣积分，余额不足返回 false */
-  private async chargeCredits(userId: number, cost: number): Promise<boolean> {
-    if (cost <= 0) return true;
-    const r: any = await this.entityManager.query(
-      'UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?',
-      [cost, userId, cost],
-    );
-    const affected = r?.affectedRows ?? r?.[0]?.affectedRows ?? 0;
-    return affected > 0;
-  }
-
-  private async refundCredits(userId: number, cost: number): Promise<void> {
-    if (cost <= 0) return;
-    await this.entityManager.query(
-      'UPDATE users SET credits = credits + ? WHERE id = ?',
-      [cost, userId],
-    );
   }
 
   /** 积分扣费规则（供前端展示，读 system_configs 实时值） */
   async getCreditRules(): Promise<Record<string, any>> {
     const [image, r480, r720, r1080] = await Promise.all([
-      this.getConfigInt('credit_cost_image', 5),
-      this.getConfigInt('credit_cost_480p', 10),
-      this.getConfigInt('credit_cost_720p', 20),
-      this.getConfigInt('credit_cost_1080p', 40),
+      this.creditsService.getConfigInt('credit_cost_image', 5),
+      this.creditsService.getConfigInt('credit_cost_480p', 10),
+      this.creditsService.getConfigInt('credit_cost_720p', 20),
+      this.creditsService.getConfigInt('credit_cost_1080p', 40),
     ]);
     return {
       image_per_image: image,
@@ -157,7 +126,7 @@ export class GenerateService {
     }
 
     const creditCost = await this.estimateCreditCost({ type: 'image', num_images: dto.num_images });
-    const charged = await this.chargeCredits(userId, creditCost);
+    const charged = await this.creditsService.charge(userId, creditCost);
     if (!charged) {
       throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
     }
@@ -240,6 +209,11 @@ export class GenerateService {
       viewConfigs.push({ label: '背面', promptSuffix: ', back view, character facing away, showing full back' });
       viewConfigs.push({ label: '左侧', promptSuffix: ', left side view, character facing left, full body profile' });
       viewConfigs.push({ label: '右侧', promptSuffix: ', right side view, character facing right, full body profile' });
+    } else {
+      const genericViews = ['正面', '背面', '左侧', '右侧', '俯视', '仰视'];
+      for (let i = 0; i < count; i++) {
+        viewConfigs.push({ label: genericViews[i % genericViews.length], promptSuffix: '' });
+      }
     }
 
     try {
@@ -284,7 +258,7 @@ export class GenerateService {
       task.error_msg = err.message;
       task.completed_at = new Date();
       if (task.credit_cost > 0 && !task.credits_charged) {
-        await this.refundCredits(task.user_id, task.credit_cost);
+        await this.creditsService.refund(task.user_id, task.credit_cost, `gen_t2i_${task.id}`);
         task.credits_charged = true;
       }
       await this.taskRepo.save(task);
@@ -315,7 +289,7 @@ export class GenerateService {
     }
 
     const creditCost = await this.estimateCreditCost({ type: 'video', resolution: dto.resolution, duration: dto.duration });
-    const charged = await this.chargeCredits(userId, creditCost);
+    const charged = await this.creditsService.charge(userId, creditCost);
     if (!charged) {
       throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
     }
@@ -420,7 +394,7 @@ export class GenerateService {
       task.error_msg = err.message;
       task.completed_at = new Date();
       if (task.credit_cost > 0 && !task.credits_charged) {
-        await this.refundCredits(task.user_id, task.credit_cost);
+        await this.creditsService.refund(task.user_id, task.credit_cost, `gen_t2v_${task.id}`);
         task.credits_charged = true;
       }
       await this.taskRepo.save(task);
@@ -453,7 +427,7 @@ export class GenerateService {
     }
 
     const creditCost = await this.estimateCreditCost({ type: 'video', resolution: dto.resolution, duration: dto.duration });
-    const charged = await this.chargeCredits(userId, creditCost);
+    const charged = await this.creditsService.charge(userId, creditCost);
     if (!charged) {
       throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
     }
@@ -564,7 +538,7 @@ export class GenerateService {
       task.error_msg = err.message;
       task.completed_at = new Date();
       if (task.credit_cost > 0 && !task.credits_charged) {
-        await this.refundCredits(task.user_id, task.credit_cost);
+        await this.creditsService.refund(task.user_id, task.credit_cost, `gen_i2v_${task.id}`);
         task.credits_charged = true;
       }
       await this.taskRepo.save(task);
@@ -589,6 +563,10 @@ export class GenerateService {
     const task = await this.taskRepo.findOne({ where: { id: taskId, user_id: userId } });
     if (!task) throw new BadRequestException('任务不存在');
     if (task.status !== 'failed') throw new BadRequestException('只能重试失败的任务');
+    const user = await this.userRepo.findOne({ where: { id: task.user_id } });
+    if (!user || user.credits < (task.credit_cost || 0)) {
+      throw new BadRequestException('积分不足，无法重试');
+    }
 
     // 复用原任务行直接重新执行：不创建新任务、不重复扣费
     //（失败时已退款且 credits_charged=true，runXxx 成功不再扣、失败不再退）

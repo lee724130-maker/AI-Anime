@@ -73,6 +73,8 @@ export class ViralService {
 
   /** 进行中的项目生成集合（防连点/重复提交导致重复扣费与重复生成） */
   private runningProjects = new Set<number>();
+  private runningTimestamps = new Map<number, number>();
+  private readonly RUNNING_TIMEOUT_MS = 5 * 60 * 1000;
   private readonly outputDir: string;
 
   constructor(
@@ -88,6 +90,17 @@ export class ViralService {
     if (!fs.existsSync(this.outputDir)) fs.mkdirSync(this.outputDir, { recursive: true });
   }
 
+  private cleanStaleRunning() {
+    const now = Date.now();
+    for (const [projectId, startedAt] of this.runningTimestamps.entries()) {
+      if (now - startedAt > this.RUNNING_TIMEOUT_MS) {
+        this.logger.warn(`项目 ${projectId} 运行超时 ${(now - startedAt / 1000).toFixed(0)}s，强制清理`);
+        this.runningProjects.delete(projectId);
+        this.runningTimestamps.delete(projectId);
+      }
+    }
+  }
+
   // ───── Templates ─────
 
   async listTemplates(query: {
@@ -95,14 +108,13 @@ export class ViralService {
     page?: number; limit?: number;
   }, userId?: number) {
     const { category, keyword, sort, page = 1, limit = 20 } = query;
-    // 可见性：系统模板（user_id IS NULL）对所有人可见；私有模板仅本人可见
-    const where: any[] = [{ status: 'active', user_id: null as any }];
-    if (userId) where.push({ status: 'active', user_id: userId });
+    const where: any = { status: 'active' };
+    if (userId) where.user_id = userId;
     if (category && category !== 'all') {
-      where.forEach(w => w.category = category);
+      where.category = category;
     }
     if (keyword) {
-      where.forEach(w => w.name = Like(`%${keyword}%`));
+      where.name = Like(`%${keyword}%`);
     }
 
     const order: any = sort === 'popular' ? { usage_count: 'DESC' } : { created_at: 'DESC' };
@@ -122,6 +134,7 @@ export class ViralService {
           if (Array.isArray(frames) && frames.length) cover = frames[0];
         } catch { /* ignore */ }
       }
+      if (!cover && t.reference_url && /^\/static\//.test(t.reference_url)) cover = t.reference_url;
       return {
         ...t,
         tags: t.tags ? JSON.parse(t.tags) : [],
@@ -146,6 +159,7 @@ export class ViralService {
         if (Array.isArray(frames) && frames.length) cover = frames[0];
       } catch { /* ignore */ }
     }
+    if (!cover && tpl.reference_url && /^\/static\//.test(tpl.reference_url)) cover = tpl.reference_url;
     return {
       ...tpl,
       tags: tpl.tags ? JSON.parse(tpl.tags) : [],
@@ -318,12 +332,16 @@ export class ViralService {
     return this.templateRepo.save(copy);
   }
 
-  async getCategories() {
-    const result = await this.templateRepo
+  async getCategories(userId?: number) {
+    const qb = this.templateRepo
       .createQueryBuilder('t')
       .select('t.category', 'category')
       .addSelect('COUNT(*)', 'count')
-      .where('t.status = :status', { status: 'active' })
+      .where('t.status = :status', { status: 'active' });
+    if (userId) {
+      qb.andWhere('t.user_id = :userId', { userId });
+    }
+    const result = await qb
       .groupBy('t.category')
       .orderBy('count', 'DESC')
       .getRawMany();
@@ -341,16 +359,17 @@ export class ViralService {
     if (!videoUrl) throw new BadRequestException('视频 URL 不能为空');
 
     // Extract the first valid URL from pasted text (handles TikTok share text with extra description)
-    const extractedUrl = videoUrl.match(/https?:\/\/[^\s,，。、]+/);
-    const finalUrl = extractedUrl ? extractedUrl[0] : videoUrl;
+    const extractedUrl = videoUrl.match(/https?:\/\/[^\s,，。、)）!！\]]+/);
+    let finalUrl = extractedUrl ? extractedUrl[0] : videoUrl;
+    finalUrl = finalUrl.replace(/[)）!！\]]+$/, '');
     if (finalUrl !== videoUrl) {
       this.logger.log(`从粘贴文本中提取 URL: ${finalUrl}`);
     }
 
     // Only Douyin & Bilibili links are allowed (local MP4 links / other
     // platforms rejected for now; upload the local file instead).
-    // Full-match whitelist: scheme + (sub.)domain + path of alphanumerics / - _ / . ? = & (anchored to end)
-    if (!/^https?:\/\/([a-z0-9-]+\.)?(douyin\.com|iesdouyin\.com|bilibili\.com|b23\.tv)(\/[a-zA-Z0-9\-_/?=&.%#]*)?$/i.test(finalUrl)) {
+    // Full-match whitelist: scheme + (sub.)domain + path (anchored to end)
+    if (!/^https?:\/\/([a-z0-9-]+\.)?(douyin\.com|iesdouyin\.com|bilibili\.com|b23\.tv)(\/\S*)?$/i.test(finalUrl)) {
       throw new BadRequestException('暂不支持该链接，仅支持抖音、B站视频链接；也可以直接上传本地视频');
     }
 
@@ -394,7 +413,7 @@ export class ViralService {
       });
     } catch (err: any) {
       // 分析失败（下载失败/时长超限/解析失败等）→ 退全款
-      await this.credits.refund(userId, analyzeCost).catch(() => undefined);
+      await this.credits.refund(userId, analyzeCost, `viral_url_${taskId}`).catch(() => undefined);
       throw err;
     } finally {
       // Cleanup temp video dir only (keep framesDir for user reference images)
@@ -608,7 +627,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       });
     } catch (err: any) {
       // 分析失败（时长超限/解析失败等）→ 退全款
-      await this.credits.refund(userId, analyzeCost).catch(() => undefined);
+      await this.credits.refund(userId, analyzeCost, `viral_up_${taskId}`).catch(() => undefined);
       throw err;
     } finally {
       try { fs.unlinkSync(file.path); } catch { /* ignore */ }
@@ -1023,12 +1042,14 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
     return items.map(p => {
       const scenes = p.scenes ? JSON.parse(p.scenes) : [];
       let cover: string | null = null;
-      for (const s of scenes) {
-        if (s.status !== 'completed') continue;
-        if (s.videoPath) { cover = toStatic(s.videoPath); break; }
-        if (s.imagePath) { cover = toStatic(s.imagePath); break; }
+      if (p.result_url) cover = p.result_url;
+      if (!cover) {
+        for (const s of scenes) {
+          if (s.status !== 'completed') continue;
+          if (s.videoPath) { cover = toStatic(s.videoPath); break; }
+          if (s.imagePath) { cover = toStatic(s.imagePath); break; }
+        }
       }
-      if (!cover && p.result_url) cover = p.result_url;
       return {
         ...p,
         variables: p.variables ? JSON.parse(p.variables) : [],
@@ -1068,6 +1089,9 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
   async createProject(userId: number, dto: CreateProjectDto) {
     const tpl = await this.templateRepo.findOne({ where: { id: dto.template_id } });
     if (!tpl) throw new NotFoundException('模板不存在');
+    if (tpl.user_id && tpl.user_id !== userId) {
+      throw new NotFoundException('模板不存在');
+    }
 
     let variables: any[];
     try {
@@ -1181,6 +1205,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
   // ───── Generation ─────
 
   async startGeneration(projectId: number, userId: number) {
+    this.cleanStaleRunning();
     // 防重复生成：同一项目正在生成时拒绝（连点/刷新重试双扣费）
     if (this.runningProjects.has(projectId)) {
       throw new BadRequestException('项目正在生成中，请稍候');
@@ -1191,32 +1216,76 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       throw new BadRequestException('项目正在生成中，请稍候');
     }
     this.runningProjects.add(projectId);
+    this.runningTimestamps.set(projectId, Date.now());
 
-    // Deployment guard: refuse when the disk is nearly full
     try {
+      // Deployment guard: refuse when the disk is nearly full
       assertDiskSpace(this.outputDir, MIN_DISK_FREE_BYTES);
+
+      // Parse project data
+      let scenes: any[];
+      let variables: any[];
+      try {
+        scenes = JSON.parse(project.scenes);
+        variables = JSON.parse(project.variables);
+      } catch {
+        throw new BadRequestException('项目数据格式错误');
+      }
+
+      // Parse media_refs (reference images from 大资产库) for I2V/R2V generation
+      let mediaRefs: Array<{ type: string; url: string }> = [];
+      if (project.media_refs) {
+        try {
+          const parsed = JSON.parse(project.media_refs);
+          if (Array.isArray(parsed)) {
+            mediaRefs = parsed
+              .map((m: any) => typeof m === 'string' ? { type: 'image', url: m } : { type: m.type || 'image', url: m.url || m.image_url })
+              .filter((m: any) => m.url);
+          }
+        } catch {
+          this.logger.warn('media_refs 解析失败，忽略');
+        }
+      }
+      if (mediaRefs.length > 0) {
+        this.logger.log(`使用 ${mediaRefs.length} 个参考图 (media_refs)`);
+      }
+
+      // Credit charge: 项目生成按参考图数量梯度（0图=50/1图=80/2图=120/每多1图+40）
+      const genCost = await this.credits.viralGenerateCost(mediaRefs.length);
+      await this.credits.assertEnough(userId, genCost, '项目生成');
+      this.logger.log(`[credits] 项目 ${projectId} 预扣 ${genCost} 积分（参考图 ${mediaRefs.length} 张）`);
+
+      // Update status
+      project.status = 'processing';
+      project.progress = 0;
+      await this.projectRepo.save(project);
+
+      void this.runGeneration(project, scenes, variables, mediaRefs, userId, genCost).catch(err => {
+        this.logger.error(`Background generation failed for project ${projectId}: ${err.message}`);
+      });
+      return this.sanitizeProject(project);
     } catch (e) {
       this.runningProjects.delete(projectId);
+      this.runningTimestamps.delete(projectId);
       throw e;
     }
+  }
 
-    const template = await this.templateRepo.findOne({ where: { id: project.template_id } });
-    if (!template) throw new NotFoundException('关联模板不存在');
-
-    // Parse project data
-    let scenes: any[];
-    let variables: any[];
-    try {
-      scenes = JSON.parse(project.scenes);
-      variables = JSON.parse(project.variables);
-    } catch {
-      throw new BadRequestException('项目数据格式错误');
-    }
+  private async runGeneration(
+    project: ViralProject,
+    scenes: any[],
+    variables: any[],
+    mediaRefs: Array<{ type: string; url: string }>,
+    userId: number,
+    genCost: number,
+  ) {
+    const projectId = project.id;
+    const workDir = path.join(this.outputDir, `viral_gen_${projectId}_${Date.now()}`);
+    fs.mkdirSync(workDir, { recursive: true });
 
     const varMap: Record<string, string> = {};
-    for (const v of variables) {
+    for (const v of variables)
       varMap[v.key] = String(v.value || '');
-    }
 
     // Duration alignment: distribute project.target_duration across scenes
     const targetDuration = project.target_duration ? Number(project.target_duration) : null;
@@ -1224,47 +1293,15 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       targetDuration && targetDuration > 0 && scenes.length > 0
         ? this.computeAssignedDurations(scenes, targetDuration)
         : null;
-    if (assignedDurations) {
-      this.logger.log(`目标时长 ${targetDuration}s → 各场景分配(秒): ${assignedDurations.join(', ')}`);
-    }
 
-    // Parse media_refs (reference images from 大资产库) for I2V/R2V generation
-    let mediaRefs: Array<{ type: string; url: string }> = [];
-    if (project.media_refs) {
-      try {
-        const parsed = JSON.parse(project.media_refs);
-        if (Array.isArray(parsed)) {
-          mediaRefs = parsed
-            .map((m: any) => typeof m === 'string' ? { type: 'image', url: m } : { type: m.type || 'image', url: m.url || m.image_url })
-            .filter((m: any) => m.url);
-        }
-      } catch {
-        this.logger.warn('media_refs 解析失败，忽略');
-      }
-    }
-    if (mediaRefs.length > 0) {
-      this.logger.log(`使用 ${mediaRefs.length} 个参考图 (media_refs)`);
-    }
-
-    // Credit charge: 项目生成按参考图数量梯度（0图=50/1图=80/2图=120/每多1图+40）
-    const genCost = await this.credits.viralGenerateCost(mediaRefs.length);
-    await this.credits.assertEnough(userId, genCost, '项目生成');
-    this.logger.log(`[credits] 项目 ${projectId} 预扣 ${genCost} 积分（参考图 ${mediaRefs.length} 张）`);
-
-    // Update status
-    project.status = 'processing';
-    project.progress = 0;
-    await this.projectRepo.save(project);
-
-    const workDir = path.join(this.outputDir, `viral_gen_${projectId}_${Date.now()}`);
-    fs.mkdirSync(workDir, { recursive: true });
+    const template = await this.templateRepo.findOne({ where: { id: project.template_id as number } });
 
     const sceneResults: Array<{ name: string; status: string; videoPath?: string; error?: string }> = [];
 
     try {
       for (let i = 0; i < scenes.length; i++) {
         const scene = scenes[i];
-        const sceneResult: any = { name: scene.name, status: 'processing' };
+        const sceneResult: any = { name: scene.name, type: scene.type, description: scene.description, status: 'processing' };
         sceneResults.push(sceneResult);
 
         try {
@@ -1427,7 +1464,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       }
 
       // Step 3: Add background music if specified (keep voiceover track when present)
-      const audioConfig = template.audio ? JSON.parse(template.audio) : null;
+      const audioConfig = template?.audio ? JSON.parse(template.audio) : null;
       if (audioConfig?.bgm_url) {
         try {
           const audioPath = await this.downloadToLocal(audioConfig.bgm_url, workDir, 'bgm');
@@ -1462,9 +1499,10 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       await this.projectRepo.save(project);
     } finally {
       this.runningProjects.delete(projectId);
+      this.runningTimestamps.delete(projectId);
       // 生成失败（所有场景失败/异常）→ 退全款；成功（含部分场景成功）不退
       if (project.status === 'failed') {
-        await this.credits.refund(userId, genCost).catch(() => undefined);
+        await this.credits.refund(userId, genCost, `viral_gen_${projectId}`).catch(() => undefined);
         this.logger.log(`[credits] 项目 ${projectId} 生成失败，已退还 ${genCost} 积分`);
       }
       // Cleanup temp files
@@ -1475,78 +1513,116 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
   }
 
   async regenerateScene(projectId: number, userId: number, sceneIndex: number) {
+    this.cleanStaleRunning();
     if (this.runningProjects.has(projectId)) {
       throw new BadRequestException('项目正在生成中，请稍候');
     }
     const project = await this.projectRepo.findOne({ where: { id: projectId, user_id: userId } });
     if (!project) throw new NotFoundException('项目不存在');
     this.runningProjects.add(projectId);
+    this.runningTimestamps.set(projectId, Date.now());
 
-    let scenes: any[];
-    let variables: any[];
     try {
-      scenes = JSON.parse(project.scenes);
-      variables = JSON.parse(project.variables);
-    } catch {
-      throw new BadRequestException('项目数据格式错误');
-    }
+      let scenes: any[];
+      let variables: any[];
+      try {
+        scenes = JSON.parse(project.scenes);
+        variables = JSON.parse(project.variables);
+      } catch {
+        throw new BadRequestException('项目数据格式错误');
+      }
 
-    // project.scenes was overwritten by startGeneration with generation
-    // results ({name,status,videoPath,duration}) — the original scene defs
-    // (type/description/duration) live in the template. Merge them back in so
-    // regenerate has something to work with.
-    try {
-      const tpl = await this.templateRepo.findOne({ where: { id: project.template_id } });
-      const templateScenes: any[] = tpl?.scenes ? JSON.parse(tpl.scenes) : [];
-      for (let i = 0; i < scenes.length; i++) {
-        const orig = templateScenes[i];
-        if (orig) {
-          if (scenes[i].type === undefined) scenes[i].type = orig.type;
-          if (scenes[i].description === undefined) scenes[i].description = orig.description;
-          if (scenes[i].duration === undefined || !(scenes[i].duration > 0)) scenes[i].duration = orig.duration;
+      // project.scenes was overwritten by startGeneration with generation
+      // results ({name,status,videoPath,duration}) — the original scene defs
+      // (type/description/duration) live in the template. Merge them back in so
+      // regenerate has something to work with.
+      try {
+        if (project.template_id) {
+          const tpl = await this.templateRepo.findOne({ where: { id: project.template_id } });
+          const templateScenes: any[] = tpl?.scenes ? JSON.parse(tpl.scenes) : [];
+          for (let i = 0; i < scenes.length; i++) {
+            const orig = templateScenes[i];
+            if (orig) {
+              if (scenes[i].type === undefined) scenes[i].type = orig.type;
+              if (scenes[i].description === undefined) scenes[i].description = orig.description;
+              if (scenes[i].duration === undefined || !(scenes[i].duration > 0)) scenes[i].duration = orig.duration;
+            }
+          }
+        }
+      } catch { /* ignore */ }
+
+      if (sceneIndex < 0 || sceneIndex >= scenes.length) {
+        throw new BadRequestException(`场景索引无效: ${sceneIndex}, 共 ${scenes.length} 个场景`);
+      }
+
+      const scene = scenes[sceneIndex];
+      const varMap: Record<string, string> = {};
+      for (const v of variables) varMap[v.key] = String(v.value || '');
+
+      // Reuse duration alignment (stored per-scene from the initial generation)
+      const targetDuration = project.target_duration ? Number(project.target_duration) : null;
+      const assignedDurations =
+        targetDuration && targetDuration > 0 && scenes.length > 0
+          ? this.computeAssignedDurations(scenes, targetDuration)
+          : null;
+      const sceneDur = assignedDurations
+        ? assignedDurations[sceneIndex]
+        : (scene.duration > 0 ? scene.duration : 3);
+
+      let mediaRefs: Array<{ type: string; url: string }> = [];
+      if (project.media_refs) {
+        try {
+          const parsed = JSON.parse(project.media_refs);
+          if (Array.isArray(parsed)) {
+            mediaRefs = parsed
+              .map((m: any) => typeof m === 'string' ? { type: 'image', url: m } : { type: m.type || 'image', url: m.url || m.image_url })
+              .filter((m: any) => m.url);
+          }
+        } catch {
+          this.logger.warn('media_refs 解析失败，忽略');
         }
       }
-    } catch { /* ignore */ }
+      if (mediaRefs.length > 0) {
+        this.logger.log(`重新生成场景 ${sceneIndex}: 使用 ${mediaRefs.length} 个参考图 (media_refs)`);
+      }
 
-    if (sceneIndex < 0 || sceneIndex >= scenes.length) {
-      throw new BadRequestException(`场景索引无效: ${sceneIndex}, 共 ${scenes.length} 个场景`);
+      // Credit charge: 单场景重生成与整次生成同价（按参考图数量梯度）
+      const regCost = await this.credits.viralGenerateCost(mediaRefs.length);
+      await this.credits.assertEnough(userId, regCost, '场景重新生成');
+      this.logger.log(`[credits] 项目 ${projectId} 重生成场景 ${sceneIndex} 预扣 ${regCost} 积分（参考图 ${mediaRefs.length} 张）`);
+
+      // 记录生成前状态：失败时恢复，避免项目永久卡在 processing
+      const prevStatus = project.status;
+      project.status = 'processing';
+      await this.projectRepo.save(project);
+
+      void this.runRegenerateScene(project, scenes, variables, sceneIndex, sceneDur, assignedDurations, mediaRefs, userId, regCost, prevStatus).catch(err => {
+        this.logger.error(`Background scene regeneration failed for project ${projectId}: ${err.message}`);
+      });
+      return this.sanitizeProject(project);
+    } catch (e) {
+      this.runningProjects.delete(projectId);
+      this.runningTimestamps.delete(projectId);
+      throw e;
     }
+  }
 
+  private async runRegenerateScene(
+    project: ViralProject,
+    scenes: any[],
+    variables: any[],
+    sceneIndex: number,
+    sceneDur: number,
+    assignedDurations: number[] | null,
+    mediaRefs: Array<{ type: string; url: string }>,
+    userId: number,
+    regCost: number,
+    prevStatus: string,
+  ) {
+    const projectId = project.id;
     const scene = scenes[sceneIndex];
     const varMap: Record<string, string> = {};
     for (const v of variables) varMap[v.key] = String(v.value || '');
-
-    // Reuse duration alignment (stored per-scene from the initial generation)
-    const targetDuration = project.target_duration ? Number(project.target_duration) : null;
-    const assignedDurations =
-      targetDuration && targetDuration > 0 && scenes.length > 0
-        ? this.computeAssignedDurations(scenes, targetDuration)
-        : null;
-    const sceneDur = assignedDurations
-      ? assignedDurations[sceneIndex]
-      : (scene.duration > 0 ? scene.duration : 3);
-
-    let mediaRefs: Array<{ type: string; url: string }> = [];
-    if (project.media_refs) {
-      try {
-        const parsed = JSON.parse(project.media_refs);
-        if (Array.isArray(parsed)) {
-          mediaRefs = parsed
-            .map((m: any) => typeof m === 'string' ? { type: 'image', url: m } : { type: m.type || 'image', url: m.url || m.image_url })
-            .filter((m: any) => m.url);
-        }
-      } catch {
-        this.logger.warn('media_refs 解析失败，忽略');
-      }
-    }
-    if (mediaRefs.length > 0) {
-      this.logger.log(`重新生成场景 ${sceneIndex}: 使用 ${mediaRefs.length} 个参考图 (media_refs)`);
-    }
-
-    // Credit charge: 单场景重生成与整次生成同价（按参考图数量梯度）
-    const regCost = await this.credits.viralGenerateCost(mediaRefs.length);
-    await this.credits.assertEnough(userId, regCost, '场景重新生成');
-    this.logger.log(`[credits] 项目 ${projectId} 重生成场景 ${sceneIndex} 预扣 ${regCost} 积分（参考图 ${mediaRefs.length} 张）`);
 
     let description = scene.description || '';
     for (const [key, val] of Object.entries(varMap)) {
@@ -1561,7 +1637,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           { role: 'system', content: `You are a professional translator for video scene descriptions. Translate the following scene description into ${langName}. Keep product/brand names and proper nouns as-is. Preserve any scene timing or duration hints. Output ONLY the translated text, no quotes.` },
           { role: 'user', content: description.slice(0, 800) },
         ], { temperature: 0.2, maxTokens: 1000 });
-        const cleaned = (translated || '').trim().replace(/^["'“”]+|["'“”]+$/g, '');
+        const cleaned = (translated || '').trim().replace(/^["'""']+|["'""']+$/g, '');
         if (cleaned) {
           this.logger.log(`Scene ${sceneIndex} translated to ${lang}: ${cleaned.slice(0, 60)}...`);
           description = cleaned;
@@ -1570,11 +1646,6 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
         this.logger.warn(`Scene ${sceneIndex} translation to ${lang} failed, using original: ${transErr.message}`);
       }
     }
-
-    // 记录生成前状态：失败时恢复，避免项目永久卡在 processing
-    const prevStatus = project.status;
-    project.status = 'processing';
-    await this.projectRepo.save(project);
 
     const workDir = path.join(this.outputDir, `viral_reg_${projectId}_${sceneIndex}_${Date.now()}`);
     fs.mkdirSync(workDir, { recursive: true });
@@ -1673,7 +1744,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           let mergedPath = await this.ffmpeg.mergeVideos(completedPaths);
 
           // Re-apply background music (consistent with startGeneration, keep voiceover track)
-          const template = await this.templateRepo.findOne({ where: { id: project.template_id } });
+          const template = await this.templateRepo.findOne({ where: { id: project.template_id as number } });
           const audioConfig = template?.audio ? JSON.parse(template.audio) : null;
           if (audioConfig?.bgm_url) {
             try {
@@ -1717,9 +1788,10 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
       await this.projectRepo.save(project);
     } finally {
       this.runningProjects.delete(projectId);
+      this.runningTimestamps.delete(projectId);
       // 该场景重新生成失败 → 退全款
       if (scenes[sceneIndex]?.status === 'failed') {
-        await this.credits.refund(userId, regCost).catch(() => undefined);
+        await this.credits.refund(userId, regCost, `viral_reg_${projectId}_${sceneIndex}`).catch(() => undefined);
         this.logger.log(`[credits] 项目 ${projectId} 场景 ${sceneIndex} 重生成失败，已退还 ${regCost} 积分`);
       }
       try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* ignore */ }
@@ -1778,10 +1850,11 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
 
   // ───── Stats ─────
 
-  async getStats() {
+  async getStats(userId?: number) {
+    const where: any = userId ? { user_id: userId } : {};
     const [templateCount, projectCount] = await Promise.all([
-      this.templateRepo.count({ where: { status: 'active' } }),
-      this.projectRepo.count(),
+      this.templateRepo.count({ where: userId ? { user_id: userId } : { status: 'active' } }),
+      this.projectRepo.count({ where }),
     ]);
     return { templateCount, projectCount };
   }

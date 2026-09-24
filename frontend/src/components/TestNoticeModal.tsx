@@ -65,7 +65,7 @@ export default function TestNoticeModal() {
       open={visible}
       title={
         <Space>
-          <ExperimentOutlined style={{ color: '#7C3AED' }} />
+          <ExperimentOutlined style={{ color: 'var(--primary)' }} />
           <span>测试版说明</span>
         </Space>
       }
@@ -91,8 +91,7 @@ export default function TestNoticeModal() {
         <Text strong type="success">100 积分</Text>。
       </Paragraph>
       <Paragraph style={{ marginBottom: 0 }}>
-        您可以先使用积分体验文生图、文生视频、热门创作解析、短剧生成等全部功能；
-        正式版上线后将开放充值渠道，届时积分不足也能随时补充。
+        您可以先使用积分体验文生图、文生视频、热门创作解析、短剧生成等全部功能； 正式版上线后将开放充值渠道，届时积分不足也能随时补充。
       </Paragraph>
     </Modal>
   );

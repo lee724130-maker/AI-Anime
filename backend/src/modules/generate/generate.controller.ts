@@ -1,11 +1,15 @@
 import { Controller, Get, Post, Delete, Body, Param, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { GenerateService } from './generate.service';
+import { AIServiceUtil } from '../../utils/ai-service.util';
 
 @Controller('api/generate')
 @UseGuards(JwtAuthGuard)
 export class GenerateController {
-  constructor(private readonly generateService: GenerateService) {}
+  constructor(
+    private readonly generateService: GenerateService,
+    private readonly aiService: AIServiceUtil,
+  ) {}
 
   @Post('text-to-image')
   textToImage(@Req() req, @Body() body: {
@@ -89,5 +93,10 @@ export class GenerateController {
   @Delete('tasks/:id')
   deleteTask(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.generateService.deleteTask(req.user.id, id);
+  }
+
+  @Get('quota')
+  async getQuota() {
+    return this.aiService.getQuotaStatus();
   }
 }

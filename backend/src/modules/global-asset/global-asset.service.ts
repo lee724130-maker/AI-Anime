@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GlobalAsset } from './global-asset.entity';
 import { AIServiceUtil } from '../../utils/ai-service.util';
+import { FFmpegUtil } from '../../utils/ffmpeg.util';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,6 +16,7 @@ export class GlobalAssetService {
     @InjectRepository(GlobalAsset)
     private readonly assetRepo: Repository<GlobalAsset>,
     private readonly aiService: AIServiceUtil,
+    private readonly ffmpeg: FFmpegUtil,
   ) {}
 
   async list(query: {
@@ -23,7 +25,7 @@ export class GlobalAssetService {
   }, userId: number) {
     const { type, tag, keyword, page = 1, limit = 20 } = query;
     const qb = this.assetRepo.createQueryBuilder('a');
-    qb.where('(a.user_id = :userId OR a.user_id IS NULL)', { userId });
+    qb.where('a.user_id = :userId', { userId });
     if (type) qb.andWhere('a.type = :type', { type });
     if (tag) qb.andWhere('a.tags LIKE :tag', { tag: `%${tag}%` });
     if (keyword) qb.andWhere('a.name LIKE :keyword', { keyword: `%${keyword}%` });
@@ -36,7 +38,7 @@ export class GlobalAssetService {
   async getById(id: number, userId?: number) {
     const asset = await this.assetRepo.findOne({ where: { id } });
     if (!asset) throw new NotFoundException('大资产不存在');
-    if (userId !== undefined && asset.user_id !== null && asset.user_id !== userId) {
+    if (userId !== undefined && asset.user_id !== userId) {
       throw new NotFoundException('大资产不存在');
     }
     return asset;
@@ -50,19 +52,17 @@ export class GlobalAssetService {
     return this.assetRepo.save(asset);
   }
 
-  async update(id: number, data: Partial<GlobalAsset>, userId: number, isAdmin: boolean) {
-    const asset = await this.getById(id);
-    if (asset.user_id === null && !isAdmin) throw new ForbiddenException('系统资产只能由管理员编辑');
-    if (asset.user_id !== null && asset.user_id !== userId) throw new NotFoundException('大资产不存在');
-    delete (data as any).user_id;
-    Object.assign(asset, data);
+  async update(id: number, data: Partial<GlobalAsset>, userId: number) {
+    const asset = await this.getById(id, userId);
+    const allowed = ['name', 'description', 'type', 'tags', 'image_url', 'audio_url', 'video_url', 'usage_count'];
+    for (const key of allowed) {
+      if ((data as any)[key] !== undefined) (asset as any)[key] = (data as any)[key];
+    }
     return this.assetRepo.save(asset);
   }
 
-  async remove(id: number, userId: number, isAdmin: boolean) {
-    const asset = await this.getById(id);
-    if (asset.user_id === null && !isAdmin) throw new ForbiddenException('系统资产只能由管理员删除');
-    if (asset.user_id !== null && asset.user_id !== userId) throw new NotFoundException('大资产不存在');
+  async remove(id: number, userId: number) {
+    const asset = await this.getById(id, userId);
     await this.assetRepo.remove(asset);
     return { deleted: true };
   }
@@ -199,9 +199,34 @@ export class GlobalAssetService {
     return { prompt: asset.prompt, prompt_cn: asset.prompt_cn };
   }
 
+  async generateThumbnail(id: number, userId: number) {
+    const asset = await this.getById(id, userId);
+    if (asset.type !== 'video' || !asset.video_url) {
+      throw new BadRequestException('仅视频资产可生成缩略图');
+    }
+    const videoPath = path.join(process.cwd(), 'output', path.basename(asset.video_url));
+    if (!fs.existsSync(videoPath)) {
+      throw new BadRequestException('视频文件不存在');
+    }
+    try {
+      const thumbPath = await this.ffmpeg.extractFrame(videoPath, 1);
+      const thumbName = path.basename(thumbPath);
+      const thumbUrl = `/static/${thumbName}`;
+      asset.image_url = thumbUrl;
+      await this.assetRepo.save(asset);
+      return { id: asset.id, image_url: thumbUrl };
+    } catch (err: any) {
+      this.logger.warn(`Thumbnail generation failed for asset ${id}: ${err.message}`);
+      throw new BadRequestException(`缩略图生成失败: ${err.message}`);
+    }
+  }
+
   async stats(userId: number) {
     const countFor = async (type: string) => {
-      return this.assetRepo.count({ where: [{ type, user_id: userId }, { type, user_id: null }] as any });
+      const qb = this.assetRepo.createQueryBuilder('a');
+      qb.where('a.user_id = :userId', { userId });
+      qb.andWhere('a.type = :type', { type });
+      return qb.getCount();
     };
     const [characters, props, scenes, videos, audios] = await Promise.all([
       countFor('character'), countFor('prop'), countFor('scene'),
@@ -210,6 +235,7 @@ export class GlobalAssetService {
     const totalUsage = await this.assetRepo
       .createQueryBuilder('a')
       .select('SUM(a.usage_count)', 'total')
+      .where('a.user_id = :userId', { userId })
       .getRawOne();
     return {
       characters, props, scenes, videos, audios,
@@ -221,7 +247,7 @@ export class GlobalAssetService {
   async getDistinctTags(userId: number): Promise<string[]> {
     const assets = await this.assetRepo.find({
       select: ['tags'],
-      where: [{ user_id: userId }, { user_id: null }] as any,
+      where: { user_id: userId },
     });
     const tagSet = new Set<string>();
     for (const a of assets) {

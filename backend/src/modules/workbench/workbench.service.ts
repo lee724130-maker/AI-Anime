@@ -127,7 +127,7 @@ export class WorkbenchService {
       projectStats: { total: projects.length, byStatus: projectByStatus },
       assetStats: {
         drama: { total: assets.length, byType: assetByType },
-        global: { total: await this.globalAssetRepo.count() },
+        global: { total: await this.globalAssetRepo.count({ where: { user_id: userId } }) },
       },
       segmentStats: { total: segments.length, byStatus: segmentByStatus },
       projects: projects.slice(0, 10).map(p => ({

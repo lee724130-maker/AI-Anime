@@ -85,8 +85,8 @@ export class ViralController {
   }
 
   @Get('categories')
-  getCategories() {
-    return this.service.getCategories();
+  getCategories(@Req() req) {
+    return this.service.getCategories(req.user?.id);
   }
 
   // ───── Projects ─────
@@ -136,8 +136,8 @@ export class ViralController {
   // ───── Stats ─────
 
   @Get('stats')
-  getStats() {
-    return this.service.getStats();
+  getStats(@Req() req) {
+    return this.service.getStats(req.user.id);
   }
 
   @Get('credit-rules')

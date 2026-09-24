@@ -6,6 +6,7 @@ import { UtilsModule } from '../../utils/utils.module';
 import { TaskModule } from '../task/task.module';
 import { MediaModule } from '../media/media.module';
 import { AdminModule } from '../admin/admin.module';
+import { CreditsModule } from '../credits/credits.module';
 import { MediaFile } from '../media/media-file.entity';
 import { GenerationTask } from '../task/generation-task.entity';
 import { User } from '../user/user.entity';
@@ -17,6 +18,7 @@ import { User } from '../user/user.entity';
     TaskModule,
     MediaModule,
     AdminModule,
+    CreditsModule,
   ],
   controllers: [GenerateController],
   providers: [GenerateService],

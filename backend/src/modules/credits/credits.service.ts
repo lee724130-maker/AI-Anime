@@ -19,7 +19,7 @@ export class CreditsService {
       const rows: any = await this.em.query(
         'SELECT config_value FROM system_configs WHERE config_key = ? LIMIT 1', [key],
       );
-      const val = rows?.[0]?.config_value ?? rows?.config_value;
+      const val = rows?.[0]?.config_value;
       const n = Number(val);
       return Number.isFinite(n) && n > 0 ? n : def;
     } catch {
@@ -38,13 +38,23 @@ export class CreditsService {
     return affected > 0;
   }
 
-  /** 失败退全款 */
-  async refund(userId: number, cost: number): Promise<void> {
+  /** 失败退全款（refundKey 去重，防止同一失败被重复退款） */
+  private readonly refundedKeys = new Set<string>();
+  async refund(userId: number, cost: number, refundKey?: string): Promise<void> {
     if (cost <= 0) return;
+    if (refundKey) {
+      if (this.refundedKeys.has(refundKey)) {
+        this.logger.warn(`[credits] 重复退款拦截: key=${refundKey}, userId=${userId}, cost=${cost}`);
+        return;
+      }
+      this.refundedKeys.add(refundKey);
+      setTimeout(() => this.refundedKeys.delete(refundKey), 600_000);
+    }
     await this.em.query(
       'UPDATE users SET credits = credits + ? WHERE id = ?',
       [cost, userId],
     );
+    this.logger.log(`[credits] 退款: userId=${userId}, +${cost}积分, key=${refundKey || 'none'}`);
   }
 
   /** 预扣并校验：余额不足直接抛 400（消息带所需积分），够则扣成功 */
@@ -53,6 +63,16 @@ export class CreditsService {
     if (!ok) {
       this.logger.warn(`[credits] 用户 ${userId} 积分不足：${action} 需要 ${cost} 积分`);
       throw new BadRequestException(`积分不足，本次${action}需要 ${cost} 积分，请稍后再试`);
+    }
+  }
+
+  /** 仅检查余额是否足够（不扣费）：不足直接抛 400 */
+  async assertSufficient(userId: number, cost: number, action: string): Promise<void> {
+    const user: any = await this.em.query('SELECT credits FROM users WHERE id = ?', [userId]);
+    const balance = user?.[0]?.credits ?? 0;
+    if (balance < cost) {
+      this.logger.warn(`[credits] 用户 ${userId} 积分不足（仅检查）：${action} 需要 ${cost}，当前 ${balance}`);
+      throw new BadRequestException(`积分不足，本次${action}需要 ${cost} 积分，请充值后再试`);
     }
   }
 

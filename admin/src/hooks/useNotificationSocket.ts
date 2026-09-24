@@ -8,6 +8,7 @@ export function getSocket(): Socket | null {
   return globalSocket;
 }
 
+// vB — production options: reconnectionAttempts 3, timeout 5000, io() wrapped in try/catch
 export function useNotificationSocket() {
   const { setUnreadCount, addNotification, setConnected } = useNotificationStore();
   const instance = useRef<Socket | null>(null);
@@ -15,13 +16,19 @@ export function useNotificationSocket() {
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
     if (!token) return;
-
     if (instance.current?.connected) return;
 
-    const socket = io((import.meta.env.VITE_API_BASE || '') + '/admin', {
-      auth: { token },
-      transports: ['websocket', 'polling'],
-    });
+    let socket: Socket;
+    try {
+      socket = io((import.meta.env.VITE_API_BASE || '') + '/admin', {
+        auth: { token },
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 3,
+        timeout: 5000,
+      });
+    } catch {
+      return;
+    }
 
     socket.on('connect', () => {
       setConnected(true);
@@ -48,5 +55,6 @@ export function useNotificationSocket() {
       if (globalSocket === socket) globalSocket = null;
       instance.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

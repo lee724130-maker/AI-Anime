@@ -6,6 +6,7 @@ import { execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { assertSafeRemoteUrl, resolveSafeStaticPath } from '../common/utils/safe-download.util';
+import { createClient } from 'redis';
 
 export interface ImageGenerationOptions {
   prompt: string;
@@ -37,16 +38,130 @@ export interface TTSOptions {
   emotion?: string;
 }
 
+const WAN3_QUOTA_LIMIT = 30;
+const WAN3_QUOTA_WARN_THRESHOLD = 5;
+const QUOTA_REDIS_KEY_PREFIX = 'wan3_quota:';
+const QUOTA_REDIS_DAILY_PREFIX = 'wan3_quota_daily:';
+
 @Injectable()
 export class AIServiceUtil {
   private readonly logger = new Logger(AIServiceUtil.name);
   private clients: Map<string, AxiosInstance> = new Map();
   private providerCooldowns = new Map<string, number>();
+  quotaCheckInterval: NodeJS.Timeout | null = null;
+  redisClient: any = null;
 
   constructor(
     private readonly adminService: AdminService,
     private readonly modelConfigService: ModelConfigService,
-  ) {}
+  ) {
+    this.startQuotaMonitor();
+  }
+
+  async getRedis(): Promise<any> {
+    if (this.redisClient) return this.redisClient;
+    try {
+      const client = createClient({
+        url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}/${process.env.REDIS_DB || 0}`,
+        ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
+      });
+      client.on('error', () => { });
+      await client.connect();
+      this.redisClient = client;
+      this.logger.log('[quota] Redis connected');
+    } catch {
+      this.redisClient = null;
+      this.logger.warn('[quota] Redis unavailable, quota tracking disabled');
+    }
+    return this.redisClient;
+  }
+
+  startQuotaMonitor(): void {
+    setTimeout(() => this.checkQuotaStatus(), 10000);
+    this.quotaCheckInterval = setInterval(() => this.checkQuotaStatus(), 5 * 60 * 1000);
+    this.logger.log('[quota] Wan3.0 quota monitor started (checks every 5 min, limit=30/model)');
+  }
+
+  async trackQuotaUsage(model: string): Promise<{ remaining: number; total: number; limited: boolean }> {
+    try {
+      const redis = await this.getRedis();
+      if (!redis) return { remaining: WAN3_QUOTA_LIMIT, total: WAN3_QUOTA_LIMIT, limited: false };
+      const today = new Date().toISOString().slice(0, 10);
+      const totalKey = `${QUOTA_REDIS_KEY_PREFIX}${model}`;
+      const dailyKey = `${QUOTA_REDIS_DAILY_PREFIX}${model}:${today}`;
+      const totalUsed = await redis.incr(totalKey);
+      await redis.expire(totalKey, 30 * 24 * 3600);
+      await redis.incr(dailyKey);
+      await redis.expire(dailyKey, 2 * 24 * 3600);
+      const remaining = Math.max(0, WAN3_QUOTA_LIMIT - totalUsed);
+      if (remaining <= WAN3_QUOTA_WARN_THRESHOLD) {
+        this.logger.warn(`[quota] ⚠️ ${model} quota LOW: ${remaining}/${WAN3_QUOTA_LIMIT} remaining (today used: ${await redis.get(dailyKey)})`);
+      } else {
+        this.logger.log(`[quota] ${model}: ${remaining}/${WAN3_QUOTA_LIMIT} remaining`);
+      }
+      return { remaining, total: WAN3_QUOTA_LIMIT, limited: remaining <= 0 };
+    } catch (err: any) {
+      this.logger.warn(`[quota] Track failed: ${err.message}`);
+      return { remaining: WAN3_QUOTA_LIMIT, total: WAN3_QUOTA_LIMIT, limited: false };
+    }
+  }
+
+  async getQuotaStatus(): Promise<Record<string, { remaining: number; total: number; todayUsed: number }>> {
+    const models = ['wan3.0-video-prime', 'wan3.0-video'];
+    const result: Record<string, { remaining: number; total: number; todayUsed: number }> = {};
+    try {
+      const redis = await this.getRedis();
+      if (!redis) {
+        models.forEach(m => { result[m] = { remaining: WAN3_QUOTA_LIMIT, total: WAN3_QUOTA_LIMIT, todayUsed: 0 }; });
+        return result;
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      for (const model of models) {
+        const totalKey = `${QUOTA_REDIS_KEY_PREFIX}${model}`;
+        const dailyKey = `${QUOTA_REDIS_DAILY_PREFIX}${model}:${today}`;
+        const totalUsed = parseInt(await redis.get(totalKey) || '0', 10);
+        const todayUsed = parseInt(await redis.get(dailyKey) || '0', 10);
+        result[model] = {
+          remaining: Math.max(0, WAN3_QUOTA_LIMIT - totalUsed),
+          total: WAN3_QUOTA_LIMIT,
+          todayUsed,
+        };
+      }
+    } catch {
+      models.forEach(m => { result[m] = { remaining: WAN3_QUOTA_LIMIT, total: WAN3_QUOTA_LIMIT, todayUsed: 0 }; });
+    }
+    return result;
+  }
+
+  async checkQuotaStatus(): Promise<void> {
+    try {
+      const status = await this.getQuotaStatus();
+      for (const [model, info] of Object.entries(status)) {
+        if (info.remaining <= 0) {
+          this.logger.error(`[quota] 🚫 ${model} QUOTA EXHAUSTED! (${info.total - info.remaining}/${info.total} used)`);
+        } else if (info.remaining <= WAN3_QUOTA_WARN_THRESHOLD) {
+          this.logger.warn(`[quota] ⚠️ ${model} running low: ${info.remaining} remaining (today: ${info.todayUsed})`);
+        } else {
+          this.logger.log(`[quota] ${model}: ${info.remaining}/${info.remaining + (info.total - info.remaining)} remaining`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`[quota] Status check failed: ${err.message}`);
+    }
+  }
+
+  async assertQuotaAvailable(model: string): Promise<void> {
+    const status = await this.getQuotaStatus();
+    const info = status[model];
+    if (info && info.remaining <= 0) {
+      throw new Error(`🚫 ${model} 免费额度已用完（${info.total}/${info.total}），请等待额度重置或联系管理员充值`);
+    }
+  }
+
+  onModuleDestroy(): void {
+    if (this.quotaCheckInterval) clearInterval(this.quotaCheckInterval);
+    if (this.redisClient) this.redisClient.quit().catch(() => { });
+  }
 
   private async getActiveModels(capability: string, subCapability?: string) {
     if (subCapability) {
@@ -142,7 +257,7 @@ export class AIServiceUtil {
         .replace(/\bmanga\b[,，]?\s*/gi, '')
         .replace(/\bchibi\b[,，]?\s*/gi, '')
         .replace(/\billustration\b[,，]?\s*/gi, '');
-      options = { ...options, prompt: `photorealistic,真人实拍质感,超写实风格,highly detailed real person,真实照片,${p}` };
+      options = { ...options, prompt: `photorealistic,highly detailed real person,${p}` };
     } else if (options.style === 'anime') {
       let p = options.prompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
       options = { ...options, prompt: `anime style,动漫风格,Animation,Japanese anime,セル画調,精美二次元,${p}` };
@@ -235,7 +350,11 @@ export class AIServiceUtil {
     }
     if (zhipuKey) {
       this.logger.log('Using 智谱 CogView-4 for image generation');
-      return this.generateImageWithZhipu(zhipuKey, options);
+      try {
+        return await this.generateImageWithZhipu(zhipuKey, options);
+      } catch (err: any) {
+        this.logger.warn(`CogView-4 failed: ${err.message}`);
+      }
     }
 
     this.logger.warn('No image API key configured. Using placeholder image.');
@@ -277,29 +396,43 @@ export class AIServiceUtil {
     apiKey: string,
     options: ImageGenerationOptions,
   ): Promise<string[]> {
-    try {
-      const response = await axios.post(
-        'https://api.z.ai/api/paas/v4/images/generations',
-        {
-          model: 'CogView-4-250304',
-          prompt: options.prompt,
-          n: options.numImages || 1,
-          size: `${options.width || 1024}x${options.height || 1024}`,
-          watermark: false,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = attempt * 3000;
+          this.logger.log(`CogView-4 重试 (${attempt}/${maxRetries})，等待 ${delay}ms`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+        const response = await axios.post(
+          'https://api.z.ai/api/paas/v4/images/generations',
+          {
+            model: 'CogView-4-250304',
+            prompt: options.prompt,
+            n: options.numImages || 1,
+            size: `${options.width || 1024}x${options.height || 1024}`,
+            watermark: false,
           },
-          timeout: 120000,
-        },
-      );
-      return (response.data.data || []).map((img: any) => img.url);
-    } catch (err: any) {
-      this.logger.error(`CogView-4 image generation failed: ${err.message}`);
-      throw err;
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 120000,
+          },
+        );
+        return (response.data.data || []).map((img: any) => img.url);
+      } catch (err: any) {
+        const status = err.response?.status;
+        if (status === 429 && attempt < maxRetries) {
+          this.logger.warn(`CogView-4 限频 429，准备重试 (${attempt + 1}/${maxRetries})`);
+          continue;
+        }
+        this.logger.error(`CogView-4 image generation failed: ${err.message}`);
+        throw err;
+      }
     }
+    throw new Error('CogView-4 重试次数已耗尽');
   }
 
   /** Generate image using 火山引擎 Seedream (豆包) — OpenAI compatible */
@@ -365,7 +498,9 @@ export class AIServiceUtil {
     const models = (await this.getActiveModels('image'))
       .filter((m: any) => m.provider === 'aliyun')
       .map((m: any) => m.model_id);
-    const fallbackModels = models.length ? models : ['wanx-v1', 'wanx2.1-t2i-turbo', 'wanx2.1-t2i-plus'];
+    const fallbackModels = models.length ? models : [
+      'qwen-image-3.0-pro', 'qwen-image-3.0', 'qwen-mt-image-2.0', 'qwen-image-2.0-pro-2026-06-22',
+    ];
 
     const allowedSizes = ['1024*1024', '720*1280', '1280*720', '768*1152'];
 
@@ -454,6 +589,10 @@ export class AIServiceUtil {
           if (status === 'FAILED' || status === 'failed') {
             const msg = pollRes.data.output?.message || 'unknown';
             this.logger.warn(`通义万相 ${model} task failed: ${msg}`);
+            const lowerMsg = msg.toLowerCase();
+            if (lowerMsg.includes('sensitive') || lowerMsg.includes('policy') || lowerMsg.includes('illegal') || lowerMsg.includes('violate') || lowerMsg.includes('security')) {
+              throw new Error(`提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述`);
+            }
             throw new Error(`通义万相 image task failed: ${msg}`);
           }
           if (i % 10 === 0) {
@@ -486,7 +625,7 @@ export class AIServiceUtil {
     // Inject style keywords and strip conflicting ones
     if (options.style === 'realistic' && textPrompt) {
       textPrompt = textPrompt.replace(/\banime style\b[,，]?\s*/gi, '').replace(/动漫风格[的]?[,，]?\s*/g, '').replace(/动漫[的]?风格[,，]?\s*/g, '').replace(/Animation[,，]?\s*/gi, '').replace(/Japanese anime[,，]?\s*/gi, '').replace(/二次元[的]?[,，]?\s*/g, '').replace(/日漫[的]?[,，]?\s*/g, '').replace(/赛璐珞[的]?[,，]?\s*/g, '').replace(/日系动画[的]?[,，]?\s*/g, '').replace(/日系[的]?[,，]?\s*/g, '').replace(/厚涂[的]?[,，]?\s*/g, '').replace(/线稿[的]?[,，]?\s*/g, '').replace(/插画[的]?[,，]?\s*/g, '').replace(/立绘[的]?[,，]?\s*/g, '').replace(/卡通[的]?[,，]?\s*/g, '').replace(/动漫[的]?[,，]?\s*/g, '').replace(/动画[的]?[,，]?\s*/g, '').replace(/\banime\b[,，]?\s*/gi, '').replace(/\bcartoon\b[,，]?\s*/gi, '').replace(/\bmanga\b[,，]?\s*/gi, '').replace(/\bchibi\b[,，]?\s*/gi, '').replace(/\billustration\b[,，]?\s*/gi, '');
-      textPrompt = `photorealistic,真人实拍质感,超写实风格,${textPrompt}`;
+      textPrompt = `photorealistic,${textPrompt}`;
     } else if (options.style === 'anime' && textPrompt) {
       textPrompt = textPrompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
       textPrompt = `anime style,动漫风格,Animation,精美二次元,${textPrompt}`;
@@ -608,6 +747,18 @@ export class AIServiceUtil {
     const prompt = textPrompt || options.prompt || 'cinematic video';
     this.logger.log(`通义万相 video prompt: ${prompt.slice(0, 120)}...`);
 
+    const targetModel = options.model || 'wan3.0-video-prime';
+    if (targetModel.startsWith('wan3.0')) {
+      const quota = await this.getQuotaStatus();
+      const info = quota[targetModel];
+      if (info && info.remaining <= 0) {
+        throw new Error(`🚫 ${targetModel} 免费额度已用完（${info.total}/${info.total}），请等待额度重置或联系管理员充值`);
+      }
+      if (info && info.remaining <= WAN3_QUOTA_WARN_THRESHOLD) {
+        this.logger.warn(`[quota] ⚠️ ${targetModel} 额度不足: 仅剩 ${info.remaining} 次`);
+      }
+    }
+
     if (options.model) {
       const dbModels = await this.getActiveModels('video');
       const dbModel = dbModels.find((m: any) => m.model_id === options.model);
@@ -643,6 +794,41 @@ export class AIServiceUtil {
       filteredModels.splice(0, filteredModels.length, ...filteredModels.filter(m => !m.includes('-i2v') && !m.includes('-r2v')));
       this.logger.log(`No media, will try T2V models only`);
     }
+    const perfectMatch: string[] = [];
+    const partialMatch: string[] = [];
+    const needAdapt: string[] = [];
+    for (const model of filteredModels) {
+      const dbModel = dbModelMap.get(model);
+      if (!dbModel) {
+        needAdapt.push(model);
+        continue;
+      }
+      let durationOk = true;
+      let ratioOk = true;
+      const isTurbo = model.includes('turbo');
+      if (options.duration && dbModel.min_duration && dbModel.max_duration) {
+        if (options.duration < dbModel.min_duration || options.duration > dbModel.max_duration) {
+          durationOk = false;
+        }
+      }
+      if (options.ratio && dbModel.supported_ratios) {
+        try {
+          const supportedRatios = JSON.parse(dbModel.supported_ratios);
+          if (!supportedRatios.includes(options.ratio)) ratioOk = false;
+        } catch { }
+      }
+      if (durationOk && ratioOk && !isTurbo) {
+        perfectMatch.push(model);
+      } else if ((durationOk && ratioOk) || (durationOk && !ratioOk) || (!durationOk && ratioOk)) {
+        partialMatch.push(model);
+      } else {
+        needAdapt.push(model);
+      }
+    }
+    if (perfectMatch.length > 0) {
+      filteredModels = [...perfectMatch, ...partialMatch, ...needAdapt];
+      this.logger.log(`模型重排序: ${perfectMatch.length} 完美匹配, ${partialMatch.length} 部分匹配, ${needAdapt.length} 需适配`);
+    }
     for (const model of filteredModels) {
       let lastInput: any = null;
       let lastParams: any = null;
@@ -668,14 +854,14 @@ export class AIServiceUtil {
           if (adaptedOptions.ratio && dbModel.supported_ratios) {
             const supportedRatios = JSON.parse(dbModel.supported_ratios);
             if (!supportedRatios.includes(adaptedOptions.ratio)) {
-              // 优先选择16:9，如果不支持就用第一个支持的比例
-              if (supportedRatios.includes('16:9')) {
-                this.logger.warn(`比例 ${adaptedOptions.ratio} 不被 ${model} 支持，调整为 16:9`);
-                adaptedOptions.ratio = '16:9';
-              } else {
-                this.logger.warn(`比例 ${adaptedOptions.ratio} 不被 ${model} 支持，调整为 ${supportedRatios[0]}`);
-                adaptedOptions.ratio = supportedRatios[0];
-              }
+              const userIsVertical = adaptedOptions.ratio === '9:16' || adaptedOptions.ratio === '3:4';
+              const verticalRatios = supportedRatios.filter((r: string) => r === '9:16' || r === '3:4');
+              const horizontalRatios = supportedRatios.filter((r: string) => r === '16:9' || r === '4:3');
+              const fallback = userIsVertical
+                ? (verticalRatios[0] || supportedRatios[0])
+                : (horizontalRatios[0] || supportedRatios[0]);
+              this.logger.warn(`比例 ${adaptedOptions.ratio} 不被 ${model} 支持，调整为 ${fallback}`);
+              adaptedOptions.ratio = fallback;
             }
           }
           
@@ -797,7 +983,7 @@ export class AIServiceUtil {
 
         const res = adaptedOptions.resolution || '720p';
         const duration = Math.round(adaptedOptions.duration || 5);
-        const ratio = adaptedOptions.ratio || '16:9';
+        const ratio = adaptedOptions.ratio || '9:16';
         
         // 根据模型类型决定参数格式
         // wan2.7+ I2V: 不需要 ratio，比例由输入素材决定
@@ -826,7 +1012,7 @@ export class AIServiceUtil {
           // Turbo 模型有固定时长
           this.logger.log(`Turbo 模型 ${model} 使用固定时长，忽略自定义 ${duration}s`);
         }
-        this.logger.log(`模型 ${model} 参数: resolution=${res}, duration=${duration}`);
+        this.logger.log(`模型 ${model} 参数: resolution=${res}, duration=${duration}, ratio=${ratio}`);
             
             // 调试日志：显示传递给模型的完整输入
             this.logger.log(`[DEBUG] ${model} input keys: ${Object.keys(input).join(', ')}`);
@@ -886,12 +1072,19 @@ export class AIServiceUtil {
           const videoUrl = pollRes.data.output?.video_url;
           if (videoUrl) {
             this.logger.log(`通义万相 video ready: ${videoUrl.slice(0, 80)}...`);
+            if (model.startsWith('wan3.0')) {
+              this.trackQuotaUsage(model).catch(() => { });
+            }
             return videoUrl;
           }
         }
         if (status === 'FAILED' || status === 'failed') {
           const msg = pollRes.data.output?.message || 'unknown';
           this.logger.error(`通义万相 ${model} task failed: ${msg}`);
+          const lowerMsg = msg.toLowerCase();
+          if (lowerMsg.includes('sensitive') || lowerMsg.includes('policy') || lowerMsg.includes('illegal') || lowerMsg.includes('violate') || lowerMsg.includes('security')) {
+            throw new Error(`提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述（如"穿着红金战甲的超级英雄"）`);
+          }
           throw new Error(`通义万相 video task failed: ${msg}`);
         }
         if (i % 6 === 0) {
@@ -1076,9 +1269,9 @@ export class AIServiceUtil {
       const tongyiModels = models.filter((m: any) => m.provider === 'aliyun');
       if (tongyiModels.length) return tongyiModels.map((m: any) => m.model_id);
       const fallback: Record<string, string[]> = {
-        'i2v': ['wan2.7-i2v-2026-04-25', 'wan2.6-i2v', 'wan2.5-i2v-preview', 'wan2.2-i2v-plus', 'wanx2.1-i2v-plus'],
-        't2v': ['wan2.7-t2v', 'wan2.6-t2v', 'wanx2.1-t2v-turbo', 'wanx2.1-t2v-plus', 'wan2.5-t2v-preview'],
-        'r2v': ['wan2.6-r2v', 'wan2.6-r2v-flash', 'wan2.7-r2v', 'wan2.7-r2v-2026-06-12'],
+        'i2v': ['wan3.0-video-prime', 'wan3.0-video'],
+        't2v': ['wan3.0-video-prime', 'wan3.0-video'],
+        'r2v': ['wan3.0-video-prime', 'wan3.0-video'],
       };
       return fallback[videoType] || [];
     }
@@ -1086,12 +1279,7 @@ export class AIServiceUtil {
     const tongyiModels = models.filter((m: any) => m.provider === 'aliyun');
     if (tongyiModels.length) return tongyiModels.map((m: any) => m.model_id);
     return [
-      'wan2.7-i2v', 'wan2.7-r2v', 'wan2.7-t2v',
-      'wan2.7-i2v-2026-04-25', 'wan2.7-r2v-2026-06-12', 'wan2.7-t2v-2026-06-12',
-      'wan2.6-i2v', 'wan2.6-r2v', 'wan2.6-r2v-flash', 'wan2.6-t2v',
-      'wan2.7-videoedit',
-      'wanx2.1-i2v-plus', 'wanx2.1-t2v-plus', 'wanx2.1-t2v-turbo',
-      'wan2.5-i2v-preview', 'wan2.5-t2v-preview', 'wan2.2-i2v-plus',
+      'wan3.0-video-prime', 'wan3.0-video',
     ];
   }
 
@@ -1415,6 +1603,7 @@ export class AIServiceUtil {
             image_url: imageUrl,
             prompt: options.prompt || 'A cinematic anime scene',
             duration: options.duration || 4,
+            ratio: options.ratio || '9:16',
           },
         },
         {
@@ -1657,16 +1846,16 @@ export class AIServiceUtil {
     if (provider === 'aliyun') {
       const key = await this.getApiKey('tongyi_api_key');
       if (key) {
-        this.logger.log('Using 阿里云 Qwen (forced) for chat');
+        this.logger.log('Using 阿里云 Qwen3.8-Flash (forced) for chat');
         try {
           return await this.chatWithOpenAI(
             key,
             'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-            'qwen-plus',
+            'qwen3.8-flash',
             messages,
             options,
           );
-        } catch (err: any) { this.logger.warn(`Qwen failed: ${err.message}`); }
+        } catch (err: any) { this.logger.warn(`Qwen3.8-Flash failed: ${err.message}`); }
       }
     } else if (provider === 'volcengine') {
       const key = await this.getApiKey('volcengine_api_key');
@@ -1703,10 +1892,10 @@ export class AIServiceUtil {
     } else if (provider === 'deepseek') {
       const key = await this.getApiKey('deepseek_api_key');
       if (key) {
-        this.logger.log('Using DeepSeek (forced) for chat');
+        this.logger.log('Using DeepSeek v4 Flash (forced) for chat');
         try {
           return await this.chatWithOpenAI(
-            key, 'https://api.deepseek.com/v1/chat/completions', 'deepseek-chat',
+            key, 'https://api.deepseek.com/v1/chat/completions', 'deepseek-v4-flash-0731',
             messages, options,
           );
         } catch (err: any) { this.logger.warn(`DeepSeek failed: ${err.message}`); }
@@ -1714,18 +1903,17 @@ export class AIServiceUtil {
     } else if (provider === 'zhipu') {
       const key = await this.getApiKey('zai_api_key');
       if (key) {
-        this.logger.log('Using 智谱 GLM-4.5-Air (forced) for chat');
+        this.logger.log('Using 智谱 glm-5.2 (forced) for chat');
         try {
           return await this.chatWithOpenAI(
-            key, 'https://api.z.ai/api/paas/v4/chat/completions', 'GLM-4.5-Air',
+            key, 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-5.2',
             messages, options,
           );
-        } catch (err: any) { this.logger.warn(`GLM-4.5-Air failed: ${err.message}`); }
+        } catch (err: any) { this.logger.warn(`glm-5.2 failed: ${err.message}`); }
       }
     }
 
     // Auto mode - try each configured provider in priority order
-    // 2026-08-13：qwen-plus 优先（速度优先，实测 GLM-4.5-Air 免费档请求排队 60-120s 过慢），GLM 作降级兜底
     const aliyunKey = await this.getApiKey('tongyi_api_key');
     const zhipuKey = await this.getApiKey('zai_api_key');
     const volcKey = await this.getApiKey('volcengine_api_key');
@@ -1733,18 +1921,31 @@ export class AIServiceUtil {
     const deepseekKey = await this.getApiKey('deepseek_api_key');
 
     if (aliyunKey) {
-      try {
-        return await this.chatWithOpenAI(aliyunKey, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', 'qwen-plus', messages, options);
-      } catch (err: any) { this.logger.warn(`阿里云 Qwen chat failed: ${err.message}`); }
+      const aliyunModels = ['qwen3.8-flash', 'qwen3.7-flash', 'qwen3.8-27b', 'qwen3.8-max', 'qwen3.8-2.4t-a95b'];
+      for (const modelId of aliyunModels) {
+        try {
+          return await this.chatWithOpenAI(aliyunKey, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', modelId, messages, options);
+        } catch (err: any) {
+          this.logger.warn(`阿里云 ${modelId} chat failed: ${err.message}`);
+        }
+      }
     }
 
     if (zhipuKey) {
       try {
-        return await this.chatWithOpenAI(zhipuKey, 'https://api.z.ai/api/paas/v4/chat/completions', 'GLM-4.5-Air', messages, options);
-      } catch (err: any) { this.logger.warn(`智谱 GLM-4.5-Air chat failed: ${err.message}`); }
-      try {
-        return await this.chatWithOpenAI(zhipuKey, 'https://api.z.ai/api/paas/v4/chat/completions', 'GLM-4.7-Flash', messages, options);
-      } catch (err: any) { this.logger.warn(`智谱 GLM-4.7-Flash failed: ${err.message}`); }
+        return await this.chatWithOpenAI(zhipuKey, 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-5.2', messages, options);
+      } catch (err: any) { this.logger.warn(`智谱 glm-5.2 chat failed: ${err.message}`); }
+    }
+
+    if (deepseekKey) {
+      const deepseekModels = ['deepseek-v4-flash-0731', 'deepseek-v4-pro-0813'];
+      for (const modelId of deepseekModels) {
+        try {
+          return await this.chatWithOpenAI(deepseekKey, 'https://api.deepseek.com/v1/chat/completions', modelId, messages, options);
+        } catch (err: any) {
+          this.logger.warn(`DeepSeek ${modelId} chat failed: ${err.message}`);
+        }
+      }
     }
 
     if (volcKey) {
@@ -1765,12 +1966,6 @@ export class AIServiceUtil {
       try {
         return await this.chatWithOpenAI(openaiKey, 'https://api.openai.com/v1/chat/completions', 'gpt-4o', messages, options);
       } catch (err: any) { this.logger.warn(`OpenAI chat failed: ${err.message}`); }
-    }
-
-    if (deepseekKey) {
-      try {
-        return await this.chatWithOpenAI(deepseekKey, 'https://api.deepseek.com/v1/chat/completions', 'deepseek-chat', messages, options);
-      } catch (err: any) { this.logger.warn(`DeepSeek chat failed: ${err.message}`); }
     }
 
     this.logger.warn('No LLM API key configured or all providers failed');
@@ -1824,31 +2019,7 @@ export class AIServiceUtil {
     const userPrompt = `请根据提供的${imageUrls.length}张图片，生成一段用于AI视频生成的中文描述。`;
 
     if (provider === 'aliyun' || provider === 'auto') {
-      const key = await this.getApiKey('tongyi_api_key');
-      if (key) {
-        const visionModels = [
-          'qwen3.5-omni-plus',
-          'qwen3.5-omni-plus-2026-03-15',
-          'qwen3-vl-flash',
-          'qwen3-omni-flash-realtime-2025-09-15',
-          'qwen3-omni-flash-realtime',
-          'qwen3-vl-plus',
-          'qwen-vl-max',
-          'qwen-vl-plus',
-        ];
-        for (const model of visionModels) {
-          try {
-            this.logger.log(`尝试阿里云视觉模型: ${model}`);
-            const result = await this.chatWithVision(key, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model, systemPrompt, userPrompt, imageUrls);
-            if (result) {
-              this.logger.log(`阿里云视觉模型 ${model} 调用成功`);
-              return result;
-            }
-          } catch (err: any) {
-            this.logger.warn(`${model} failed: ${err.message}`);
-          }
-        }
-      }
+      this.logger.warn('阿里云全模态模型已全部失效，跳过视觉链');
     }
 
     if (provider === 'volcengine' || provider === 'auto') {
@@ -1873,12 +2044,15 @@ export class AIServiceUtil {
     if (provider === 'zhipu' || provider === 'auto') {
       const key = await this.getApiKey('zai_api_key');
       if (key) {
-        try {
-          this.logger.log('Using 智谱 glm-4v for image description');
-          const result = await this.chatWithVision(key, 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-4v', systemPrompt, userPrompt, imageUrls);
-          if (result) return result;
-        } catch (err: any) {
-          this.logger.warn(`glm-4v failed: ${err.message}`);
+        const zhipuVisionModels = ['GLM-4.6V-Flash', 'GLM-4.1V-Thinking-Flash'];
+        for (const model of zhipuVisionModels) {
+          try {
+            this.logger.log(`Using 智谱 ${model} for image description`);
+            const result = await this.chatWithVision(key, 'https://api.z.ai/api/paas/v4/chat/completions', model, systemPrompt, userPrompt, imageUrls);
+            if (result) return result;
+          } catch (err: any) {
+            this.logger.warn(`${model} failed: ${err.message}`);
+          }
         }
       }
     }
@@ -1914,28 +2088,7 @@ export class AIServiceUtil {
 
     // Aliyun vision models
     if (provider === 'aliyun' || provider === 'auto') {
-      const key = await this.getApiKey('tongyi_api_key');
-      if (key) {
-        const visionModels = [
-          'qwen3.5-omni-plus',
-          'qwen3.5-omni-plus-2026-03-15',
-          'qwen3-vl-flash',
-          'qwen3-omni-flash-realtime-2025-09-15',
-          'qwen3-omni-flash-realtime',
-          'qwen3-vl-plus',
-          'qwen-vl-max',
-          'qwen-vl-plus',
-        ];
-        for (const model of visionModels) {
-          try {
-            this.logger.log(`尝试阿里云视觉模型: ${model}`);
-            const result = await this.chatWithVision(key, 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', model, systemPrompt, userPrompt, imageUrls);
-            if (result) return result;
-          } catch (err: any) {
-            this.logger.warn(`${model} failed: ${err.message}`);
-          }
-        }
-      }
+      this.logger.warn('阿里云全模态模型已全部失效，跳过视觉链');
     }
 
     // Volcengine vision
@@ -1959,11 +2112,14 @@ export class AIServiceUtil {
     if (provider === 'zhipu' || provider === 'auto') {
       const key = await this.getApiKey('zai_api_key');
       if (key) {
-        try {
-          const result = await this.chatWithVision(key, 'https://api.z.ai/api/paas/v4/chat/completions', 'glm-4v', systemPrompt, userPrompt, imageUrls);
-          if (result) return result;
-        } catch (err: any) {
-          this.logger.warn(`glm-4v failed: ${err.message}`);
+        const zhipuVisionModels = ['GLM-4.6V-Flash', 'GLM-4.1V-Thinking-Flash'];
+        for (const model of zhipuVisionModels) {
+          try {
+            const result = await this.chatWithVision(key, 'https://api.z.ai/api/paas/v4/chat/completions', model, systemPrompt, userPrompt, imageUrls);
+            if (result) return result;
+          } catch (err: any) {
+            this.logger.warn(`${model} failed: ${err.message}`);
+          }
         }
       }
     }
@@ -2304,11 +2460,11 @@ ${strictRules[strictness]}
       const useDeepseek = !useAli && !useZhipu && !useVolc && !useOpenai && (llmProvider === 'deepseek' || (llmProvider === 'auto' && hasDeepseekKey));
   
       let llmName = '未配置';
-      if (useAli) llmName = '通义千问 Plus (阿里云)';
-      else if (useZhipu) llmName = '智谱 GLM-4.5-Air';
+      if (useAli) llmName = '通义千问 3.8 Flash (阿里云)';
+      else if (useZhipu) llmName = '智谱 GLM 5.2';
       else if (useVolc) llmName = '豆包 Doubao (火山引擎)';
       else if (useOpenai) llmName = 'GPT-4o (OpenAI)';
-      else if (useDeepseek) llmName = 'DeepSeek Chat';
+      else if (useDeepseek) llmName = 'DeepSeek V4 Flash';
   
       if (llmName === '未配置') {
         const textModels = await this.getActiveModels('text');

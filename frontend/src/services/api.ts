@@ -11,13 +11,14 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    const status = err.response?.status;
+    if (status === 401 || status === 403) {
       const url = err.config?.url || '';
       const isAuthRequest = url.includes('/api/auth/');
       const hadToken = !!localStorage.getItem('token');
-      // 有 token 但 401 = token 过期/失效，触发弹窗（排除登录/注册等无需鉴权请求）
+      // 有 token 但 401 = token 过期/失效；403 = 账号被封禁（排除登录/注册等无需鉴权请求）
       if (!isAuthRequest && hadToken) {
-        window.dispatchEvent(new CustomEvent('auth:expired'));
+        window.dispatchEvent(new CustomEvent(status === 401 ? 'auth:expired' : 'auth:banned'));
       }
     }
     return Promise.reject(err);

@@ -41,12 +41,12 @@ export class GlobalAssetController {
     name: string; description: string; prompt: string; prompt_cn: string;
     image_url: string; video_url: string; audio_url: string; tags: string; status: string;
   }>) {
-    return this.service.update(id, body, req.user.id, req.user.role === 'admin');
+    return this.service.update(id, body, req.user.id);
   }
 
   @Delete(':id')
   remove(@Req() req, @Param('id', ParseIntPipe) id: number) {
-    return this.service.remove(id, req.user.id, req.user.role === 'admin');
+    return this.service.remove(id, req.user.id);
   }
 
   @Post(':id/generate')
@@ -62,5 +62,10 @@ export class GlobalAssetController {
   @Post(':id/plan-prompt')
   planPrompt(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.service.planPrompt(id, req.user.id);
+  }
+
+  @Post(':id/thumbnail')
+  thumbnail(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.generateThumbnail(id, req.user.id);
   }
 }

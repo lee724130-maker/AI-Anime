@@ -33,7 +33,8 @@ export class EditorController {
       .catch(() => {});
   }
 
-  private assertEnabled() {
+  private assertEnabled(req: any) {
+    if (req?.user?.role === 'admin') return;
     if (!this.editorEnabled) {
       throw new ForbiddenException('剪辑功能暂时关闭，后续升级服务器后开放');
     }
@@ -48,7 +49,7 @@ export class EditorController {
 
   @Post('projects')
   createProject(@Req() req, @Body() dto: CreateEditorProjectDto) {
-    this.assertEnabled();
+    this.assertEnabled(req);
     return this.service.createProject(req.user.id, dto);
   }
 
@@ -59,19 +60,19 @@ export class EditorController {
 
   @Put('projects/:id')
   updateProject(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEditorProjectDto) {
-    this.assertEnabled();
+    this.assertEnabled(req);
     return this.service.updateProject(id, req.user.id, dto);
   }
 
   @Delete('projects/:id')
   deleteProject(@Req() req, @Param('id', ParseIntPipe) id: number) {
-    this.assertEnabled();
+    this.assertEnabled(req);
     return this.service.deleteProject(id, req.user.id);
   }
 
   @Post('projects/:id/render')
   renderProject(@Req() req, @Param('id', ParseIntPipe) id: number) {
-    this.assertEnabled();
+    this.assertEnabled(req);
     return this.service.startRender(id, req.user.id);
   }
 
@@ -83,8 +84,8 @@ export class EditorController {
   // ───── Concat (merge two videos) ─────
 
   @Post('concat')
-  concat(@Body() body: { urlA: string; urlB: string }) {
-    this.assertEnabled();
+  concat(@Req() req, @Body() body: { urlA: string; urlB: string }) {
+    this.assertEnabled(req);
     if (!body.urlA || !body.urlB) throw new BadRequestException('urlA and urlB are required');
     return this.service.concatVideos(body.urlA, body.urlB);
   }
@@ -113,7 +114,7 @@ export class EditorController {
     }),
   )
   uploadFile(@Req() req, @UploadedFile() file: any) {
-    this.assertEnabled();
+    this.assertEnabled(req);
     if (!file) throw new BadRequestException('文件上传失败');
     return { url: `/static/${file.filename}`, original_name: file.originalname };
   }

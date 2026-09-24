@@ -31,6 +31,13 @@ export class User {
   @Column({ default: 'user' })
   role: string;
 
+  // 生产新代码字段（未推送到 git），保留数据用
+  @Column({ type: 'boolean', default: false })
+  is_super_admin: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  admin_permissions: string | null;
+
   @Column({ type: 'boolean', default: false })
   test_notice_dismissed: boolean;
 

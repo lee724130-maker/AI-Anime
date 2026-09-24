@@ -9,6 +9,7 @@ import { User } from '../user/user.entity';
 import { Script } from '../script/script.entity';
 import { Character } from '../character/character.entity';
 import { VideoTask } from '../video/video.entity';
+import { GenerationTask } from '../task/generation-task.entity';
 import { Order } from '../order/order.entity';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
@@ -18,7 +19,7 @@ import { ModelConfigService } from './model-config.service';
 import { PromptTemplateService } from './prompt-template.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, User, Script, Character, VideoTask, Order])],
+  imports: [TypeOrmModule.forFeature([SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, User, Script, Character, VideoTask, GenerationTask, Order])],
   controllers: [AdminController],
   providers: [AdminService, AdminNotificationService, AdminNotificationGateway, ModelConfigService, PromptTemplateService],
   exports: [AdminService, AdminNotificationService, AdminNotificationGateway, ModelConfigService, PromptTemplateService],

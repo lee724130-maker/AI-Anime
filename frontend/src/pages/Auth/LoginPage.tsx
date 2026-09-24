@@ -1,76 +1,139 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, message } from 'antd';
-import { UserOutlined, LockOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Typography, message } from 'antd';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
 
-  const onFinish = async (values: { username: string; password: string }) => {
-    setLoading(true);
-    try {
-      const { data } = await api.post('/api/auth/login', values);
-      setAuth(data.user, data.access_token);
-      message.success('登录成功');
-      navigate('/dashboard', { replace: true });
-    } catch (err: any) {
-      message.error(err.response?.data?.message || '登录失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="auth-screen" style={{
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 16,
-      background: 'linear-gradient(135deg, #ede9fe 0%, #fce7f3 50%, #fef3c7 100%)',
-    }}>
-      <Card style={{ width: '100%', maxWidth: 420, borderRadius: 16, overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
-        {/* Hero banner */}
-        <div style={{
-          background: 'linear-gradient(135deg, #7c3aed 0%, #a855f7 30%, #ec4899 70%, #f59e0b 100%)',
-          padding: '40px 24px 32px',
-          textAlign: 'center',
-        }}>
-          <PlayCircleOutlined style={{ fontSize: 52, color: '#fff', marginBottom: 12 }} />
-          <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 700, letterSpacing: 2 }}>
-            AI 动漫短剧
-          </Title>
-          <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14 }}>
-            用AI打造你的动漫世界
+    <div
+      className="auth-screen"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '48px 24px',
+        background: 'var(--bg)',
+        minHeight: '100vh',
+      }}
+    >
+      <div style={{ width: '100%', maxWidth: 360 }}>
+        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+          <div
+            style={{
+              fontSize: 32,
+              fontWeight: 800,
+              letterSpacing: '-1px',
+              background: 'linear-gradient(135deg, #7c3aed, #a855f7, #ec4899)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              lineHeight: 1.2,
+              marginBottom: 8,
+            }}
+          >
+            AI Anime
+          </div>
+          <Text style={{ display: 'block', fontSize: 14, color: 'var(--text-muted)' }}>
+            登录你的账号
           </Text>
         </div>
-
-        {/* Form */}
-        <div style={{ padding: '32px 36px 36px' }}>
-          <Form onFinish={onFinish} size="large">
-            <Form.Item name="username" rules={[{ required: true, message: '请输入邮箱或用户名' }]}>
-              <Input prefix={<UserOutlined style={{ color: '#a78bfa' }} />} placeholder="邮箱或用户名" />
-            </Form.Item>
-            <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-              <Input.Password prefix={<LockOutlined style={{ color: '#a78bfa' }} />} placeholder="密码" />
-            </Form.Item>
-            <Form.Item style={{ marginBottom: 12 }}>
-              <Button type="primary" htmlType="submit" loading={loading} block size="large">
-                登录
-              </Button>
-            </Form.Item>
-          </Form>
-          <div style={{ textAlign: 'center' }}>
-            <Text type="secondary">还没有账号？</Text>{' '}
-            <Link to="/register" style={{ color: '#7c3aed', fontWeight: 500 }}>立即注册</Link>
+        <h1
+          style={{
+            fontSize: 24,
+            fontWeight: 400,
+            color: 'var(--text)',
+            marginBottom: 8,
+            textAlign: 'center',
+            lineHeight: 1.4,
+          }}
+        >
+          欢迎回来
+        </h1>
+        <Text
+          style={{
+            display: 'block',
+            textAlign: 'center',
+            fontSize: 14,
+            color: 'var(--text-secondary)',
+            marginBottom: 32,
+          }}
+        >
+          继续你的创作之旅
+        </Text>
+        <Form
+          onFinish={async (values: { username: string; password: string }) => {
+            setLoading(true);
+            try {
+              // 前台登录跳过超级管理员邮箱二次验证（管理后台另行 2FA）
+              const { data } = await api.post('/api/auth/login', { ...values, skipVerification: true });
+              if (!data.access_token) {
+                message.error(data?.message || '登录失败');
+                return;
+              }
+              setAuth(data.user, data.access_token);
+              message.success('登录成功');
+              navigate('/dashboard', { replace: true });
+            } catch (err: any) {
+              message.error(err.response?.data?.message || '登录失败');
+            } finally {
+              setLoading(false);
+            }
+          }}
+          layout="vertical"
+          size="large"
+          requiredMark={false}
+          style={{ marginBottom: 0 }}
+        >
+          <Form.Item
+            name="username"
+            rules={[{ required: true, message: '请输入邮箱或用户名' }]}
+          >
+            <Input
+              placeholder="邮箱或用户名"
+              style={{ height: 48, borderRadius: 8, fontSize: 14, border: '1px solid var(--border)' }}
+            />
+          </Form.Item>
+          <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
+            <Input.Password
+              placeholder="密码"
+              style={{ height: 48, borderRadius: 8, fontSize: 14, border: '1px solid var(--border)' }}
+            />
+          </Form.Item>
+          <div style={{ textAlign: 'right', marginBottom: 20, marginTop: -8 }}>
+            <span
+              style={{ color: 'var(--primary)', fontSize: 13, cursor: 'pointer' }}
+              onClick={() => message.info('请联系客服重置密码')}
+            >
+              忘记密码？
+            </span>
           </div>
+          <Form.Item style={{ marginBottom: 16 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              block
+              style={{ height: 44, borderRadius: 8, fontSize: 14, fontWeight: 600 }}
+            >
+              登录
+            </Button>
+          </Form.Item>
+        </Form>
+        <div style={{ textAlign: 'center' }}>
+          <Text style={{ color: 'var(--text-muted)', fontSize: 13 }}>{'还没有账号？ '}</Text>
+          <Link to="/register" style={{ color: 'var(--primary)', fontWeight: 500, fontSize: 13 }}>
+            立即注册
+          </Link>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

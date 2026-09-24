@@ -1,5 +1,208 @@
 # 修复日志
 
+## 2026-09-24（晚间轮：前台 admin 登录被 2FA 阻断修复 ✅ API 11/11 + UI 12/12 + 全量回归全绿 —— 待用户手动验收后再谈 git 提交）
+
+> 用户报告：5173 前台用 admin 登录后刷新会弹「登录已过期 / 您的登录凭证已失效」（**生产同样存在此遗留 bug**；用户曾在另一台机器修过，本机无记录）。需求：**前台登录 admin 只要用户名+密码，不走邮箱二次验证；管理后台 5174 保持 2FA 不变**。
+
+### 🐛 根因链（实锤）
+1. 生产后端 `POST /api/auth/login` 对 `is_super_admin` 只返回 `{requiresVerification:true, tempToken}`，**不发 access_token**（`auth.service.ts:91`）；
+2. 前台 `LoginPage.tsx` 没有 2FA 步骤，拿到响应照样 `setAuth(data.user, data.access_token)` → token=`undefined` → `localStorage.setItem('token', undefined)` 存成**字符串 "undefined"**；
+3. dashboard 请求带 `Bearer undefined` → 401 → `api.ts` 拦截器判 `hadToken=true` → 派发 `auth:expired` → `SessionExpiredModal` 弹「登录已过期」。
+
+### ✅ 修复（3 文件，前后端 `tsc` 全绿）
+| 文件 | 修改 |
+|------|------|
+| `backend/src/modules/auth/dto/login.dto.ts` | 新增可选字段 `skipVerification?: boolean`（`@IsOptional()+@IsBoolean()`——**必须进 DTO**，否则 `ValidationPipe({whitelist:true})` 会剥离） |
+| `backend/src/modules/auth/auth.service.ts` | 2FA 分支 `if (user.is_super_admin)` → `if (user.is_super_admin && !dto.skipVerification)`；默认（不传 flag）行为与生产逐字一致 |
+| `frontend/src/pages/Auth/LoginPage.tsx` | 登录请求 `{...values, skipVerification: true}`；加防御：响应无 `access_token` → `message.error` 不跳转（杜绝幽灵态复发） |
+
+- **管理后台 5174 登录不传该字段** → 2FA 三步流程原样保留（`verify-port` 的 `login requiresVerification=true` 检查照常 PASS）。
+- 语义提醒（用户已认可的需求本身）：开关在请求体里 = 知道 admin 密码即可在前台直接拿 token，2FA 实际只拦管理后台入口。
+
+### ✅ 验证（全绿）
+- **API 层** `Temp\opencode\test-login-fix.js` **11/11**：plain login 仍 `requiresVerification+tempToken` 无 token / skip 直发 JWT / skip+错密码 401 / skip+不存在用户 401 / verify-admin 错验证码 4xx / skipVerification 非布尔 → 400 / token 调 `/api/user/profile` 200。
+- **UI 层** `Temp\opencode\test-fe-admin-login.js` **12/12**：一次提交直接进 `/dashboard`、login 请求体含 `skipVerification:true`、localStorage token 是真 JWT（`eyJ` 开头）、**登录后+刷新后零「登录已过期」弹窗、/api 零 401**、AppHeader 渲染、0 pageerror。
+- **回归**：`verify-port.js` **30/30** · `test-admin-fe.js` **93/93**（5174 2FA 完好、log delta 断言过）· FE 五套 **22/20/31/35/79** 全 PASS（FE 测试都是 API 直登+Redis 注入，不带 flag，行为不变）。
+
+### ⚠️ 本轮新血泪
+1. **Playwright 必须 `chromium.launch({ channel: 'chrome' })`**——本机没装 chromium_headless_shell，裸 `launch()` 直接报 executable doesn't exist（全部既有套件都带该参数，新脚本照抄）。
+2. **toast 断言要在 `waitForURL` 之前先抓**：antd message 只活 ~3s，等跳转完成再数可能已消失（12/12 的唯一一次 FAIL 就是这个时序，改为点击后立即 `waitForSelector('.ant-message:has-text(...)', {timeout:5000})`）。
+3. **重启后端的后台启动曾 exit 1 零输出** = 与杀进程竞态/日志文件被旧进程占用；清场判据 = `Get-NetTCPConnection` listener=0 + 日志文件可写 + dist grep 到新代码后重新启动即成。服务健康以「端口监听 + 日志时间戳」为准。
+
+### 📋 状态与待办（下个上下文从这里接）
+- **服务**：后端 :3000 跑**新代码**（`backend-run9.log` 续写）、FE :5173、admin :5174 全在线；MySQL/Redis 在线。
+- [ ] **等用户手动验收**前台 admin 登录（用户名+密码直接进、刷新不弹过期）
+- [ ] 用户确认后：**git 提交（必须先问用户，本轮仍零提交**；remote main 仅 `afe7f20`）
+- [ ] 既有残留差异不变（见下节 09-24 首节：硬编码色差 / 越权页无 canEdit 门 / 无 socket.io 代理 / gen-logs 500 生产对齐保留）
+
+---
+
+## 2026-09-24（管理后台测试修复 93/93 + 全量回归全绿 ✅ 09-23 遗留全部关闭，本轮零提交）
+
+> 承接 09-23 中断点。完成 admin 测试 6 个 FAIL 修复（**93/93 PASS**）+ 全套回归，09-23 剩余工作全部关闭。
+
+### ✅ ① 管理后台 test-admin-fe.js：85/91 → **93/93**
+- **restart/cleanup 弹窗 2 个 FAIL 的真根因（非时序）**：antd v6 confirm 弹窗的 `.ant-modal-header` 是 `display:none`，但其内 `.ant-modal-title`（bbox 0×0）仍含标题文本 → `getByText(标题)` 命中它且 DOM 顺序在前 → `.first()` **永远不可见**（debug 的 `count=2` 是误判，count 不查可见性）；弹窗实际 t+308ms 就完全打开。修复 = 断言改锚**可见容器** `.ant-modal-wrap:visible .ant-modal-confirm` + `filter({hasText:/标题/})`；cancel **无条件执行**（曾改成条件跳过 → 弹窗残留 → 遮罩拦截后续点击 30s EXCEPTION 连带整段中断）。踩坑记录：`730 = 860×0.8488`（见③同类问题）。
+- 其余 4 个：gen-logs 500 = **生产对齐 bug 保留**（生产 admin.service.js:284 同样 join、generation-task 无 user 关系，dist 快照双重实锤）→ 断言改为空态+无 showTotal；adm total 运行中增长 → 表加载后**新探**端点取 exact total；超级管理员 tag 数据 ~457ms 到 → 加 poll；后端日志 delta 改读 **run9.log（raw UTF-8）Buffer.slice 字节偏移**，断言含 `二次验证通过`、不含 `超级管理员验证码`（2FA 发码全程 route mock，零真实发信）。
+- 假权限注入、退出登录、确认框只点取消（restart/cleanup/充值/权限/DB 执行全部 scoped `.ant-modal-wrap:visible`）均过；0 pageerror。
+
+### ✅ ② 全量回归（全绿）
+- 两端 `tsc -b` EXIT=0 · `verify-port.js` **30/30** · FE：foundation **22/22** / order **20/20** / generate **31/31** / ga **35/35** / landing **79/79** · admin **93/93**
+- 入口冒烟：5173→200、5174/admin/→200、3000 活着（`GET /api/auth/login` 404=预期，路由仅 POST）
+
+### ✅ ③ FE-3 GlobalAssets 35/35 修复（数据前提失效，测试改自播种）
+- **根因链**：后端 `list` 严格 `user_id = :userId`（与生产 dist 逐字一致，**不改**）；生产 `global_assets` 真值核对 = 当前本地值逐字段一致（user16/usage0/pending，created_at 毫秒级一致）→ **当前数据就是生产对齐态**，admin(id1) 名下为空。本地该表曾有一套 admin 可见的旧数据（09-23 15:19:01 被一次**只针对该表**的批量写刷成生产值，其余 14 张带 updated_at 的表无此时间点）→ 昨天写的测试前提失效。
+- **修复 = 测试自播种**（`fe-ga-seed` tag）：admin 用 API 建 3 资产——scene 必须带 `usage_count:2`（`引用 N 次`=usage_count>0）、`source_type:'generate'`（来源渲染**裸 source_type**，正则只认 generate|手动创建）、`已上传`=**有文件**（与 status 列无关）；image_url 换本地存在的 jpg（原 img_22_*.png 是生产 30 天清理删掉的，本地与生产同样 404）。尾部清理 + 开跑幂等清理，**绝不碰 user16 生产行**；admin 名下≠3 时 SEED FAILED 快速失败。
+- **弹窗宽度 730 vs 860**：`width={860}` 硬编码没问题，是**固定 400ms 等待量在 antd zoom-enter 动画中段**（初始 scale 0.8488，动画 ~600ms）→ `waitModalWidth(page, target)` 轮询落位（±2px），detail/edit/add 三处统一；poll 内 evaluate 多匹配 strict 抛错被 catch 重试，天然处理关开重叠。
+
+### 📋 残留差异（已知、接受，非缺陷）
+- 硬编码色差（逆向近似，用户已接受纯 UI 近似）
+- 越权页面缺 canEdit 门：SystemConfig/ApiKey/Model/Prompt/Notifications/AccessStats（越权入口本就由菜单过滤挡，页面内无二次门）
+- admin 无 socket.io vite 代理（决定**不加**，保持忠实；只数 pageerror）
+- gen-logs 500 生产对齐保留（修了会破坏字节级 parity）
+
+### 📋 测试残留 / 服务
+- orders ~35（payment 测试建单）、admin_logs 持续增长、users 含历轮测试账号；global_assets 已回到 3 行 user16 生产对齐（种子清完）
+- 服务：后端 :3000（run9.log UTF-8）、FE 5173、admin 5174、MySQL、Redis 全在线
+- **本轮零 git 提交**（生产新代码从未 push，remote main 仅 afe7f20；提交需先问用户）
+
+---
+
+## 2026-09-23（中断记录：前端/管理后台 bundle 逆向 — 全部源码已写完且 tsc 绿，仅剩 admin 浏览器测试+全量回归 ⏸️ 明天继续）
+
+> 用户要求今天到此结束、明天再做。**中断安全**：无进行中编译/部署，所有已写文件完整落盘（两端 tsc 绿）；后端 :3000 + Vite :5173/:5174 可后台继续跑，不影响断点。**本轮零 git 提交**（提交需先问用户）。
+
+### ✅ 已完成（截至本次中断）
+1. **后端方案 A+B 全部完成**：`verify-port.js` 30/30 PASS，字节级对齐生产 dist（唯一允许偏差 order.entity varchar）；生产 25 表迁移 + 13 个媒体文件 + `migrate-verify.js` 10/10；零真实发信。
+2. **前端 FE 全量完成并全部实测通过**：
+   - 基础层（ThemeContext/Logo/ErrorBoundary/PageTitle/SessionExpired/TestNotice/api/App/AppHeader/UserLayout）→ `test-fe-foundation.js` **22/22**
+   - FE-1 Order（无 mock-pay，PayModal 3s 轮询/Countdown 900s/去支付/cancel）→ `test-fe-order.js` **20/20**
+   - FE-2 Generate（`GET /api/generate/quota` 语义修正：该端点只在 admin bundle → 归 admin Dashboard 额度卡；generate 页按生产）→ `test-fe-generate.js` **31/31**
+   - FE-3 GlobalAssets 缩略图 → `test-fe-ga.js` **35/35**
+   - FE-4 Landing 整页重建 + 生产版 Login/Register（源=`landing-dump.txt`）→ `test-fe-landing.js` **79/79**（site_notice 已还原）
+3. **管理后台 FE-5 + FE-6 源码 100% 写完**（全部从 `ad_index-k7fUvyyD.js` 逆向，字符串交叉核对 PASSED）：
+   - FE-5：`hooks/useTheme.ts`（默认 **dark**，挂载即持久化 `admin_theme`）、`stores/authStore.ts`（exports 仍叫 useAdminAuthStore，canAccess/canEdit）、`stores/notificationStore.ts`、`pages/Login/index.tsx`（2FA 三步 + 自动发码）、`App.tsx`、`main.tsx`、`index.html`（title AI Anime 管理后台 / favicon / theme-color #0F172A）、`index.css`、`public/favicon.svg`
+   - FE-6：`Logs`、`Dashboard/index.tsx`（$9 MENU 11 项 + resolveKey 无权限门、门在 renderPage 的 server/database is_super_admin 判断）、`Dashboard/Home.tsx`（4 统计卡 See in details→×4 + 今日概览 + 视频模型额度卡 + 最近注册用户 + 系统状态 3×Online）、`Dashboard/TrendCard.tsx`（recharts，`getDashboardTrend` 返回裸 14 点数组）、`UserManage`（H9 矩阵 9 行 → **复选框共 19 个**）、`Server`、`Database`、`Payments`、`hooks/useNotificationSocket.ts`
+   - **两端 `tsc -b` 全绿**；recharts@3.10.1 + socket.io-client 已装（Test-Path True）
+
+### ⏳ 剩余工作（明天按序继续，预估量很小）
+1. **修并跑 `Temp\opencode\test-admin-fe.js`**（已起草，选择器修正清单如下，**必须先加 `page.route('**/api/auth/send-admin-code')` fulfill mock**——本地 Login 切验证步会自动真发信到 1012453931@qq.com）：
+   - 登录填写改 placeholder：`input[placeholder="管理员用户名"]`/`密码`/`6位验证码`（**禁用 `form input`**——2 匹配 strict violation）
+   - Server 页：**不要预调 API+固定等**（toast 只活 ~3s）→ 单击 `刷新状态` 后 **poll 300-400ms ≤16s** 竞速 `.ant-message` `/获取状态失败/`（400 分支：断言 `点击获取服务器状态` 仍在）或 `.ant-descriptions` `平台`（200 分支），waiter 一律挂 `.catch()`；`查看日志` 后 poll ≤20s 等 `pre` 非空；开 restart 确认框（title `确认重启后端服务？` okText `确认重启`）+ 一个清理确认框（title `确认清理临时文件？` okText `确认清理`，触发按钮 `清理临时文件`），**都只点取消、绝不点 ok**（破坏性）
+   - 所有确认框按钮点击 **scope 到 `.ant-modal-wrap:visible`**（关闭的 modal 留在 DOM display:none；页面上 `执行查询` 按钮也会被 /执\s*行/ 命中）
+   - 权限弹窗：数 `.ant-modal-wrap:visible .ant-checkbox-wrapper` **=19**（行是 flex div 不是 ant-table-row）；`留空 = 全部权限` 是 Text 断言 modal hasText `/留空\s*=\s*全部权限/`，不是按钮；行标签 9 个全在（仪表盘/API 密钥/模型管理/提示词模板/用户管理/访问统计/支付记录/系统日志/系统配置）；`全选`→`全 选`、`全不选` 按钮
+   - Logs 列头：`getByRole('columnheader',{name, exact:true})` 或 `.ant-tabs-tabpane-active` scope——inactive pane 留 DOM 且 `时间` 会子串命中隐藏的 `创建时间`；gen 列 ID/类型/用户名/模型/状态/进度/提示词/算力/错误信息/创建时间/完成时间，admin 列 ID/管理员/操作/详情/目标/目标 ID/时间；两 tab showTotal 都是 `共 ${t} 条`（Logs:220/318）
+   - API total 分支：四端点全返回 `{items,total}`（admin.service getUsers:353 / genLogs:332 / adminLogs:701 / payments:797+stats.totalCount）→ `data.total ?? data.count`，否则回退 `/共 \d+ 条/`；Users showTotal `共 ${t} 人`（:339）、Payments `共 ${t} 条记录`（:185）；DB 查询行数断言 = min(usersTotal,10)=7，toast `查询成功，返回 7 行`、结果卡 `查询结果（7 行）`
+   - 后端日志 delta：**读 Buffer `.slice(logStart).toString('utf8')`**（logStart 是字节偏移，字符串切中文错位；logStart 在测试开头 statSync）；断言 delta 含 `二次验证通过`、**不含** `超级管理员验证码`
+   - 退出登录：hover `.admin-header-username`（Dropdown 默认 hover trigger，`.ant-avatar + span` 选不中）→ 点 `.ant-dropdown-menu-item` `退出登录` → /admin/login
+   - 主题：默认 dark + 挂载写入 `admin_theme=dark`；toggle `.anticon-sun`→light→`.anticon-moon`→dark（isDark ? Sun : Moon，Dashboard:262）
+   - Dashboard 断言：header h4 `仪表盘` + avatar `rgb(124, 58, 237)` + `超级管理员`；菜单恰好 11 个 `.ant-menu-item`（onMenuClick=nav('/'+key)，Dashboard:122）；`欢迎回来`、`See in details` ×4、`今日概览`、poll `svg.recharts-surface`、额度卡（`视频模型额度`/`刷新额度`/🥇/🥈/`剩余`/`今日已用`，Home:189-239）、`最近注册用户`+`查看全部`、系统状态 3×Online
+   - Payments：`.ant-layout-content` 内 0 个 h3、3 卡（已支付订单/总收入/全部订单）、`共 N 条记录`；Logs：`日志中心` + subtitle + 2 tab + exact 列头 + `共 N 条`；UserManage：`用户管理` h3（:190）+ 唯一 `权 限` 按钮（Lee-1 行）→ `管理权限 - Lee-1` → 取消 + 首个 `充 值` → `充值积分`（:351）→ 取消，零变更
+   - 假权限：注入 fake `admin_user`（admin_permissions='["dashboard","users","logs"]'，is_super_admin=false）+ reload → 菜单恰好 3 项；直开 `/admin/server` → `无权访问` + `此功能仅超级管理员可用`（门在 renderPage，resolveKey 不拦）；再 logout → /admin/login
+   - 0 pageerror（socket.io 无 vite 代理 console 噪音白名单，只数 pageerror）+ 后端日志 delta 断言
+2. **全量回归**：两端 `tsc`（修完再跑一遍）、浏览器扫 localhost 5173/5174、`verify-port.js` 30/30（NODE_PATH=backend\node_modules）、重跑 FE 套件（foundation 22 / order 20 / generate 31 / ga 35 / landing 79）
+3. **标记残留差异**：硬编码色差、越权页面（SystemConfig/ApiKey/Model/Prompt/Notifications/AccessStats 缺 canEdit 门）、useNotificationSocket 无 vite socket.io 代理（决定**不加**代理保持忠实）
+4. **更新本文件 + 问用户是否 git 提交**（本轮零提交；生产新代码从未 push，remote main 仅 `afe7f20`）
+
+### ⚠️ 明天别忘的关键约束
+- 生产服务器**只读**（不重启不清理）；无 SMTP 同意不发信（2FA/验证码一律 Redis 注入：`email_code:admin:1012453931@qq.com` = `123456|毫秒时间戳` EX 300，db 0；**send-admin-code 必须 route mock**）
+- admin URL `http://localhost:5174/admin/`、登录 `/admin/login`；本地 admin/admin123（super，2FA），Lee-1 id16 密码未知（权限过滤用注入假 admin_user 测）
+- antd v6 坑：两字按钮正则 /确\s*认/ /取\s*消/ /执\s*行/ /充\s*值/ /权\s*限/ /全\s*选/；关闭的 modal 留 DOM；hidden Tabs pane 留 th；toast ~3s 必须 poll 不能固定等；Space 用 orientation
+- 编译 PATH 前置 `C:\Program Files\nodejs`；`npm.cmd`；写脚本文件禁内联 node -e；`glob` 工具坏用 shell；PowerShell 无 `<` 重定向
+
+### 服务状态（断点）
+后端 `node dist\src\main.js` :3000（PID 7512，日志 `Temp\opencode\backend-run7.log`）· FE Vite :5173 · admin Vite :5174 · MySQL · Redis 全部运行中
+
+---
+
+## 2026-09-22（中断记录：本地代码对齐生产未推送代码 — 后端已完成，前端进行中 ⏸️ 明天继续）
+
+> 用户要求中断当前工作并记录剩余任务。**中断安全**：无进行中的编译/部署，所有已写文件均完整落盘；后端/Vite 服务可继续在后台跑，不影响断点。
+
+### ✅ 已完成
+1. **原项目 + 生产库迁移**：25 表 268 行、媒体文件、`migrate-verify.js` 10/10 PASS（见上一节）。
+2. **后端方案 A+B 全部完成，字节级对齐生产 dist**：
+   - 移植 5 组 diff + contact/payment 模块；env/config 对齐；`system_configs` 32 键（含 `credit_plans`）。
+   - **`verify-port.js` 30/30 PASS**，唯一允许偏差 = `order.entity.js` 的 `type:'varchar'`。
+   - 后端运行中：`node dist\src\main.js` :3000（日志 `Temp\opencode\backend-run6*.log`）。零真实发信。
+3. **生产 CSS/HTML 全量采用**：`frontend/src/index.css` ← 生产 CSS（23204B，括号 254/254 平衡、零字符串）；`frontend/index.html` 重写（theme-color #6C5CE7、pre-paint 主题脚本、dev 入口 `/src/main.tsx`）。
+4. **Bundle 逆向产物（全在 `Temp\opencode\`）**：
+   - `prodbundle\` 98 个生产 bundle（`fe_index-BoL704Yq.js` 870KB、`ad_index-k7fUvyyD.js` 1605KB、`fe_Order-DTuk216S.js`、prod-index.css/html）。
+   - dump 文件：`theme-dump.txt/2/3`、`landing-dump.txt`（51KB，Landing JF 全文）、`logo-icons-dump.txt`、`hf-wf-dump.txt`。
+   - 关键结构已解码：App 根 `QI`（ThemeProvider>BrowserRouter>[PageTitle, ErrorBoundary>Suspense>Routes, TestNoticeModal, SessionExpiredModal]）、ThemeProvider `Aj`（含 `kj` dark token 全表 + darkComponents）、ErrorBoundary `Mj`、PageTitle `ZI`+`XI` 路由标题表、guards `qI/YI/JI(AdminGuard 新)/KI`、Routes 差异（**生产 `/editor`、`/editor/:id` 为 admin-only 已被本地误改 redirect，需恢复**）、AppHeader `rI`（品牌 "AI Anime"、logo SVG `eI`、主题切换 `cM/_M`、充值按钮 gated `recharge_enabled==='1'`、admin-only editor 导航）、Breadcrumb `aI`+`iI`、UserLayout `oI`、SessionExpiredModal `uI`（含 banned 分支）、api 拦截器差（**403→`auth:banned`，本地缺**）、authStore `WF`（与本地一致）、Landing `JF` 状态机（站点公告/联系表单/FAQ/preset 数据）。
+5. **`frontend/src/theme/ThemeContext.tsx` 已创建**（THEME_KEY/readTheme/DARK_TOKENS/DARK_COMPONENTS/ThemeProvider/useTheme，精确 bundle 值）。
+6. `extract-icons2.js` 已写好**未运行**（映射 kM/cM/_M/nM/aM/CM/Xj/Fj/bM/qj/$j/dM/EM/Rj → svg name）。
+
+### ⏳ 剩余工作（明天按序继续）
+1. 运行 `extract-icons2.js` → 读 icon 名（重点：`cM/_M` 明暗对、`kM` 充值、`$j` 画布）→ 确认本地 antd 图标选择。
+2. 定位本地 SessionExpiredModal/TestNoticeModal 实际路径（预期路径 glob 失败，用 shell dir 列表找），与生产 `uI`/`lI`（banned 分支）比对对齐。
+3. 新建 `components/ErrorBoundary.tsx`（Mj 逐字）+ PageTitle（ZI 逐字）；重写 `App.tsx` 根（QI 结构 + AdminGuard JI + 恢复 `/editor`、`/editor/:id` 路由）。
+4. 重写 `AppHeader/index.tsx`（rI 逐字）+ `UserLayout/index.tsx`（oI + 面包屑 aI/iI、main page-fade-in key=pathname、padding clamp 28px）。
+5. `services/api.ts` 加 403→`auth:banned` 分支。
+6. **FE-1 Order 重写**（从 `fe_Order-DTuk216S.js`：PayModal 3s 轮询 `/api/payment/status/:id`、paid/cancelled Result、Countdown 900s、充值开关、重复 pending 确认、`/api/payment/create`、去支付 `/api/payment/payUrl/:id`、cancel、无 mock-pay）。
+7. **FE-2 Generate 配额**（`GET /api/generate/quota`）；**FE-3 GlobalAssets 缩略图**；**FE-4 联系表单 + Landing 整页重建**（源=`landing-dump.txt`）。
+8. **admin**：2FA 登录、新页面（Server/Db/Payments/Dashboard trend/Users）、admin 主题（`SB()` hook + data-theme，`bB/yB/xB` 键值待提取）、权限菜单（`$9` + `admin_permissions`）——源=`ad_index-k7fUvyyD.js`。
+9. 全量回归：两端 `tsc`、浏览器扫 `localhost` 5173/5174、`verify-port.js` 30/30、标记残留硬编码色差异。
+10. 更新 AGENTS.md；**git 提交需先问用户**（本轮零提交；生产新代码从未 push，remote `main` 仅 `afe7f20`）。
+
+### ⚠️ 关键约束（明天别忘）
+- 生产服务器**只读**（不重启不清理），测试只走只读 admin API / SSH 只读探针；无 SMTP 同意不发信（2FA/验证码一律 Redis 注入）。
+- 忠实移植，不擅自"改进"；纯 UI 的 minified JSX 重建允许近似（用户已接受）。
+- 新源不可得：git remote 只有 `main@afe7f20`；服务器 `frontend/src`+`admin/src` 是 8-6 旧快照；**无 FE sourcemap**，唯一来源=dist bundle。
+- 主题默认 LIGHT；localStorage 键 `frontend-theme`；暗色=`data-theme=dark` + antd darkAlgorithm。
+- 编译：PATH 前置 `C:\Program Files\nodejs`；裸跑 `.\node_modules\.bin\tsc.cmd` 不接管道；复杂引号的内联 `node -e` 必挂→写脚本文件；`glob` 工具 ripgrep 报错→用 shell dir 列表。
+
+## 2026-09-22（本地环境从零搭建 + 生产数据库整库迁移 ✅ 全链路 10/10 PASS）
+
+> 用户拉取 GitHub 仓库到 `D:\AI-Anime-main`，要求本地跑通全栈并迁移生产数据（生产环境与本地代码分离，本地为全新环境）。
+
+### ✅ ① 环境搭建（从零）
+- Git 2.55.0.5 + Node.js 22.23.2 LTS；backend/frontend/admin 三端 npm install 全部完成
+- **MySQL 8.4.11 LTS ZIP 安装为系统服务**（`C:\mysql`，root/`AnimeLocal2026!`，库 `ai_anime` utf8mb4；⚠️ my.ini 不能带 `default-authentication-plugin`，MySQL 8.4 已移除该参数会启动失败）；**Redis 5.0.14.1 MSI 服务**；TypeORM `synchronize:true` 自动建 25 张表
+- ffmpeg 9.0.2 装入 `backend/tools/ffmpeg/`（drawtext/xfade/zoompan 齐全）；`backend/.env` 配 DB_PASSWORD
+- 应用 `backend/seed-prompt-templates.sql` → 6 个提示词模板（id 1,2,3,4,6,7）
+- 三服务在线：后端 `node dist\src\main.js` :3000、前端 Vite :5173、admin Vite :5174（⚠️ vite 监听 **IPv6 `::1`**，脚本用 `localhost` 别用 `127.0.0.1`，否则 ECONNREFUSED 假象）
+
+### ✅ ② 生产数据迁移（SSH 22 被防火墙拦截 → 走 admin 只读 SQL API）
+- 生产 SSH :22 超时、MySQL :3306 关闭 → 改用解码生产 admin 前端 bundle 挖出的真实端点：`/api/auth/send-admin-code` → `/api/auth/verify-admin`（邮箱验证码，用户授权发到 1012453931@qq.com，code 996165）→ `/api/admin/db/tables` + `/api/admin/db/query`（**只读 SELECT/SHOW/DESCRIBE/EXPLAIN**）
+- `prod-dump.js` 分页导出 25 表 268 行 → `prod-import.js` 用 backend 的 mysql2 参数化导入（`FOREIGN_KEY_CHECKS=0` + 列交集过滤 + datetime 转换）
+- **迁移结果**：users=7（含 admin/admin123 哈希）、**model_configs=69**、**system_configs=32**、orders=23、prompt_templates=6、drama/canvas/editor/viral 项目全量、admin_logs=107
+- **🔑 关键收获：生产 API key 迁移回来了**——`tongyi_api_key`（35 位，尾 aeec）、`zai_api_key`（49 位，尾 3uAQ）+ 全部积分/扣费价格配置（credit_cost_480p=5/720p=10/1080p=20、viral/drama 全套成本）都在 `system_configs` 里，本地可直接生成
+
+### ✅ ③ 补齐生产新代码的 3 列（schema-diff 全量对比得出）
+- `schema-diff.js` 用 `information_schema.columns`（⚠️ 接口强制追加 `LIMIT 1000`，`DESCRIBE`/`SHOW COLUMNS` 后接 LIMIT 语法报错，必须走 information_schema 的 SELECT）对比生产 vs 本地全 25 表
+- 差异仅 3 列，全部来自**生产未推送到 git 的新代码**：`users.is_super_admin`、`users.admin_permissions`、`orders.transaction_id`
+- **加列必须同时改实体**——TypeORM `synchronize:true` 重启会删掉实体里没有的列，数据会丢 → `user.entity.ts` / `order.entity.ts` 各补 2 列
+- ⚠️ **又踩 AGENTS.md 老坑**：`transaction_id: string | null` 不写 `type:'varchar'` → 反射成 `Object` → `DataTypeNotSupportedError` 后端启动即崩（退出码 1）→ 补 `type:'varchar'` 后正常
+- 时区处理：生产 API 返回 ISO `Z` 字符串，导入按本机时区（UTC+8，与生产一致）还原墙上时间；datetime 列类型是 `datetime(6)`（带精度），正则匹配 `/^(datetime|timestamp)/i` 不能加 `$`
+
+### ✅ ④ 媒体文件补齐（DB 迁移 ≠ 文件迁移）
+- DB 里 30 个 `/static/` 引用，生产可达 13 个（其余 17 个是生产 30 天孤儿清理已删的，两边一致属正常）→ `static-fetch.js` 下载 **13 个文件 232.4MB** 到本地
+- ⚠️ **URL `/static/` 对应物理目录是 `backend/output/` 不是 `backend/static/`**（`main.ts` `useStaticAssets(outputDir, {prefix:'/static/'})`）——放错目录会 404，实测 `output/vid_3_*.mp4` → `/static/vid_3_*.mp4` = 200 才算对
+- `static-audit.js` 通用收集：从 information_schema 动态找所有 `*url*` / `nodes` / `output_data` / `media_refs` / `timeline` 列，正则抽 `/static/[\w.\-]+`，比猜列名靠谱（`media_files` 是 `thumbnail_url` 不是 `cover_url`，`drama_segments` 只有 `video_url` 等）
+
+### ✅ ⑤ 最终验证 `migrate-verify.js` **10/10 PASS**
+admin 登录（本地代码无二次验证，直接返回 access_token）/ workbench summary / model_configs 69 条 / system/config 16 键 / credit-rules 实时读生产价格 / prompt_templates 6 条 / 未登录 401 / users 7 人 / 前端 5173 / admin 5174；后端日志 0 ERROR
+
+### ⚠️ 本轮血泪（全部为 AGENTS.md 旧教训复现）
+1. **union 类型列必须显式 `type`**——`string | null` 不写就 `DataTypeNotSupportedError` 启动崩（第 3 次踩）
+2. **PowerShell 不支持 `<` 重定向** → `cmd /c "... < file"`；**改含中文的 JS 必须 node 读写 utf8**，`Get-Content/Set-Content` 必转码损坏（`模型配置 69 条` 变乱码 + 吃掉闭合引号 → SyntaxError）；**内联 `node -e` 含中文/复杂引号必挂** → 一律 write 工具写脚本文件
+3. **Nest POST 默认返回 201**——脚本判断成功别只认 200
+4. **vite dev 监听 `::1`（IPv6）**——`127.0.0.1` 连接被拒是假象，用 `localhost`
+5. **生产 API 会强制给 SQL 追加 `LIMIT 1000`**——`DESCRIBE`/`SHOW COLUMNS` 不支持后接 LIMIT（语法错），改 `information_schema` 的 SELECT
+6. **杀端口占用进程 ≠ 杀对进程**——杀掉 3000 端口 owner 后发现「新后端退出码 -1」其实是**上一轮遗留后台 shell 的退出通知**，新进程压根没启动过；判断服务状态以端口监听 + 日志时间戳为准
+7. **TypeORM synchronize 会删实体没有的列**——给老库补新列必须同步改实体，否则下次重启数据被清
+8. 日志文件被旧进程占用 → 新 shell `>` 重定向 `FileOpenFailure` 直接退出（5173/5174 重复启动失败的原因，老进程其实还活着）
+
+### 📋 遗留
+- 3 列新字段（is_super_admin/admin_permissions/transaction_id）是**生产未推 git 的新代码**的一部分，本地代码仍是 git HEAD 版本（无 2FA/`requiresVerification`）；若后续生产推新代码，pull 后实体字段会自然对齐
+- `users` 表 Lee-1(id16) 是第二个 admin（role=admin 但 is_super_admin=0）
+- 未做 git 提交（本地改动：user.entity.ts / order.entity.ts 补列 + 本轮无其他源码改动；`backend/.env`、`output/` 13 个媒体文件均在 gitignore 内）
+- 生产 admin JWT 存于 `Temp\opencode\admin-access-token.txt`，过期需重新 `send-admin-code` 要验证码
+- SSH :22 仍被防火墙拦截，下次迁移建议让用户开白名单走整库 mysqldump（当前只读 API 路径已验证可用）
+
+---
+
 ## 2026-08-21（代码审计修复 + GlobalAssets 上传进度条 + 部署生产）
 
 > 全面审计后端安全与健壮性，修复 6 项问题；新增 GlobalAssets 上传进度条；已部署生产验证通过，已 git push。

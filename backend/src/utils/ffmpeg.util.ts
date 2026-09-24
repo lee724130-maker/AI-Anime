@@ -173,7 +173,37 @@ export class FFmpegUtil {
   }
 
   private ff(args: string, opts?: { timeout?: number }): Promise<{ stderr: string; stdout: string }> {
-    return runFfmpegQueued(`"${this.ffmpegPath}" ${args}`, opts);
+    return this.ffArr(this.splitArgs(args), opts);
+  }
+
+  /** Split an ffmpeg argument string into tokens, honoring " and ' quoting (no shell). */
+  private splitArgs(s: string): string[] {
+    const parts: string[] = [];
+    let cur = '';
+    let inQuote = false;
+    let qChar = '';
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (inQuote) {
+        if (ch === qChar) {
+          inQuote = false;
+          continue;
+        }
+        cur += ch;
+      } else if (ch === '"' || ch === "'") {
+        inQuote = true;
+        qChar = ch;
+      } else if (ch === ' ' || ch === '\t') {
+        if (cur) {
+          parts.push(cur);
+          cur = '';
+        }
+      } else {
+        cur += ch;
+      }
+    }
+    if (cur) parts.push(cur);
+    return parts;
   }
 
   // execFile-based (no shell): preserves filtergraph quotes on Linux

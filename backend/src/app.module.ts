@@ -51,6 +51,8 @@ import { WorkbenchModule } from './modules/workbench/workbench.module';
 import { CleanupModule } from './modules/cleanup/cleanup.module';
 import { SecurityModule } from './modules/security/security.module';
 import { SecurityMiddleware } from './modules/security/security.middleware';
+import { PaymentModule } from './modules/payment/payment.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { RolesGuard } from './common/guards/roles.guard';
 
 const logDir = path.resolve(process.cwd(), 'logs');
@@ -124,6 +126,8 @@ entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNo
     WorkbenchModule,
     CleanupModule,
     SecurityModule,
+    PaymentModule,
+    ContactModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

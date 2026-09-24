@@ -1,16 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Tabs, Form, Select, Input, Button, Card, Tag,
+  Form, Select, Input, Button, Card, Tag,
   message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert, Progress, Switch,
 } from 'antd';
-import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, UserOutlined, EnvironmentOutlined, AppstoreOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, FullscreenOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
+import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import api from '../../services/api';
-import HistoryTable from './HistoryTable';
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
@@ -36,46 +35,48 @@ const VIDEO_PRESETS = [
   { label: '转场过渡', value: '平滑的转场镜头，镜头飞过环境，无缝移动，电影感流畅，建立上下文' },
 ];
 
-function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan, prompt }: { 
-  presets: typeof IMAGE_PRESETS; 
+function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan, prompt, smartPlanLoading }: {
+  presets: typeof IMAGE_PRESETS;
   onSelect: (v: string) => void;
   smartGenerate?: () => void;
   hasImages?: boolean;
   smartPlan?: () => void;
   prompt?: string;
+  smartPlanLoading?: boolean;
 }) {
   const [show, setShow] = useState(false);
   return (
     <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
       <Button type="link" size="small" icon={<BulbOutlined />} onClick={() => setShow(!show)} style={{ padding: 0 }}>
-        {show ? '收起提示词模板' : '💡 快速模板'}
+        {show ? '收起' : '💡 快速模板'}
       </Button>
       {smartGenerate && (
-        <Button 
-          type="link" 
-          size="small" 
+        <Button
+          type="link"
+          size="small"
           icon={<RobotOutlined />}
           onClick={smartGenerate}
           disabled={!hasImages}
-          title={!hasImages ? '请先上传或选择图片' : '根据图片智能生成描述'}
+          title={hasImages ? '根据图片智能生成描述' : '请先上传或选择图片'}
         >
           🖼️ 根据图片描述
         </Button>
       )}
       {smartPlan && (
-        <Button 
-          type="link" 
-          size="small" 
-          icon={<RobotOutlined />}
+        <Button
+          type="link"
+          size="small"
+          icon={smartPlanLoading ? <LoadingOutlined /> : <RobotOutlined />}
           onClick={smartPlan}
-          disabled={!prompt || prompt.trim().length < 2}
+          loading={smartPlanLoading}
+          disabled={smartPlanLoading || !prompt || prompt.trim().length < 2}
           title={!prompt || prompt.trim().length < 2 ? '请先输入创意描述' : 'AI 帮你扩展成详细视频描述'}
         >
-          ✨ AI 智能规划
+          {smartPlanLoading ? '规划中...' : '✨ AI 智能规划'}
         </Button>
       )}
       {show && (
-        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%' }}>
+        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%' }}>
           {presets.map((p) => (
             <Tag key={p.label} color="blue" style={{ cursor: 'pointer', padding: '2px 10px' }}
               onClick={() => onSelect(p.value)}>
@@ -87,6 +88,24 @@ function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan,
     </div>
   );
 }
+
+// 相对时间（生成历史侧栏）
+function timeAgo(value: string) {
+  if (!value) return '';
+  const diff = Math.max(0, Date.now() - new Date(value).getTime());
+  if (diff < 60000) return '刚刚';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
+  return `${Math.floor(diff / 86400000)}天前`;
+}
+
+const navBtnStyle = (disabled: boolean): React.CSSProperties => ({
+  position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 40, height: 40,
+  borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
+  backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 2px 8px rgba(0,0,0,0.3)', cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.3 : 1, color: '#fff', fontSize: 24, lineHeight: 1, fontFamily: 'system-ui',
+});
 
 export default function GeneratePage() {
   const [tabKey, setTabKey] = useState('text-to-image');
@@ -104,12 +123,13 @@ export default function GeneratePage() {
   // 结果区轮播：本次会话提交的任务 id（最新在前），关闭即移除
   const [resultIds, setResultIds] = useState<number[]>([]);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [histRefresh, setHistRefresh] = useState(0);
   const navigate = useNavigate();
   const [uploadFileList, setUploadFileList] = useState<any[]>([]);
   const [saveModal, setSaveModal] = useState<{ visible: boolean; record: any; name: string; type: string; description: string; promptCn: string }>({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' });
-  const [previewVideoUrl, setPreviewVideoUrl] = useState<string>('');
-  const [previewVideoVisible, setPreviewVideoVisible] = useState(false);
+  // 预览弹窗（图片预览 / 视频预览，点击右侧历史或结果打开）
+  const [preview, setPreview] = useState<{ task: any; item?: any } | null>(null);
+  const [previewIdx, setPreviewIdx] = useState(0);
+  const [planLoading, setPlanLoading] = useState(false);
   const [creditRules, setCreditRules] = useState<any>(null);
   const [voiceList, setVoiceList] = useState<any[]>([]);
 
@@ -134,6 +154,19 @@ export default function GeneratePage() {
   const promptTextToVideo = Form.useWatch('prompt', formTextToVideo) || '';
   const promptImageToVideo = Form.useWatch('prompt', formImageToVideo) || '';
 
+  // 预计扣费：文生图按张数、文生视频按时长×分辨率（需积分规则）
+  const numImagesWatch = Form.useWatch('num_images', formTextToImage) || 1;
+  const resolutionWatch = Form.useWatch('resolution', formTextToVideo) || '720p';
+  const durationWatch = Form.useWatch('duration', formTextToVideo) || 5;
+  const estimateCost = (mode: string): number | null => {
+    if (!creditRules) return null;
+    if (mode === 'text-to-image') return creditRules.image_per_image * numImagesWatch;
+    const rateKey = resolutionWatch === '1080p' ? 'video_1080p_per_5s'
+      : resolutionWatch === '480p' ? 'video_480p_per_5s' : 'video_720p_per_5s';
+    const rate = creditRules[rateKey] || creditRules.video_720p_per_5s || 20;
+    return rate * Math.ceil(durationWatch / (creditRules.video_unit_seconds || 5));
+  };
+
   const fetchHistory = useCallback(async (page = 1) => {
     try {
       const { data } = await api.get('/api/generate/tasks', { params: { page, limit: 20 } });
@@ -145,7 +178,7 @@ export default function GeneratePage() {
     fetchHistory();
     api.get('/api/generate/credit-rules').then(({ data }) => setCreditRules(data)).catch(() => setCreditRules(null));
     api.get('/api/generate/tts-voices').then(({ data }) => setVoiceList(data || [])).catch(() => setVoiceList([]));
-  }, []);
+  }, [fetchHistory]);
 
   // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新
   const hasActiveTask = history.some(r => r.status === 'pending' || r.status === 'processing');
@@ -172,6 +205,25 @@ export default function GeneratePage() {
       fetchGlobalAssets(assetTab);
     }
   }, [assetSource, assetTab, fetchGlobalAssets]);
+
+  // 预览弹窗多图左右键切换
+  useEffect(() => {
+    if (!preview) return;
+    const task = preview.task;
+    if (task?.type === 'image') {
+      try {
+        const d = JSON.parse(task.output_data || '[]');
+        const arr = Array.isArray(d) ? d : [];
+        if (arr.length <= 1) return;
+        const onKey = (e: KeyboardEvent) => {
+          if (e.key === 'ArrowLeft') { e.preventDefault(); setPreviewIdx(i => Math.max(0, i - 1)); }
+          if (e.key === 'ArrowRight') { e.preventDefault(); setPreviewIdx(i => Math.min(arr.length - 1, i + 1)); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      } catch { return; }
+    }
+  }, [preview]);
 
   const toggleLibraryAsset = (asset: any) => {
     const exists = selectedLibraryAssets.find((a: any) => a.id === asset.id);
@@ -222,8 +274,9 @@ export default function GeneratePage() {
     const voiceoverType = form.getFieldValue('voiceover_type') || 'character';
     const loadingText = mode === 't2i' ? 'AI 正在规划图片描述...' : 'AI 正在规划视频描述...';
     const hideLoading = message.loading(loadingText, 0);
+    setPlanLoading(true);
     try {
-      const { data } = await api.post('/api/generate/smart-plan', { 
+      const { data } = await api.post('/api/generate/smart-plan', {
         prompt,
         images: images.length > 0 ? images : undefined,
         mode,
@@ -237,24 +290,22 @@ export default function GeneratePage() {
       }
       form.setFieldsValue(patch);
       hideLoading();
+      setPlanLoading(false);
       message.success('智能规划完成！');
     } catch (err: any) {
       hideLoading();
+      setPlanLoading(false);
       message.error(err.response?.data?.message || '智能规划失败');
     }
   };
 
   const doGenerate = async (url: string, body: any, form: any) => {
     setLoading(true);
-    // Refresh immediately so the new task shows as "processing" right away;
-    // the 3s polling (started by loading=true) keeps it updated until done.
-    fetchHistory();
     try {
       const { data } = await api.post(url, body);
       message.success('生成任务已提交');
       if (data?.taskId) {
         setResultIds(prev => [data.taskId, ...prev.filter(id => id !== data.taskId)].slice(0, 10));
-        setHistRefresh(r => r + 1);
       }
       form.resetFields();
       setUploadFileList([]);
@@ -263,8 +314,9 @@ export default function GeneratePage() {
     } catch (err: any) {
       message.error(err.response?.data?.message || '生成失败');
       fetchHistory();
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const openSaveModal = (record: any) => {
@@ -306,7 +358,6 @@ export default function GeneratePage() {
     try {
       await api.post(`/api/generate/tasks/${id}/retry`);
       message.success('任务已重新提交');
-      setHistRefresh(r => r + 1);
       fetchHistory();
     } catch (err: any) {
       message.error(err.response?.data?.message || '重试失败');
@@ -325,7 +376,6 @@ export default function GeneratePage() {
           await api.delete(`/api/generate/tasks/${id}`);
           message.success('删除成功');
           setResultIds(prev => prev.filter(x => x !== id));
-          setHistRefresh(r => r + 1);
           fetchHistory();
         } catch (err: any) {
           message.error(err.response?.data?.message || '删除失败');
@@ -378,23 +428,28 @@ export default function GeneratePage() {
     },
   };
 
+  const i2vImageUrls = () => assetSource === 'library'
+    ? selectedLibraryAssets.map((a: any) => getUrl(a.image_url))
+    : uploadFileList.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
+  const i2vHasImages = () => assetSource === 'library'
+    ? selectedLibraryAssets.length > 0
+    : uploadFileList.some((f: any) => f.status === 'done');
+
   const renderForm = (mode: string) => {
     switch (mode) {
       case 'text-to-image':
         return (
           <Form form={formTextToImage} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-image', v, formTextToImage)}>
-            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text type="secondary">描述</Text>
-              <PromptPresets 
-                presets={IMAGE_PRESETS} 
-                onSelect={(v) => formTextToImage.setFieldsValue({ prompt: v })}
-                smartPlan={() => generateSmartPlan(formTextToImage, [], 't2i')}
-                prompt={promptTextToImage}
-              />
-            </div>
-            <Form.Item name="prompt" rules={[{ required: true, message: '请输入图片描述' }]}>
+            <Form.Item name="prompt" label="描述" rules={[{ required: true, message: '请输入图片描述' }]}>
               <TextArea rows={3} placeholder="描述你想要生成的图片内容..." />
             </Form.Item>
+            <PromptPresets
+              presets={IMAGE_PRESETS}
+              onSelect={(v) => formTextToImage.setFieldsValue({ prompt: v })}
+              smartPlan={() => generateSmartPlan(formTextToImage, [], 't2i')}
+              prompt={promptTextToImage}
+              smartPlanLoading={planLoading}
+            />
             <Space style={{ width: '100%' }} size={12} wrap>
               <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 130px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
@@ -402,11 +457,16 @@ export default function GeneratePage() {
               <Form.Item name="num_images" label="数量" initialValue={1} style={{ flex: '1 1 90px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
               </Form.Item>
-              <Text type="secondary" style={{ fontSize: 12, lineHeight: '32px', flex: '1 1 260px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
+              <Text style={{ color: 'var(--text-secondary)', fontSize: 12, lineHeight: '32px', flex: '1 1 260px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>自动分配模型</Tag>
+              {estimateCost('text-to-image') !== null && (
+                <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
+                  预计扣费 {estimateCost('text-to-image')} 积分
+                </Text>
+              )}
             </Form.Item>
           </Form>
         );
@@ -414,18 +474,16 @@ export default function GeneratePage() {
       case 'text-to-video':
         return (
           <Form form={formTextToVideo} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-video', v, formTextToVideo)}>
-            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Text type="secondary">描述</Text>
-              <PromptPresets 
-                presets={VIDEO_PRESETS} 
-                onSelect={(v) => formTextToVideo.setFieldsValue({ prompt: v })}
-                smartPlan={() => generateSmartPlan(formTextToVideo, [], 't2v')}
-                prompt={promptTextToVideo}
-              />
-            </div>
-            <Form.Item name="prompt" rules={[{ required: true, message: '请输入视频描述' }]}>
+            <Form.Item name="prompt" label="描述" rules={[{ required: true, message: '请输入视频描述' }]}>
               <TextArea rows={3} placeholder="描述视频画面内容、动作、风格..." />
             </Form.Item>
+            <PromptPresets
+              presets={VIDEO_PRESETS}
+              onSelect={(v) => formTextToVideo.setFieldsValue({ prompt: v })}
+              smartPlan={() => generateSmartPlan(formTextToVideo, [], 't2v')}
+              prompt={promptTextToVideo}
+              smartPlanLoading={planLoading}
+            />
             <Space style={{ width: '100%' }} size={12} wrap>
               <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
@@ -464,6 +522,11 @@ export default function GeneratePage() {
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>自动分配T2V模型</Tag>
+              {estimateCost('text-to-video') !== null && (
+                <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
+                  预计扣费 {estimateCost('text-to-video')} 积分
+                </Text>
+              )}
             </Form.Item>
           </Form>
         );
@@ -484,9 +547,9 @@ export default function GeneratePage() {
             </Form.Item>
 
             <Form.Item label="图片来源" style={{ marginBottom: 8 }}>
-              <Radio.Group value={assetSource} onChange={(e) => { 
-                setAssetSource(e.target.value); 
-                formImageToVideo.setFieldsValue({ image_url: '', media: [] }); 
+              <Radio.Group value={assetSource} onChange={(e) => {
+                setAssetSource(e.target.value);
+                formImageToVideo.setFieldsValue({ image_url: '', media: [] });
                 setUploadFileList([]);
                 setSelectedLibraryAssets([]);
               }}>
@@ -507,10 +570,10 @@ export default function GeneratePage() {
                     )}
                   </Space>
                 </div>
-                
+
                 {selectedLibraryAssets.length > 0 && (
-                  <div style={{ marginBottom: 12, padding: 8, background: '#f0f5ff', borderRadius: 8, border: '1px solid #d6e4ff' }}>
-                    <Text type="secondary" style={{ fontSize: 12, marginBottom: 4, display: 'block' }}>已选择的资产：</Text>
+                  <div style={{ marginBottom: 12, padding: 8, background: 'var(--primary-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4, display: 'block' }}>已选择的资产：</Text>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {selectedLibraryAssets.map((asset: any) => (
                         <div key={asset.id} style={{ position: 'relative' }}>
@@ -522,18 +585,18 @@ export default function GeneratePage() {
                             preview={false}
                           />
                           <Tooltip title="取消选择">
-                            <CloseCircleOutlined 
+                            <CloseCircleOutlined
                               onClick={() => removeLibraryAsset(asset.id)}
-                              style={{ 
-                                position: 'absolute', 
-                                top: -4, 
-                                right: -4, 
-                                fontSize: 16, 
-                                color: '#ff4d4f',
+                              style={{
+                                position: 'absolute',
+                                top: -4,
+                                right: -4,
+                                fontSize: 16,
+                                color: 'var(--danger)',
                                 cursor: 'pointer',
-                                background: '#fff',
+                                background: 'var(--bg)',
                                 borderRadius: '50%'
-                              }} 
+                              }}
                             />
                           </Tooltip>
                         </div>
@@ -542,21 +605,14 @@ export default function GeneratePage() {
                   </div>
                 )}
 
-                <Card size="small" style={{ background: '#fafafa', border: '1px dashed #d9d9d9' }}>
+                <Card size="small" style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
                   <div style={{ marginBottom: 8 }}>
-                    <Tabs
-                      activeKey={assetTab}
-                      onChange={(k) => setAssetTab(k as any)}
-                      size="small"
-                      items={[
-                        { key: 'character', label: <span><UserOutlined /> 人物</span> },
-                        { key: 'scene', label: <span><EnvironmentOutlined /> 场景</span> },
-                        { key: 'prop', label: <span><AppstoreOutlined /> 道具</span> },
-                      ]}
-                    />
+                    <Tag color={assetTab === 'character' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('character')}>👤 人物</Tag>
+                    <Tag color={assetTab === 'scene' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('scene')}>🌄 场景</Tag>
+                    <Tag color={assetTab === 'prop' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('prop')}>📦 道具</Tag>
                   </div>
                   {assetsLoading ? (
-                    <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>加载中...</div>
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>加载中...</div>
                   ) : globalAssets.length === 0 ? (
                     <Empty description={`暂无${assetTab === 'character' ? '人物' : assetTab === 'scene' ? '场景' : '道具'}资产`} style={{ padding: 20 }} />
                   ) : (
@@ -570,11 +626,11 @@ export default function GeneratePage() {
                             onClick={() => toggleLibraryAsset(asset)}
                             style={{
                               cursor: 'pointer',
-                              border: isSelected ? '2px solid #1677ff' : '2px solid transparent',
-                              borderRadius: 8,
+                              border: isSelected ? '2px solid var(--primary)' : '2px solid transparent',
+                              borderRadius: 12,
                               overflow: 'hidden',
                               transition: 'all 0.2s',
-                              background: isSelected ? '#e6f4ff' : '#fff',
+                              background: isSelected ? 'var(--primary-bg)' : 'var(--bg)',
                               padding: 4,
                               opacity: isSelected ? 1 : (selectedLibraryAssets.length >= MAX_LIBRARY_ASSETS ? 0.5 : 1),
                             }}
@@ -610,31 +666,20 @@ export default function GeneratePage() {
               </Form.Item>
             )}
 
-            <div style={{ marginBottom: 8 }}>
-              <PromptPresets 
-                presets={VIDEO_PRESETS} 
-                onSelect={(v) => formImageToVideo.setFieldsValue({ prompt: v })}
-                smartGenerate={() => {
-                  const urls = assetSource === 'library'
-                    ? selectedLibraryAssets.map((a: any) => getUrl(a.image_url))
-                    : uploadFileList.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
-                  generateSmartDescription(formImageToVideo, urls);
-                }}
-                hasImages={assetSource === 'library' 
-                  ? selectedLibraryAssets.length > 0 
-                  : uploadFileList.some((f: any) => f.status === 'done')}
-                smartPlan={() => {
-                  const urls = assetSource === 'library'
-                    ? selectedLibraryAssets.map((a: any) => getUrl(a.image_url))
-                    : uploadFileList.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
-                  generateSmartPlan(formImageToVideo, urls, 'i2v');
-                }}
-                prompt={promptImageToVideo}
-              />
-            </div>
-            <Form.Item name="prompt">
+            <Form.Item name="prompt" label="描述" rules={[{ required: true, message: '请输入描述' }]}>
               <TextArea rows={2} placeholder="描述角色的动作或镜头运动..." />
             </Form.Item>
+            <div style={{ marginBottom: 8 }}>
+              <PromptPresets
+                presets={VIDEO_PRESETS}
+                onSelect={(v) => formImageToVideo.setFieldsValue({ prompt: v })}
+                smartGenerate={() => generateSmartDescription(formImageToVideo, i2vImageUrls())}
+                hasImages={i2vHasImages()}
+                smartPlan={() => generateSmartPlan(formImageToVideo, i2vImageUrls(), 'i2v')}
+                prompt={promptImageToVideo}
+                smartPlanLoading={planLoading}
+              />
+            </div>
             <Space style={{ width: '100%' }} size={12} wrap>
               <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
@@ -668,11 +713,13 @@ export default function GeneratePage() {
 
       case 'image-merge':
         return (
-          <Card style={{ textAlign: 'center', padding: 60 }}>
-            <Title level={4} type="secondary">多图合并</Title>
-            <Text type="secondary">功能开发中，敬请期待</Text>
-          </Card>
+          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-secondary)' }}>
+            <Text strong style={{ fontSize: 16 }}>多图合并</Text>
+            <div style={{ marginTop: 8 }}>功能开发中，敬请期待</div>
+          </div>
         );
+      default:
+        return null;
     }
   };
 
@@ -736,14 +783,13 @@ export default function GeneratePage() {
     setResultIds(prev => prev.filter(x => x !== task.id));
     // 若移除的是最后一页，索引同步回退，避免重渲染越界
     setCurrentIdx(i => Math.min(i, resultPages.length - 2));
-    setHistRefresh(r => r + 1);
   };
 
   const renderResultPage = (page: any) => {
     const task = page.task;
     if (task.status === 'pending') {
       return (
-        <div style={{ textAlign: 'center', padding: '30px 0', color: '#999' }}>
+        <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)' }}>
           <LoadingOutlined style={{ fontSize: 22, marginRight: 8 }} />排队等待中，稍后自动开始生成…
         </div>
       );
@@ -752,7 +798,7 @@ export default function GeneratePage() {
       return (
         <div style={{ padding: '20px 24px' }}>
           <Progress percent={task.progress || 5} status="active" />
-          <Text type="secondary" style={{ fontSize: 12 }}>生成中，请稍候…（视频通常需要 1~3 分钟）</Text>
+          <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>生成中，请稍候…（视频通常需要 1~3 分钟）</Text>
         </div>
       );
     }
@@ -790,141 +836,227 @@ export default function GeneratePage() {
     );
   };
 
+  // 点击右侧历史项：已完成的任务打开预览弹窗
+  const openPreviewFromHistory = (task: any) => {
+    if (task.status !== 'completed') return;
+    let item: any = undefined;
+    if (task.type === 'image') {
+      try {
+        const d = JSON.parse(task.output_data || '[]');
+        const arr = Array.isArray(d) ? d : [];
+        if (arr.length > 0) item = arr[0];
+      } catch { /* ignore */ }
+    }
+    setPreviewIdx(0);
+    setPreview({ task, item });
+  };
+
   const tabItems = [
     { key: 'text-to-image', label: '📝 文字生图片' },
     { key: 'text-to-video', label: '🎬 文字生视频' },
     { key: 'image-to-video', label: '🖼 图片生视频' },
     { key: 'image-merge', label: '🔀 多图合并' },
   ];
+  const sidebarItems = history.slice(0, 10);
 
   return (
-    <div>
-      <Title level={3} style={{ marginBottom: 4 }}>AI 生成中心</Title>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>选择生成模式，AI 将自动为您创作</Text>
-
-      {creditRules && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="积分扣费规则"
-          description={
-            <Space orientation="vertical" size={2}>
-              <Text>📝 文字生图片：{creditRules.image_per_image} 积分 / 张</Text>
-              <Text>🎬 文字生视频 / 🖼 图片生视频：480p = {creditRules.video_480p_per_5s} 积分、720p = {creditRules.video_720p_per_5s} 积分、1080p = {creditRules.video_1080p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
-              <Text>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣费</Text>
-            </Space>
-          }
-        />
-      )}
-
-      <Card style={{ borderRadius: 12, marginBottom: 24 }}>
-        {/* Tab 标签行（仿 antd line 风格；移动端等分 4 列，防溢出） */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid rgba(5,5,5,0.06)', overflowX: 'auto' }}>
-          {tabItems.map(t => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTabKey(t.key)}
-              style={{
-                border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                padding: isMobile ? '12px 2px' : '12px 16px', fontSize: isMobile ? 12 : 14,
-                lineHeight: '22px', marginBottom: -1, whiteSpace: 'nowrap', minWidth: 0,
-                flex: isMobile ? '1 1 0' : '0 0 auto',
-                color: tabKey === t.key ? '#1677ff' : 'rgba(0,0,0,0.88)',
-                fontWeight: tabKey === t.key ? 500 : 400,
-                borderBottom: tabKey === t.key ? '2px solid #1677ff' : '2px solid transparent',
-              }}
-            >{t.label}</button>
-          ))}
-        </div>
-
-        {/* 生成结果区：位于标签行下方、表单上方 */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-            <Text strong style={{ fontSize: 15 }}>生成结果</Text>
-            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>实时展示本次生成流程，可左右切换查看</Text>
-          </div>
-          {resultPages.length === 0 ? (
-            <Empty description="提交生成任务后，此处实时展示生成进度与结果" style={{ padding: '24px 0' }} />
-          ) : (
-            <div>
-              <div style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 10, minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-                <Button
-                  shape="circle"
-                  icon={<LeftOutlined />}
-                  disabled={currentIdx === 0}
-                  onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
-                  style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
-                  title="上一个"
-                />
-                <Button
-                  shape="circle"
-                  icon={<RightOutlined />}
-                  disabled={currentIdx >= resultPages.length - 1}
-                  onClick={() => setCurrentIdx(i => Math.min(resultPages.length - 1, i + 1))}
-                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
-                  title="下一个"
-                />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<CloseOutlined />}
-                  onClick={closeCurrent}
-                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, color: 'rgba(0,0,0,0.45)' }}
-                  title="从结果区移除"
-                />
-                <div style={{ padding: '28px 64px', width: '100%', textAlign: 'center' }}>
-                  {resultPages[currentIdx] ? renderResultPage(resultPages[currentIdx]) : null}
-                </div>
-              </div>
-              {resultPages[currentIdx] && (() => {
-                const task = resultPages[currentIdx].task;
-                const item = resultPages[currentIdx].item;
-                const isImage = task.type === 'image';
-                return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                    <Tag icon={isImage ? <PictureOutlined /> : <VideoCameraOutlined />}>{isImage ? '图片' : '视频'}</Tag>
-                    <Tag color={statusColor[task.status] || 'default'}>{statusText[task.status] || task.status}</Tag>
-                    {item?.view && <Tag color="blue">{item.view}</Tag>}
-                    <Text type="secondary" style={{ flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 120 }} title={promptOf(task)}>{promptOf(task)}</Text>
-                    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{briefOf(task)}</Text>
-                    <Text type="secondary" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{currentIdx + 1} / {resultPages.length}</Text>
-                    <Space size={4}>
-                      {task.status === 'completed' && (
-                        <Button size="small" icon={<SaveOutlined />} onClick={() => openSaveModal(task)}>保存</Button>
-                      )}
-                      {task.status === 'completed' && !isImage && (
-                        <Button size="small" icon={<FullscreenOutlined />} onClick={() => {
-                          const u = videoUrlOf(task);
-                          if (u) { setPreviewVideoUrl(u); setPreviewVideoVisible(true); }
-                        }}>全屏</Button>
-                      )}
-                      {task.status === 'failed' && (
-                        <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(task.id)}>重试</Button>
-                      )}
-                      <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(task.id)}>删除</Button>
-                    </Space>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-
-        {/* 表单内容（key 强制切换 Tab 时卸载重建，避免 antd Form 实例复用导致 store 绑定错乱） */}
-        <div key={tabKey}>{renderForm(tabKey)}</div>
-      </Card>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <Title level={4} style={{ margin: 0 }}>生成历史</Title>
-        <Button type="link" onClick={() => navigate('/generate/history')}>
-          查看更多 <RightOutlined />
-        </Button>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Tab 标签行 */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 16, marginBottom: 16,
+        borderBottom: '1px solid var(--border)', paddingBottom: 0, flexShrink: 0,
+        overflowX: isMobile ? 'auto' : undefined,
+      }}>
+        {tabItems.map(t => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTabKey(t.key)}
+            style={{
+              border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+              padding: isMobile ? '10px 4px' : '12px 12px', fontSize: isMobile ? 12 : 14,
+              lineHeight: '22px', marginBottom: -1, whiteSpace: 'nowrap',
+              flex: isMobile ? '1 1 0' : undefined,
+              color: tabKey === t.key ? 'var(--primary)' : 'var(--text-secondary)',
+              fontWeight: tabKey === t.key ? 600 : 400,
+              borderBottom: tabKey === t.key ? '2px solid var(--primary)' : '2px solid transparent',
+              transition: 'color 0.2s, border-color 0.2s',
+            }}
+          >{t.label}</button>
+        ))}
       </div>
-      <Card style={{ borderRadius: 12 }}>
-        <HistoryTable pageSize={8} refreshKey={histRefresh} active={hasActiveTask} />
-      </Card>
+
+      <div style={{ display: 'flex', flex: 1, gap: 0, overflow: 'hidden' }}>
+        {/* 左侧：积分规则 + 表单 + 生成结果 */}
+        <div style={{
+          width: '75%', overflowY: 'auto', padding: '0 24px 24px 0',
+          display: 'flex', flexDirection: 'column', gap: 16,
+        }}>
+          {creditRules && (
+            <Alert
+              type="info"
+              showIcon
+              style={{
+                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
+                borderRadius: 10, marginBottom: 0,
+              }}
+              message={<span style={{ color: 'var(--text)', fontSize: 13 }}>积分扣费规则</span>}
+              description={
+                <Space orientation="vertical" size={4}>
+                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>📝 文字生图片：{creditRules.image_per_image} 积分 / 张</Text>
+                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🎬 文字生视频 / 🖼 图片生视频：480p = {creditRules.video_480p_per_5s} 积分、720p = {creditRules.video_720p_per_5s} 积分、1080p = {creditRules.video_1080p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
+                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣费</Text>
+                  <div style={{ marginTop: 4, padding: '8px 10px', background: 'rgba(250,173,20,0.08)', borderRadius: 6, border: '1px solid rgba(250,173,20,0.2)' }}>
+                    <Text style={{ color: 'var(--warning, #d48806)', fontSize: 12, fontWeight: 600 }}>⚠️ 生成限制说明</Text>
+                    <ul style={{ margin: '4px 0 0 0', paddingLeft: 16, color: 'var(--text-secondary)', fontSize: 11, lineHeight: 1.8 }}>
+                      <li><b>时长</b>：可选 5/10/15 秒，但受模型限制——部分模型仅支持 5 秒，系统会自动选择最合适的模型；若支持长秒数的模型不可用（如免费额度用完），可能降级为 5 秒生成</li>
+                      <li><b>宽高比</b>：可选 9:16（竖屏）/ 16:9（横屏）等，但受模型限制——部分模型不支持所有比例，系统会优先匹配支持所选比例的模型；若无匹配模型，可能使用默认比例生成</li>
+                      <li><b>免费额度</b>：AI 模型有免费调用额度，额度用完后需等待刷新或充值，期间可能使用备选模型（能力和参数可能有差异）</li>
+                    </ul>
+                  </div>
+                </Space>
+              }
+            />
+          )}
+
+          {/* 表单卡（4 个 Tab 面板 display 切换） */}
+          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+            <div style={{ display: tabKey === 'text-to-image' ? 'block' : 'none' }}>{renderForm('text-to-image')}</div>
+            <div style={{ display: tabKey === 'text-to-video' ? 'block' : 'none' }}>{renderForm('text-to-video')}</div>
+            <div style={{ display: tabKey === 'image-to-video' ? 'block' : 'none' }}>{renderForm('image-to-video')}</div>
+            <div style={{ display: tabKey === 'image-merge' ? 'block' : 'none' }}>{renderForm('image-merge')}</div>
+          </div>
+
+          {/* 生成结果 */}
+          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text strong style={{ fontSize: 14, color: 'var(--text)' }}>生成结果</Text>
+              {resultPages.length > 0 && (
+                <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{currentIdx + 1} / {resultPages.length}</Text>
+              )}
+            </div>
+            {resultPages.length === 0 ? (
+              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                提交生成任务后，此处实时展示生成进度与结果
+              </div>
+            ) : (
+              <div>
+                <div style={{ background: 'var(--bg-secondary)', minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                  <Button
+                    shape="circle"
+                    icon={<LeftOutlined />}
+                    disabled={currentIdx === 0}
+                    onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
+                    style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
+                  />
+                  <Button
+                    shape="circle"
+                    icon={<RightOutlined />}
+                    disabled={currentIdx >= resultPages.length - 1}
+                    onClick={() => setCurrentIdx(i => Math.min(resultPages.length - 1, i + 1))}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
+                  />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<CloseOutlined />}
+                    onClick={closeCurrent}
+                    style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, color: 'var(--text-muted)' }}
+                    title="从结果区移除"
+                  />
+                  <div style={{ padding: '24px 56px', width: '100%', textAlign: 'center' }}>
+                    {resultPages[currentIdx] ? renderResultPage(resultPages[currentIdx]) : null}
+                  </div>
+                </div>
+                {resultPages[currentIdx] && (() => {
+                  const task = resultPages[currentIdx].task;
+                  const item = resultPages[currentIdx].item;
+                  const isImage = task.type === 'image';
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                      <Tag icon={isImage ? <PictureOutlined /> : <VideoCameraOutlined />} style={{ margin: 0 }}>{isImage ? '图片' : '视频'}</Tag>
+                      <Tag color={statusColor[task.status] || 'default'} style={{ margin: 0 }}>{statusText[task.status] || task.status}</Tag>
+                      {item?.view && <Tag color="blue" style={{ margin: 0 }}>{item.view}</Tag>}
+                      <Text style={{ color: 'var(--text-secondary)', flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 120 }} title={promptOf(task)}>{promptOf(task)}</Text>
+                      <Text style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>{briefOf(task)}</Text>
+                      <Space size={4}>
+                        {task.status === 'completed' && (
+                          <Button size="small" icon={<SaveOutlined />} onClick={() => openSaveModal(task)}>保存</Button>
+                        )}
+                        {task.status === 'failed' && (
+                          <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(task.id)}>重试</Button>
+                        )}
+                        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(task.id)}>删除</Button>
+                      </Space>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 右侧：生成历史侧栏 */}
+        <div style={{ width: '25%', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <Text strong style={{ fontSize: 13 }}>生成历史</Text>
+            <Text style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{sidebarItems.length}条</Text>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
+            {sidebarItems.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)', fontSize: 12 }}>暂无生成记录</div>
+            ) : sidebarItems.map((task: any) => {
+              const isImage = task.type === 'image';
+              const title = (inputOf(task).prompt || '').trim().slice(0, 30) || (isImage ? '文生图' : '视频生成');
+              const dot = task.status === 'completed' ? 'done'
+                : (task.status === 'processing' || task.status === 'pending') ? 'active'
+                : task.status === 'failed' ? 'fail' : '';
+              const inResults = resultIds.includes(task.id);
+              return (
+                <div
+                  key={task.id}
+                  onClick={() => openPreviewFromHistory(task)}
+                  style={{
+                    display: 'flex', gap: 10, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                    background: inResults ? 'var(--primary-bg, #f5f0ff)' : 'transparent', marginBottom: 2,
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={(e) => { if (!inResults) e.currentTarget.style.background = 'var(--hover, #f5f5f5)'; }}
+                  onMouseLeave={(e) => { if (!inResults) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 6, flexShrink: 0, overflow: 'hidden',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
+                    background: isImage ? 'linear-gradient(135deg, #7c3aed33, #22c55e33)' : 'linear-gradient(135deg, #ec489933, #f59e0b33)',
+                  }}>
+                    {isImage ? '🎨' : '🎬'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {title}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      {isImage ? '文生图' : '文生视频'} · {timeAgo(task.created_at)}
+                    </div>
+                  </div>
+                  {dot && (
+                    <div style={{
+                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 4,
+                      background: dot === 'done' ? '#22c55e' : dot === 'active' ? 'var(--primary)' : '#ef4444',
+                      animation: dot === 'active' ? 'pulse 1.5s infinite' : undefined,
+                    }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', textAlign: 'center', flexShrink: 0 }}>
+            <a onClick={() => navigate('/generate/history')} style={{ fontSize: 12, color: 'var(--primary)', cursor: 'pointer' }}>
+              查看全部 →
+            </a>
+          </div>
+        </div>
+      </div>
 
       <Modal title="保存到大资产库" open={saveModal.visible}
         onOk={handleSaveToGlobal} onCancel={() => setSaveModal({ visible: false, record: null, name: '', type: 'character', description: '', promptCn: '' })}
@@ -969,33 +1101,98 @@ export default function GeneratePage() {
         </Space>
       </Modal>
 
-      <Modal 
-        title="视频预览" 
-        open={previewVideoVisible}
-        onCancel={() => { setPreviewVideoVisible(false); setPreviewVideoUrl(''); }}
-        footer={[
-          <Button key="close" onClick={() => { setPreviewVideoVisible(false); setPreviewVideoUrl(''); }}>
-            关闭
-          </Button>,
-          <Button key="open" type="link" href={previewVideoUrl} target="_blank">
-            在新窗口打开
-          </Button>,
-        ]}
-        width={720}
+      {/* 预览弹窗（点击右侧历史打开） */}
+      <Modal
+        title={preview ? (preview.task.type === 'image' ? '图片预览' : '视频预览') : '预览'}
+        open={!!preview}
+        onCancel={() => setPreview(null)}
+        footer={null}
+        width={preview?.task.type === 'image' ? 640 : 720}
         centered
         destroyOnClose
       >
-        {previewVideoUrl && (
-          <video 
-            src={previewVideoUrl} 
-            controls 
-            playsInline 
-            preload="auto"
-            autoPlay
-            style={{ width: '100%', borderRadius: 8, background: '#000' }}
-          />
-        )}
+        {preview && (() => {
+          const task = preview.task;
+          const isImage = task.type === 'image';
+          const input = inputOf(task);
+          let outputs: any[] = [];
+          if (isImage) {
+            try {
+              const d = JSON.parse(task.output_data || '[]');
+              outputs = Array.isArray(d) ? d : [];
+            } catch { /* ignore */ }
+          }
+          const cur = outputs[previewIdx] || outputs[0];
+          const src = isImage ? (cur ? getUrl(cur.url) : '') : videoUrlOf(task);
+          const count = outputs.length;
+          return (
+            <div>
+              {isImage ? (
+                <div style={{
+                  position: 'relative', textAlign: 'center', background: '#000', borderRadius: 8,
+                  padding: '12px 48px', minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {count > 1 && (
+                    <button
+                      aria-label="上一张"
+                      disabled={previewIdx <= 0}
+                      onClick={() => setPreviewIdx(i => Math.max(0, i - 1))}
+                      style={{ ...navBtnStyle(previewIdx <= 0), left: 10 }}
+                    >‹</button>
+                  )}
+                  {src ? (
+                    <Image src={src} style={{ maxHeight: 400, borderRadius: 4 }} preview={false} />
+                  ) : (
+                    <Empty description="暂无图片" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  )}
+                  {count > 1 && (
+                    <button
+                      aria-label="下一张"
+                      disabled={previewIdx >= count - 1}
+                      onClick={() => setPreviewIdx(i => Math.min(count - 1, i + 1))}
+                      style={{ ...navBtnStyle(previewIdx >= count - 1), right: 10 }}
+                    >›</button>
+                  )}
+                  {count > 1 && (
+                    <div style={{
+                      position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+                      background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 12, padding: '2px 10px', borderRadius: 10,
+                    }}>{previewIdx + 1} / {count}</div>
+                  )}
+                </div>
+              ) : (
+                <video src={src} controls playsInline preload="auto" autoPlay muted
+                  style={{ width: '100%', borderRadius: 8, background: '#000' }} />
+              )}
+              <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 8 }}>
+                <Space orientation="vertical" size={8} style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <Text style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>描述</Text>
+                    <Text style={{ color: 'var(--text)', fontSize: 12, flex: 1 }}>{input.prompt || '-'}</Text>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {isImage ? (
+                      <>
+                        <Tag color="blue" style={{ margin: 0 }}>{input.style === 'anime' ? '动漫' : '写实'}</Tag>
+                        <Tag color="blue" style={{ margin: 0 }}>{input.num_images || 1} 张</Tag>
+                      </>
+                    ) : (
+                      <>
+                        <Tag color="blue" style={{ margin: 0 }}>{input.resolution || '720p'}</Tag>
+                        <Tag color="blue" style={{ margin: 0 }}>{RATIO_LABELS[input.ratio || '9:16'] || input.ratio || '9:16'}</Tag>
+                        <Tag color="blue" style={{ margin: 0 }}>{input.duration || 5} 秒</Tag>
+                        <Tag color="blue" style={{ margin: 0 }}>{input.style === 'anime' ? '动漫' : '写实'}</Tag>
+                      </>
+                    )}
+                  </div>
+                </Space>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
+
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
     </div>
   );
 }

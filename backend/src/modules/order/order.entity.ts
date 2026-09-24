@@ -42,6 +42,11 @@ export class Order {
   @Column({ name: 'payment_provider', length: 40, default: 'manual' })
   payment_provider: string;
 
+  // 生产新代码字段（未推送到 git），保留数据用
+  // 注：union 类型必须显式 type:'varchar'（TypeORM 反射 union 会报 DataTypeNotSupportedError），生产 JS 虽无 type 也保持一致行为
+  @Column({ name: 'transaction_id', type: 'varchar', length: 80, nullable: true })
+  transaction_id: string | null;
+
   @Column({ name: 'paid_at', type: 'datetime', nullable: true })
   paid_at: Date;
 

@@ -108,6 +108,9 @@ export class SecurityService {
 
   async ban(ip: string) {
     if (!ip || !/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) throw new BadRequestException('IP 格式无效');
+    if (ip.startsWith('127.')) {
+      throw new BadRequestException('不能封禁本地回环地址');
+    }
     const parts = ip.split('.').map(Number);
     if (parts.some((p) => p < 0 || p > 255)) throw new BadRequestException('IP 格式无效');
     const redis = await this.redis();

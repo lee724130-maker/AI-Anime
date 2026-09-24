@@ -43,7 +43,7 @@ export class AdminController {
 
   @Put('api-keys')
   @Roles('admin')
-  updateApiKeys(@Body() body: Record<string, string>, @Req() req) {
+  async updateApiKeys(@Body() body: Record<string, string>, @Req() req) {
     return this.adminService.updateApiKeys(body, req.user.id);
   }
 
@@ -51,6 +51,10 @@ export class AdminController {
   @Get('dashboard')
   @Roles('admin')
   getDashboard() { return this.adminService.getDashboardStats(); }
+
+  @Get('dashboard/trend')
+  @Roles('admin')
+  getDashboardTrend() { return this.adminService.getDashboardTrend(); }
 
   // ── Generation Logs ──
   @Get('generation-logs')
@@ -71,20 +75,37 @@ export class AdminController {
 
   @Put('users/:id/ban')
   @Roles('admin')
-  toggleBan(@Param('id', ParseIntPipe) id: number, @Body() body: { banned: boolean }, @Req() req) {
-    return this.adminService.toggleBan(id, body.banned, req.user.id);
+  async toggleBan(@Param('id', ParseIntPipe) id: number, @Body() body: { banned: boolean }, @Req() req) {
+    const isSuperAdmin = req.user.is_super_admin === true;
+    const result = await this.adminService.toggleBan(id, body.banned, req.user.id, isSuperAdmin);
+    return result;
   }
 
   @Post('users/:id/recharge')
   @Roles('admin')
-  recharge(@Param('id', ParseIntPipe) id: number, @Body() body: { amount: number }, @Req() req) {
-    return this.adminService.recharge(id, body.amount, req.user.id);
+  async recharge(@Param('id', ParseIntPipe) id: number, @Body() body: { amount: number }, @Req() req) {
+    const isSuperAdmin = req.user.is_super_admin === true;
+    const adminPermissions = req.user.admin_permissions;
+    const result = await this.adminService.recharge(id, body.amount, req.user.id, isSuperAdmin, adminPermissions);
+    return result;
+  }
+
+  @Post('users/:id/deduct')
+  @Roles('admin')
+  async deductCredits(@Param('id', ParseIntPipe) id: number, @Body() body: { amount: number }, @Req() req) {
+    const isSuperAdmin = req.user.is_super_admin === true;
+    const adminPermissions = req.user.admin_permissions;
+    const result = await this.adminService.deductCredits(id, body.amount, req.user.id, isSuperAdmin, adminPermissions);
+    return result;
   }
 
   @Delete('users/:id')
   @Roles('admin')
-  deleteUser(@Param('id', ParseIntPipe) id: number, @Req() req) {
-    return this.adminService.deleteUser(id, req.user.id);
+  async deleteUser(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const isSuperAdmin = req.user.is_super_admin === true;
+    const result = await this.adminService.deleteUser(id, req.user.id, isSuperAdmin);
+    await this.adminService.log(req.user.id, '删除用户', `用户ID: ${id}`, 'user', id);
+    return result;
   }
 
   // ── System Config ──
@@ -94,7 +115,7 @@ export class AdminController {
 
   @Put('system/config')
   @Roles('admin')
-  updateSystemConfig(@Body() body: Record<string, string>, @Req() req) {
+  async updateSystemConfig(@Body() body: Record<string, string>, @Req() req) {
     return this.adminService.updateSystemConfig(body, req.user.id);
   }
 
@@ -140,20 +161,26 @@ export class AdminController {
 
   @Post('models')
   @Roles('admin')
-  createModel(@Body() body: Partial<import('./model-config.entity').ModelConfig>) {
-    return this.modelConfigService.create(body);
+  async createModel(@Body() body: Partial<import('./model-config.entity').ModelConfig>, @Req() req) {
+    const result = await this.modelConfigService.create(body);
+    await this.adminService.log(req.user.id, '创建模型', `模型: ${body.model_id || '-'}, provider: ${body.provider || '-'}, capability: ${body.capability || '-'}`, 'model', result.id);
+    return result;
   }
 
   @Put('models/:id')
   @Roles('admin')
-  updateModel(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<import('./model-config.entity').ModelConfig>) {
-    return this.modelConfigService.update(id, body);
+  async updateModel(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<import('./model-config.entity').ModelConfig>, @Req() req) {
+    const result = await this.modelConfigService.update(id, body);
+    await this.adminService.log(req.user.id, '更新模型', `模型ID: ${id}, 变更: ${Object.keys(body).join(', ') || '无'}`, 'model', id);
+    return result;
   }
 
   @Delete('models/:id')
   @Roles('admin')
-  deleteModel(@Param('id', ParseIntPipe) id: number) {
-    return this.modelConfigService.delete(id);
+  async deleteModel(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const result = await this.modelConfigService.delete(id);
+    await this.adminService.log(req.user.id, '删除模型', `模型ID: ${id}`, 'model', id);
+    return result;
   }
 
   // ── Prompt Templates (公开查询 + admin CRUD) ──
@@ -172,20 +199,26 @@ export class AdminController {
 
   @Post('prompt-templates')
   @Roles('admin')
-  createPromptTemplate(@Body() body: Partial<import('./prompt-template.entity').PromptTemplate>) {
-    return this.promptTemplateService.create(body);
+  async createPromptTemplate(@Body() body: Partial<import('./prompt-template.entity').PromptTemplate>, @Req() req) {
+    const result = await this.promptTemplateService.create(body);
+    await this.adminService.log(req.user.id, '创建提示词模板', `模板: ${body.name || '-'}, capability: ${body.capability || '-'}`, 'prompt_template', result.id);
+    return result;
   }
 
   @Put('prompt-templates/:id')
   @Roles('admin')
-  updatePromptTemplate(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<import('./prompt-template.entity').PromptTemplate>) {
-    return this.promptTemplateService.update(id, body);
+  async updatePromptTemplate(@Param('id', ParseIntPipe) id: number, @Body() body: Partial<import('./prompt-template.entity').PromptTemplate>, @Req() req) {
+    const result = await this.promptTemplateService.update(id, body);
+    await this.adminService.log(req.user.id, '更新提示词模板', `模板ID: ${id}, 变更: ${Object.keys(body).join(', ') || '无'}`, 'prompt_template', id);
+    return result;
   }
 
   @Delete('prompt-templates/:id')
   @Roles('admin')
-  deletePromptTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.promptTemplateService.delete(id);
+  async deletePromptTemplate(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const result = await this.promptTemplateService.delete(id);
+    await this.adminService.log(req.user.id, '删除提示词模板', `模板ID: ${id}`, 'prompt_template', id);
+    return result;
   }
 
   // ── Admin Operation Logs ──
@@ -193,5 +226,87 @@ export class AdminController {
   @Roles('admin')
   getAdminLogs(@Query('page') page: number, @Query('limit') limit: number) {
     return this.adminService.getAdminLogs(page || 1, limit || 20);
+  }
+
+  // ── Payment Records ──
+  @Get('payments')
+  @Roles('admin')
+  getPaymentRecords(@Query('page') page: number, @Query('limit') limit: number, @Query('status') status: string) {
+    return this.adminService.getPaymentRecords(page || 1, limit || 20, status);
+  }
+
+  // ── User Role & Admin Permissions ──
+  @Put('users/:id/role')
+  @Roles('admin')
+  async changeUserRole(@Param('id', ParseIntPipe) id: number, @Body() body: { role: string }, @Req() req) {
+    const result = await this.adminService.changeUserRole(id, body.role, req.user.id, req.user.is_super_admin === true);
+    await this.adminService.log(req.user.id, '修改用户角色', `用户ID: ${id}, 目标角色: ${body.role}`, 'user', id);
+    return result;
+  }
+
+  @Put('users/:id/permissions')
+  @Roles('admin')
+  async updateAdminPermissions(@Param('id', ParseIntPipe) id: number, @Body() body: { permissions?: string[] }, @Req() req) {
+    const result = await this.adminService.updateAdminPermissions(id, body.permissions, req.user.id, req.user.is_super_admin === true);
+    await this.adminService.log(req.user.id, '更新管理员权限', `用户ID: ${id}, 权限: ${body.permissions?.join(',') || '无'}`, 'user', id);
+    return result;
+  }
+
+  // ── Server Management ──
+  @Post('server/restart')
+  @Roles('admin')
+  async restartServer(@Req() req) {
+    const result = await this.adminService.restartServer(req.user.is_super_admin === true);
+    await this.adminService.log(req.user.id, '重启服务器', 'PM2 restart ai-anime-backend', 'server');
+    return result;
+  }
+
+  @Get('server/logs')
+  @Roles('admin')
+  getServerLogs(@Query('lines') lines: number, @Req() req) {
+    return this.adminService.getServerLogs(lines || 100, req.user.is_super_admin === true);
+  }
+
+  @Get('server/status')
+  @Roles('admin')
+  getServerStatus(@Req() req) {
+    return this.adminService.getServerStatus(req.user.is_super_admin === true);
+  }
+
+  @Post('server/cleanup')
+  @Roles('admin')
+  async cleanupServer(@Body() body: { type: string }, @Req() req) {
+    const result = await this.adminService.cleanupServer(body.type, req.user.is_super_admin === true);
+    await this.adminService.log(req.user.id, '清理服务器文件', `类型: ${body.type}, 清理: ${result.cleaned || 0} 个文件`, 'server');
+    return result;
+  }
+
+  // ── Database Console ──
+  @Post('db/query')
+  @Roles('admin')
+  async executeQuery(@Body() body: { sql: string }, @Req() req) {
+    const result = await this.adminService.executeQuery(body.sql, req.user.is_super_admin === true);
+    const masked = body.sql.replace(/password\s*=\s*'[^']*'/gi, "password='***'").substring(0, 200);
+    await this.adminService.log(req.user.id, '执行数据库查询', `SQL: ${masked}, 返回: ${result.count} 行`, 'database');
+    return result;
+  }
+
+  @Get('db/tables')
+  @Roles('admin')
+  getDbTables(@Req() req) {
+    return this.adminService.getDbTables(req.user.is_super_admin === true);
+  }
+
+  // ── Current Admin Info ──
+  @Get('whoami')
+  @Roles('admin')
+  getMyInfo(@Req() req) {
+    return {
+      id: req.user.id,
+      username: req.user.username,
+      role: req.user.role,
+      is_super_admin: req.user.is_super_admin === true,
+      admin_permissions: req.user.admin_permissions || null,
+    };
   }
 }

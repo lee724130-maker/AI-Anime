@@ -8,13 +8,17 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Auth-flow requests: 401 here is an expected business response (wrong password /
+// wrong 2FA code / invalid tempToken), not an expired session — never redirect on them.
+const AUTH_FLOW_URLS = ['/api/auth/login', '/api/auth/verify-admin', '/api/auth/send-admin-code'];
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      // Don't redirect on login requests — let the caller show the error
-      const isLoginRequest = err.config.url?.includes('/api/auth/login');
-      if (!isLoginRequest) {
+      const url = err.config?.url || '';
+      const isAuthFlow = AUTH_FLOW_URLS.some((p) => url.includes(p));
+      if (!isAuthFlow) {
         localStorage.removeItem('admin_token');
         localStorage.removeItem('admin_user');
         window.location.href = '/admin/login';

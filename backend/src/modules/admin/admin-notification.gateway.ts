@@ -8,10 +8,11 @@ import { Server, Socket } from 'socket.io';
 import * as jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'ai-anime-jwt-secret-key';
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(',');
 
 @WebSocketGateway({
   namespace: '/admin',
-  cors: { origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'], credentials: true },
+  cors: { origin: CORS_ORIGINS, credentials: true },
 })
 export class AdminNotificationGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
