@@ -27,6 +27,10 @@
 7. `.app-header` 旧选择器全量清查：只有 foundation + admin-login 两文件受影响（grep `app-header|nav-avatar-wrap|nav-item-hover` 收口）。
 
 ### 📋 状态与待办
+- [ ] **已知问题（用户报，下次随微调一并解决）：`/viral` 页左侧悬浮跳转栏覆盖新侧边栏 → 后续直接删除整个组件**
+  - 位置：`frontend/src/pages/Viral/index.tsx` —— `NAV_ITEMS`（L97-101：顶部/模板区域/我的创作）+ `scrollToSection`/`navOpen` state（L103-107）+ `<style>` 媒体查询（L119，`.viral-side-nav` ≤1400px 隐藏）+ JSX 悬浮块（L122 起：`position:fixed; left:24; top:50%; width:96; zIndex:100`，与 AppShell 侧边栏 left:0/width:240/zIndex:100 同层且 DOM 靠后 → **盖在侧边栏上**，>1400px 视口必现）
+  - 一并清理：L121 `!isMobile &&` 分支、移动端折叠 tab（08-19 轮加的 navOpen 展开卡片，若同文件）；三个区块的 id 锚点（`viral-top/viral-templates/viral-projects`）保留无害
+  - 验收：/viral 桌面 1440 下左缘只有 AppShell 侧边栏，无白色 96px 悬浮卡
 - [ ] **用户手动验收**（截图/本地 :5173 实际点一遍）：视觉认可 + 功能（导航/充值/主题/退出/移动端抽屉）
 - [ ] 用户确认后 git 提交（本轮未提交；工作区含本轮全部改动）
 - [ ] AppHeader 文件保留待回滚参考，确认稳定后可删
