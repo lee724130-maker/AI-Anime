@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, Typography, Tag, Space, Popconfirm, message, Upload } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ArrowLeftOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
-import AppHeader from '../../components/AppHeader';
 
 const { Title } = Typography;
 
@@ -74,7 +73,6 @@ export default function ScriptListPage() {
 
   return (
     <div>
-      <AppHeader />
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 24px 15px' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <Title level={2} style={{ margin: 0 }}>我的剧本</Title>

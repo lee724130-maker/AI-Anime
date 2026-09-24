@@ -29,7 +29,6 @@ import type { ColumnsType } from 'antd/es/table';
 import api from '../../services/api';
 import { formatDateSafe } from '../../utils/date';
 import { useAuthStore } from '../../stores/authStore';
-import AppHeader from '../../components/AppHeader';
 
 const { Title, Text } = Typography;
 
@@ -463,7 +462,6 @@ export default function OrderPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-      <AppHeader />
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'clamp(16px, 3vw, 24px) 0 0' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <Title level={3} style={{ margin: 0 }}>

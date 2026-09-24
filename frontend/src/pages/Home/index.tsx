@@ -1,19 +1,19 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Row, Col, Card, Tag, List, Space, Button, Progress, Spin, Empty, Tooltip, Badge, Modal, message } from 'antd';
+import { Typography, Row, Col, Card, Tag, List, Space, Button, Progress, Spin, Empty, Tooltip, Modal, message } from 'antd';
 import {
   VideoCameraOutlined, WalletOutlined,
   ThunderboltOutlined, ClockCircleOutlined,
   CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, DatabaseOutlined,
   ExperimentOutlined,
   ReloadOutlined, PlusOutlined,
-  AimOutlined, RightOutlined, ClearOutlined,
+  RightOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import UserLayout from '../../components/UserLayout';
 import api from '../../services/api';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const PROJECT_STATUS_MAP: Record<string, { color: string; label: string }> = {
   draft:            { color: 'default',    label: '草稿' },
@@ -45,6 +45,29 @@ interface WorkbenchSummary {
   pendingCount: number;
   totalGenerations: number;
 }
+
+// ───── LibTV 风格设计令牌（浅灰画布 / 白卡片 / 细描边 / 中性小圆标签） ─────
+const cardStyle = {
+  borderRadius: 14,
+  border: '1px solid var(--border)',
+  boxShadow: 'none',
+  background: 'var(--bg)',
+};
+
+const chipNeutral: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '1px 9px', borderRadius: 999,
+  background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
+  fontSize: 11, fontWeight: 500, lineHeight: '18px', whiteSpace: 'nowrap',
+};
+
+const chipDanger: React.CSSProperties = {
+  ...chipNeutral, background: 'var(--danger-bg)', color: 'var(--danger)',
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.2px',
+};
 
 export default function HomePage() {
   const { refreshUser, user } = useAuthStore();
@@ -110,20 +133,18 @@ export default function HomePage() {
   const pc = summary?.processingCount ?? 0;
   const pend = summary?.pendingCount ?? 0;
 
-  const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
-
   const statCards = summary ? [
-    { title: '短剧项目', value: summary.projectStats.total, icon: <VideoCameraOutlined />, color: '#7c3aed', bg: '#f5f0ff', href: '/drama' },
-    { title: 'AI 生成', value: summary.totalGenerations, icon: <ThunderboltOutlined />, color: '#ec4899', bg: '#fdf2f8', href: '/generate' },
-    { title: '全局资产', value: summary.assetStats.global.total, icon: <DatabaseOutlined />, color: '#0891b2', bg: '#ecfeff', href: '/global-assets' },
-    { title: '热门创作', value: viralStats?.templateCount ?? 0, icon: <ExperimentOutlined />, color: '#f59e0b', bg: '#fffbeb', href: '/viral' },
+    { title: '短剧项目', value: summary.projectStats.total, icon: <VideoCameraOutlined />, href: '/drama' },
+    { title: 'AI 生成', value: summary.totalGenerations, icon: <ThunderboltOutlined />, href: '/generate' },
+    { title: '全局资产', value: summary.assetStats.global.total, icon: <DatabaseOutlined />, href: '/global-assets' },
+    { title: '热门创作', value: viralStats?.templateCount ?? 0, icon: <ExperimentOutlined />, href: '/viral' },
   ] : [];
 
   const quickLinks = [
-    { title: 'AI 生成', icon: <ThunderboltOutlined />, desc: '创作新作品', color: '#7c3aed', bg: '#f5f0ff', href: '/generate' },
-    { title: '短剧工作室', icon: <VideoCameraOutlined />, desc: '管理短剧项目', color: '#ec4899', bg: '#fdf2f8', href: '/drama' },
-    { title: '大资产库', icon: <DatabaseOutlined />, desc: '全局共享资产', color: '#0891b2', bg: '#ecfeff', href: '/global-assets' },
-    { title: '创作台', icon: <ExperimentOutlined />, desc: '进入 Studio', color: '#f59e0b', bg: '#fffbeb', href: '/studio' },
+    { title: 'AI 生成', icon: <ThunderboltOutlined />, desc: '创作新作品', href: '/generate' },
+    { title: '短剧工作室', icon: <VideoCameraOutlined />, desc: '管理短剧项目', href: '/drama' },
+    { title: '大资产库', icon: <DatabaseOutlined />, desc: '全局共享资产', href: '/global-assets' },
+    { title: '创作台', icon: <ExperimentOutlined />, desc: '进入 Studio', href: '/studio' },
   ];
 
   if (loading) {
@@ -131,7 +152,7 @@ export default function HomePage() {
       <UserLayout>
         <div style={{ textAlign: 'center', padding: '100px 0' }}>
           <Spin size="large" />
-          <div style={{ marginTop: 16, color: '#999' }}>加载中...</div>
+          <div style={{ marginTop: 16, color: 'var(--text-secondary)' }}>加载中...</div>
         </div>
       </UserLayout>
     );
@@ -143,8 +164,8 @@ export default function HomePage() {
         <div style={{ textAlign: 'center', padding: '100px 0' }}>
           <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
           <Text strong style={{ fontSize: 16 }}>工作台数据加载失败</Text>
-          <div style={{ marginTop: 8, color: '#999', fontSize: 13 }}>请检查网络连接后重试</div>
-          <Button type="primary" style={{ marginTop: 20, background: '#7c3aed', borderColor: '#7c3aed' }} onClick={() => { setLoading(true); fetchSummary(); }}>
+          <div style={{ marginTop: 8, color: 'var(--text-secondary)', fontSize: 13 }}>请检查网络连接后重试</div>
+          <Button type="primary" className="btn-dark" style={{ marginTop: 20 }} onClick={() => { setLoading(true); fetchSummary(); }}>
             重新加载
           </Button>
         </div>
@@ -154,32 +175,51 @@ export default function HomePage() {
 
   return (
     <UserLayout>
-      {/* ───── Hero ───── */}
+      {/* ───── Hero：LibTV 点阵虚线大卡 ───── */}
       <div style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        borderRadius: 20, padding: '32px 36px', marginBottom: 28,
-        position: 'relative', overflow: 'hidden',
+        borderRadius: 16,
+        border: '1px dashed var(--border)',
+        backgroundColor: 'var(--bg)',
+        backgroundImage: 'radial-gradient(var(--border) 1px, transparent 1px)',
+        backgroundSize: '14px 14px',
+        padding: '30px 32px',
+        marginBottom: 26,
       }}>
-        <div style={{ position: 'absolute', top: -60, right: -40, width: 200, height: 200, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ position: 'absolute', bottom: -80, left: '30%', width: 260, height: 260, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
         <Row align="middle" justify="space-between" wrap>
           <Col>
-            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 15 }}>欢迎回来{user?.username ? `，${user.username}` : ''}</Text>
-            <Title level={3} style={{ color: '#fff', margin: '4px 0 0', fontSize: 26, fontWeight: 600 }}>创作工作台</Title>
+            <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
+              欢迎回来{user?.username ? `，${user.username}` : ''}
+            </div>
+            <div style={{ color: 'var(--text)', fontSize: 26, fontWeight: 700, marginTop: 4, lineHeight: 1.3, letterSpacing: '-0.4px' }}>
+              创作工作台
+            </div>
           </Col>
           <Col flex="auto" style={{ textAlign: 'right' }}>
             <Space size={20} wrap>
-              <div style={{ display: 'inline-block', textAlign: 'right' }}>
-                <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, display: 'block' }}>可用算力</Text>
-                <Text style={{ color: '#fff', fontSize: 28, fontWeight: 700 }}>⚡ {user?.credits ?? summary?.credits ?? '-'}</Text>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: 12, display: 'block' }}>可用算力</div>
+                <div style={{ color: 'var(--text)', fontSize: 28, fontWeight: 700, lineHeight: 1.2 }}>
+                  ⚡ {user?.credits ?? summary?.credits ?? '-'}
+                </div>
               </div>
-              <Button shape="round" icon={<WalletOutlined />} size="large"
-                style={{ borderColor: 'rgba(255,255,255,0.3)', color: '#fff', background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(4px)' }}
-                onClick={() => navigate('/order')}>充值</Button>
+              <Button
+                icon={<WalletOutlined />}
+                size="large"
+                className="btn-dark"
+                style={{ borderRadius: 8 }}
+                onClick={() => navigate('/order')}
+              >
+                充值
+              </Button>
               {summary && summary.processingCount > 0 && (
-                <Tag icon={<SyncOutlined spin />} color="processing" style={{ borderRadius: 20, padding: '2px 14px', margin: 0 }}>
-                  {summary.processingCount} 个任务运行中
-                </Tag>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 14px', borderRadius: 999,
+                  background: 'var(--bg)', border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)', fontSize: 12,
+                }}>
+                  <SyncOutlined spin /> {summary.processingCount} 个任务运行中
+                </span>
               )}
             </Space>
           </Col>
@@ -187,17 +227,17 @@ export default function HomePage() {
       </div>
 
       {/* ───── Stats ───── */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 28 }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 26 }}>
         {statCards.map((s) => (
           <Col xs={12} sm={6} key={s.title}>
-            <Card hoverable style={{ ...cardStyle }} onClick={() => s.href && navigate(s.href)}>
+            <Card hoverable style={cardStyle} onClick={() => navigate(s.href)}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: s.color, flexShrink: 0 }}>
+                <div style={{ width: 44, height: 44, borderRadius: 10, background: 'var(--bg-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: 'var(--text)', flexShrink: 0 }}>
                   {s.icon}
                 </div>
                 <div style={{ flex: 1 }}>
-                  <Text type="secondary" style={{ fontSize: 12, display: 'block', lineHeight: 1.2 }}>{s.title}</Text>
-                  <Text style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a', lineHeight: 1.3 }}>{s.value}</Text>
+                  <div style={{ fontSize: 12, display: 'block', lineHeight: 1.2, color: 'var(--text-secondary)' }}>{s.title}</div>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', lineHeight: 1.3 }}>{s.value}</div>
                 </div>
               </div>
             </Card>
@@ -205,21 +245,26 @@ export default function HomePage() {
         ))}
       </Row>
 
-      {/* ───── Quick Actions ───── */}
-      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <AimOutlined style={{ color: '#666', fontSize: 14 }} />
-        <Text type="secondary" style={{ fontSize: 14, fontWeight: 500 }}>快捷入口</Text>
-      </div>
-      <Row gutter={[16, 16]} style={{ marginBottom: 32 }}>
+      {/* ───── 快捷入口：LibTV 方块入口行 ───── */}
+      <div style={{ ...sectionTitle, marginBottom: 12 }}>快捷入口</div>
+      <Row gutter={[16, 16]} style={{ marginBottom: 30 }}>
         {quickLinks.map((card) => (
           <Col xs={12} sm={6} key={card.title}>
-            <Card hoverable style={{ ...cardStyle, textAlign: 'center' }} onClick={() => navigate(card.href)}>
-              <div style={{ width: 44, height: 44, borderRadius: 12, background: card.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px', fontSize: 20, color: card.color }}>
+            <div className="libtv-tile" onClick={() => navigate(card.href)}>
+              <div
+                className="libtv-tile-box"
+                style={{
+                  height: 76, borderRadius: 12,
+                  border: '1px solid var(--border)', background: 'var(--bg)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 24, color: 'var(--text)',
+                }}
+              >
                 {card.icon}
               </div>
-              <Title level={5} style={{ margin: '0 0 2px', fontSize: 14 }}>{card.title}</Title>
-              <Text type="secondary" style={{ fontSize: 11 }}>{card.desc}</Text>
-            </Card>
+              <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--text)', textAlign: 'center' }}>{card.title}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', textAlign: 'center' }}>{card.desc}</div>
+            </div>
           </Col>
         ))}
       </Row>
@@ -228,33 +273,32 @@ export default function HomePage() {
       <Row gutter={[24, 24]}>
         {/* Left — Projects */}
         <Col xs={24} lg={16}>
-          <Card
-            title={
-              <Space size={10}>
-                <div style={{ width: 3, height: 16, background: '#7c3aed', borderRadius: 2 }} />
-                <Text strong style={{ fontSize: 15 }}>我的短剧</Text>
-                {summary && summary.projectStats.total > 0 && (
-                  <Badge count={summary.projectStats.total} style={{ backgroundColor: '#7c3aed', fontSize: 10, boxShadow: 'none' }} />
-                )}
-              </Space>
-            }
-            extra={
-              <Space size={10}>
-                {summary && summary.pendingCount > 0 && (
-                  <Tag icon={<ClockCircleOutlined />} color="default" style={{ borderRadius: 10, fontSize: 11, margin: 0 }}>
-                    待处理 {summary.pendingCount}
-                  </Tag>
-                )}
-                <Button type="primary" size="small" icon={<PlusOutlined />}
-                  style={{ background: '#7c3aed', borderColor: '#7c3aed', borderRadius: 8, fontWeight: 500 }}
-                  onClick={() => navigate('/drama/create')}>新建</Button>
-              </Space>
-            }
-            style={cardStyle}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0 12px' }}>
+            <span style={sectionTitle}>我的短剧</span>
+            {summary && summary.projectStats.total > 0 && (
+              <span style={chipNeutral}>{summary.projectStats.total}</span>
+            )}
+            <div style={{ flex: 1 }} />
+            {summary && summary.pendingCount > 0 && (
+              <span style={chipNeutral}>
+                <ClockCircleOutlined style={{ fontSize: 11 }} /> 待处理 {summary.pendingCount}
+              </span>
+            )}
+            <Button
+              type="primary"
+              size="small"
+              className="btn-dark"
+              icon={<PlusOutlined />}
+              style={{ borderRadius: 8 }}
+              onClick={() => navigate('/drama/create')}
+            >
+              新建
+            </Button>
+          </div>
+          <Card style={cardStyle}>
             {hasNoProjects ? (
-              <Empty description="暂无短剧项目" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '24px 0' }}>
-                <Button type="primary" style={{ background: '#7c3aed', borderColor: '#7c3aed', borderRadius: 10 }}
+              <Empty description={<span style={{ color: 'var(--text-secondary)' }}>暂无短剧项目</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '24px 0' }}>
+                <Button type="primary" className="btn-dark" style={{ borderRadius: 10 }}
                   onClick={() => navigate('/drama/create')}>创建第一个短剧</Button>
               </Empty>
             ) : (
@@ -263,11 +307,11 @@ export default function HomePage() {
                 split={false}
                 renderItem={(p) => (
                   <List.Item
-                    style={{ padding: '12px 0', cursor: 'pointer', borderBottom: '1px solid #f5f5f5' }}
+                    style={{ padding: '12px 0', cursor: 'pointer', borderBottom: '1px solid var(--border-light)' }}
                     onClick={() => navigate(`/drama/${p.id}`)}
                     actions={[
                       <Button type="link" size="small"
-                        style={{ color: '#bbb', padding: 0, minWidth: 'auto' }}
+                        style={{ color: 'var(--text-muted)', padding: 0, minWidth: 'auto' }}
                         icon={<RightOutlined />}
                         onClick={(e) => { e.stopPropagation(); navigate(`/drama/${p.id}`); }} />,
                     ]}
@@ -276,17 +320,17 @@ export default function HomePage() {
                       avatar={
                         <div style={{
                           width: 42, height: 42, borderRadius: 10,
-                          background: p.cover_url ? `url(${p.cover_url}) center/cover` : '#f0f0f0',
+                          background: p.cover_url ? `url(${p.cover_url}) center/cover` : 'var(--bg-tertiary)',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          border: '1px solid #f0f0f0',
+                          border: '1px solid var(--border-light)',
                         }}>
-                          {!p.cover_url && <VideoCameraOutlined style={{ fontSize: 16, color: '#ccc' }} />}
+                          {!p.cover_url && <VideoCameraOutlined style={{ fontSize: 16, color: 'var(--text-muted)' }} />}
                         </div>
                       }
                       title={
                         <Space size={8}>
-                          <Text strong style={{ fontSize: 14 }}>{p.title || `短剧 #${p.id}`}</Text>
-                          <Tag color={statusColor(p.status)} style={{ borderRadius: 6, fontSize: 10, lineHeight: '18px', margin: 0 }}>
+                          <Text strong style={{ fontSize: 14, color: 'var(--text)' }}>{p.title || `短剧 #${p.id}`}</Text>
+                          <Tag color={statusColor(p.status)} style={{ borderRadius: 999, fontSize: 10, lineHeight: '18px', margin: 0, border: 'none' }}>
                             {statusLabel(p.status)}
                           </Tag>
                         </Space>
@@ -308,112 +352,103 @@ export default function HomePage() {
 
         {/* Right — Queue + Failed */}
         <Col xs={24} lg={8}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
             {/* Queue */}
-            <Card
-              title={
-                <Space size={10}>
-                  <div style={{ width: 3, height: 16, background: '#faad14', borderRadius: 2 }} />
-                  <Text strong style={{ fontSize: 15 }}>任务概览</Text>
-                </Space>
-              }
-              style={cardStyle}
-            >
-              {hasNoQueue ? (
-                <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                  <CheckCircleOutlined style={{ fontSize: 30, color: '#52c41a', marginBottom: 8 }} />
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 13 }}>当前无进行中的任务</Text>
-                </div>
-              ) : (
-                <>
-                  <Row gutter={[12, 12]}>
-                    <Col span={12}>
-                      <div
-                        onClick={() => navigate('/tasks?status=processing')}
-                        style={{ background: '#f6ffed', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(82,196,26,0.25)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
-                      >
-                        <SyncOutlined spin={(summary?.processingCount ?? 0) > 0} style={{ fontSize: 18, color: '#52c41a', marginBottom: 4 }} />
-                        <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary?.processingCount ?? 0}</div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>处理中</Text>
-                      </div>
-                    </Col>
-                    <Col span={12}>
-                      <div
-                        onClick={() => navigate('/tasks?status=pending')}
-                        style={{ background: '#fffbe6', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
-                        onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(250,173,20,0.3)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
-                      >
-                        <ClockCircleOutlined style={{ fontSize: 18, color: '#faad14', marginBottom: 4 }} />
-                        <div style={{ fontSize: 26, fontWeight: 700, color: '#1a1a1a' }}>{summary?.pendingCount ?? 0}</div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>待处理</Text>
-                      </div>
-                    </Col>
-                  </Row>
-                  <Progress
-                    percent={pc + pend > 0 ? Math.round((pc / (pc + pend)) * 100) : 0}
-                    strokeColor="#7c3aed" size="small" style={{ marginTop: 14 }} />
-                </>
-              )}
-            </Card>
+            <div>
+              <div style={{ ...sectionTitle, marginBottom: 12 }}>任务概览</div>
+              <Card style={cardStyle}>
+                {hasNoQueue ? (
+                  <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                    <CheckCircleOutlined style={{ fontSize: 30, color: 'var(--success)', marginBottom: 8 }} />
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 13 }}>当前无进行中的任务</Text>
+                  </div>
+                ) : (
+                  <>
+                    <Row gutter={[12, 12]}>
+                      <Col span={12}>
+                        <div
+                          onClick={() => navigate('/tasks?status=processing')}
+                          style={{ background: 'var(--bg-tertiary)', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+                        >
+                          <SyncOutlined spin={(summary?.processingCount ?? 0) > 0} style={{ fontSize: 18, color: 'var(--success)', marginBottom: 4 }} />
+                          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)' }}>{summary?.processingCount ?? 0}</div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>处理中</Text>
+                        </div>
+                      </Col>
+                      <Col span={12}>
+                        <div
+                          onClick={() => navigate('/tasks?status=pending')}
+                          style={{ background: 'var(--bg-tertiary)', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
+                        >
+                          <ClockCircleOutlined style={{ fontSize: 18, color: 'var(--warning)', marginBottom: 4 }} />
+                          <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)' }}>{summary?.pendingCount ?? 0}</div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>待处理</Text>
+                        </div>
+                      </Col>
+                    </Row>
+                    <Progress
+                      percent={pc + pend > 0 ? Math.round((pc / (pc + pend)) * 100) : 0}
+                      strokeColor="var(--text)" size="small" style={{ marginTop: 14 }} />
+                  </>
+                )}
+              </Card>
+            </div>
 
             {/* Failed */}
-            <Card
-              title={
-                <Space size={10}>
-                  <div style={{ width: 3, height: 16, background: '#ff4d4f', borderRadius: 2 }} />
-                  <Text strong style={{ fontSize: 15 }}>失败任务</Text>
-                  {summary && summary.failedTasks.length > 0 && (
-                    <Badge count={summary.failedTasks.length} style={{ backgroundColor: '#ff4d4f', fontSize: 10, boxShadow: 'none' }} />
-                  )}
-                </Space>
-              }
-              extra={
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <span style={sectionTitle}>失败任务</span>
+                {summary && summary.failedTasks.length > 0 && (
+                  <span style={chipDanger}>{summary.failedTasks.length}</span>
+                )}
+                <div style={{ flex: 1 }} />
                 <Space size={4}>
                   {summary && summary.failedTasks.length > 0 && (
-                    <Button size="small" danger type="text" icon={<ClearOutlined />} style={{ color: '#ff4d4f' }} onClick={handleClearFailed}>
+                    <Button size="small" danger type="text" icon={<ClearOutlined />} style={{ color: 'var(--danger)' }} onClick={handleClearFailed}>
                       清空
                     </Button>
                   )}
-                  <Button type="text" size="small" icon={<ReloadOutlined />} style={{ color: '#999' }} onClick={fetchSummary} />
+                  <Button type="text" size="small" icon={<ReloadOutlined />} style={{ color: 'var(--text-muted)' }} onClick={fetchSummary} />
                 </Space>
-              }
-              style={cardStyle}
-            >
-              {hasNoFailed ? (
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                  <CheckCircleOutlined style={{ fontSize: 26, color: '#52c41a', marginBottom: 6 }} />
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 12 }}>最近没有失败任务</Text>
-                </div>
-              ) : (
-                <List
-                  size="small"
-                  split={false}
-                  dataSource={summary?.failedTasks ?? []}
-                  renderItem={(t) => (
-                    <List.Item style={{ padding: '8px 0', borderBottom: '1px solid #fafafa' }}>
-                      <List.Item.Meta
-                        avatar={<CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 13 }} />}
-                        title={
-                          <Tooltip title={t.errorRaw || t.error}>
-                            <Text style={{ fontSize: 12, color: '#ff4d4f' }} ellipsis>{t.error}</Text>
-                          </Tooltip>
-                        }
-                        description={
-                          <Text type="secondary" style={{ fontSize: 10 }}>
-                            [{t.source}] {t.type} · {new Date(t.time).toLocaleString('zh-CN')}
-                          </Text>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
-              )}
-            </Card>
+              </div>
+              <Card style={cardStyle}>
+                {hasNoFailed ? (
+                  <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                    <CheckCircleOutlined style={{ fontSize: 26, color: 'var(--success)', marginBottom: 6 }} />
+                    <br />
+                    <Text type="secondary" style={{ fontSize: 12 }}>最近没有失败任务</Text>
+                  </div>
+                ) : (
+                  <List
+                    size="small"
+                    split={false}
+                    dataSource={summary?.failedTasks ?? []}
+                    renderItem={(t) => (
+                      <List.Item style={{ padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
+                        <List.Item.Meta
+                          avatar={<CloseCircleOutlined style={{ color: 'var(--danger)', fontSize: 13 }} />}
+                          title={
+                            <Tooltip title={t.errorRaw || t.error}>
+                              <Text style={{ fontSize: 12, color: 'var(--danger)' }} ellipsis>{t.error}</Text>
+                            </Tooltip>
+                          }
+                          description={
+                            <Text type="secondary" style={{ fontSize: 10 }}>
+                              [{t.source}] {t.type} · {new Date(t.time).toLocaleString('zh-CN')}
+                            </Text>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                )}
+              </Card>
+            </div>
           </div>
         </Col>
       </Row>

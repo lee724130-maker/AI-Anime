@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Breadcrumb } from 'antd';
 import { HomeOutlined } from '@ant-design/icons';
-import AppHeader from '../AppHeader';
 
 // 生产 bundle iI：面包屑标签映射
 const LABELS: Record<string, string> = {
@@ -58,13 +57,13 @@ function BreadcrumbBar() {
   return <Breadcrumb items={items} style={{ marginBottom: 16, fontSize: 13 }} />;
 }
 
-// 生产 bundle oI：UserLayout 逐字还原（面包屑 + page-fade-in main 按 pathname key 重挂载）
+// 生产 bundle oI：UserLayout（面包屑 + page-fade-in main 按 pathname key 重挂载）
+// 顶栏已移除：全站导航统一为 AppShell 左侧边栏；内容画布采用 LibTV 风格浅灰底
 export default function UserLayout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const showBreadcrumb = location.pathname.split('/').filter(Boolean).length > 1;
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-      <AppHeader />
+    <div style={{ minHeight: '100vh', background: 'var(--bg-secondary)' }}>
       <main
         className="page-fade-in"
         style={{ maxWidth: 1280, margin: '0 auto', padding: 'clamp(16px, 3vw, 28px)' }}

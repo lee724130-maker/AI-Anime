@@ -8,6 +8,7 @@ import LandingPage from './pages/Landing';
 import LoginPage from './pages/Auth/LoginPage';
 import RegisterPage from './pages/Auth/RegisterPage';
 import UserLayout from './components/UserLayout';
+import AppShell from './components/AppShell';
 import TestNoticeModal from './components/TestNoticeModal';
 import SessionExpiredModal from './components/SessionExpiredModal';
 import { useAuthStore } from './stores/authStore';
@@ -81,6 +82,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// 已登录 + LibTV 侧边栏应用壳（全站导航统一在此包裹；全屏工作台除外）
+function Shelled({ children }: { children: React.ReactNode }) {
+  return <ProtectedRoute><AppShell>{children}</AppShell></ProtectedRoute>;
+}
+
+// admin 路由 + 侧边栏壳
+function ShelledAdmin({ children }: { children: React.ReactNode }) {
+  return <AdminGuard><AppShell>{children}</AppShell></AdminGuard>;
+}
+
 // 生产 bundle QI 结构：ThemeProvider > BrowserRouter > [PageTitle, ErrorBoundary > Suspense > Routes, TestNotice, SessionExpired]
 export default function App() {
   return (
@@ -93,42 +104,42 @@ export default function App() {
               <Route path="/login" element={<AuthGuard><LoginPage /></AuthGuard>} />
               <Route path="/register" element={<AuthGuard><RegisterPage /></AuthGuard>} />
               <Route path="/" element={<LandingPage />} />
-              <Route path="/dashboard" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
-              <Route path="/tasks" element={<ProtectedRoute><TasksPage /></ProtectedRoute>} />
-              <Route path="/generate" element={<ProtectedRoute><UserLayout><GeneratePage /></UserLayout></ProtectedRoute>} />
-              <Route path="/generate/history" element={<ProtectedRoute><UserLayout><GenerateHistoryPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama" element={<ProtectedRoute><UserLayout><DramaListPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama/create" element={<ProtectedRoute><UserLayout><DramaCreatePage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama/:id" element={<ProtectedRoute><UserLayout><DramaDetailPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama/:id/edit-analysis" element={<ProtectedRoute><UserLayout><EditAnalysisPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama/:id/assets" element={<ProtectedRoute><UserLayout><DramaAssetsPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama/:id/episodes" element={<ProtectedRoute><UserLayout><DramaEpisodesPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/drama/:id/episodes/:episodeId" element={<ProtectedRoute><UserLayout><EpisodeDetailPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/global-assets" element={<ProtectedRoute><UserLayout><GlobalAssetsPage /></UserLayout></ProtectedRoute>} />
-              <Route path="/user" element={<ProtectedRoute><UserPage /></ProtectedRoute>} />
-              <Route path="/script" element={<ProtectedRoute><ScriptListPage /></ProtectedRoute>} />
-              <Route path="/script/create" element={<ProtectedRoute><ScriptCreatePage /></ProtectedRoute>} />
-              <Route path="/script/:id" element={<ProtectedRoute><ScriptDetailPage /></ProtectedRoute>} />
-              <Route path="/character" element={<ProtectedRoute><CharacterListPage /></ProtectedRoute>} />
-              <Route path="/character/create" element={<ProtectedRoute><CharacterCreatePage /></ProtectedRoute>} />
-              <Route path="/character/:id" element={<ProtectedRoute><CharacterDetailPage /></ProtectedRoute>} />
-              <Route path="/video" element={<ProtectedRoute><VideoListPage /></ProtectedRoute>} />
-              <Route path="/video/create" element={<ProtectedRoute><VideoCreatePage /></ProtectedRoute>} />
-              <Route path="/video/stitch" element={<ProtectedRoute><VideoStitchPage /></ProtectedRoute>} />
-              <Route path="/video/:id" element={<ProtectedRoute><VideoDetailPage /></ProtectedRoute>} />
-              <Route path="/studio" element={<ProtectedRoute><StudioPage /></ProtectedRoute>} />
-              <Route path="/order" element={<ProtectedRoute><OrderPage /></ProtectedRoute>} />
-              <Route path="/viral" element={<ProtectedRoute><UserLayout><ViralIndex /></UserLayout></ProtectedRoute>} />
-              <Route path="/viral/create" element={<ProtectedRoute><UserLayout><ViralCreateTemplate /></UserLayout></ProtectedRoute>} />
-              <Route path="/viral/templates" element={<ProtectedRoute><UserLayout><ViralTemplateList /></UserLayout></ProtectedRoute>} />
-              <Route path="/viral/templates/:id" element={<ProtectedRoute><UserLayout><ViralTemplateDetail /></UserLayout></ProtectedRoute>} />
-              <Route path="/viral/projects" element={<ProtectedRoute><UserLayout><ViralProjectList /></UserLayout></ProtectedRoute>} />
-              <Route path="/viral/projects/:id" element={<ProtectedRoute><UserLayout><ViralProjectDetail /></UserLayout></ProtectedRoute>} />
-              <Route path="/canvas" element={<ProtectedRoute><UserLayout><CanvasIndex /></UserLayout></ProtectedRoute>} />
-              {/* 画布编辑器：网页全屏工作台（无导航栏，独占整屏） */}
+              <Route path="/dashboard" element={<Shelled><HomePage /></Shelled>} />
+              <Route path="/tasks" element={<Shelled><TasksPage /></Shelled>} />
+              <Route path="/generate" element={<Shelled><UserLayout><GeneratePage /></UserLayout></Shelled>} />
+              <Route path="/generate/history" element={<Shelled><UserLayout><GenerateHistoryPage /></UserLayout></Shelled>} />
+              <Route path="/drama" element={<Shelled><UserLayout><DramaListPage /></UserLayout></Shelled>} />
+              <Route path="/drama/create" element={<Shelled><UserLayout><DramaCreatePage /></UserLayout></Shelled>} />
+              <Route path="/drama/:id" element={<Shelled><UserLayout><DramaDetailPage /></UserLayout></Shelled>} />
+              <Route path="/drama/:id/edit-analysis" element={<Shelled><UserLayout><EditAnalysisPage /></UserLayout></Shelled>} />
+              <Route path="/drama/:id/assets" element={<Shelled><UserLayout><DramaAssetsPage /></UserLayout></Shelled>} />
+              <Route path="/drama/:id/episodes" element={<Shelled><UserLayout><DramaEpisodesPage /></UserLayout></Shelled>} />
+              <Route path="/drama/:id/episodes/:episodeId" element={<Shelled><UserLayout><EpisodeDetailPage /></UserLayout></Shelled>} />
+              <Route path="/global-assets" element={<Shelled><UserLayout><GlobalAssetsPage /></UserLayout></Shelled>} />
+              <Route path="/user" element={<Shelled><UserPage /></Shelled>} />
+              <Route path="/script" element={<Shelled><ScriptListPage /></Shelled>} />
+              <Route path="/script/create" element={<Shelled><ScriptCreatePage /></Shelled>} />
+              <Route path="/script/:id" element={<Shelled><ScriptDetailPage /></Shelled>} />
+              <Route path="/character" element={<Shelled><CharacterListPage /></Shelled>} />
+              <Route path="/character/create" element={<Shelled><CharacterCreatePage /></Shelled>} />
+              <Route path="/character/:id" element={<Shelled><CharacterDetailPage /></Shelled>} />
+              <Route path="/video" element={<Shelled><VideoListPage /></Shelled>} />
+              <Route path="/video/create" element={<Shelled><VideoCreatePage /></Shelled>} />
+              <Route path="/video/stitch" element={<Shelled><VideoStitchPage /></Shelled>} />
+              <Route path="/video/:id" element={<Shelled><VideoDetailPage /></Shelled>} />
+              <Route path="/studio" element={<Shelled><StudioPage /></Shelled>} />
+              <Route path="/order" element={<Shelled><OrderPage /></Shelled>} />
+              <Route path="/viral" element={<Shelled><UserLayout><ViralIndex /></UserLayout></Shelled>} />
+              <Route path="/viral/create" element={<Shelled><UserLayout><ViralCreateTemplate /></UserLayout></Shelled>} />
+              <Route path="/viral/templates" element={<Shelled><UserLayout><ViralTemplateList /></UserLayout></Shelled>} />
+              <Route path="/viral/templates/:id" element={<Shelled><UserLayout><ViralTemplateDetail /></UserLayout></Shelled>} />
+              <Route path="/viral/projects" element={<Shelled><UserLayout><ViralProjectList /></UserLayout></Shelled>} />
+              <Route path="/viral/projects/:id" element={<Shelled><UserLayout><ViralProjectDetail /></UserLayout></Shelled>} />
+              <Route path="/canvas" element={<Shelled><UserLayout><CanvasIndex /></UserLayout></Shelled>} />
+              {/* 画布编辑器：网页全屏工作台（无侧边栏，独占整屏） */}
               <Route path="/canvas/editor/:id" element={<ProtectedRoute><CanvasEditor /></ProtectedRoute>} />
-              {/* 剪辑（生产：admin-only，列表页带 UserLayout，编辑页全屏） */}
-              <Route path="/editor" element={<AdminGuard><UserLayout><EditorListPage /></UserLayout></AdminGuard>} />
+              {/* 剪辑（生产：admin-only，列表页带侧边栏，编辑页全屏） */}
+              <Route path="/editor" element={<ShelledAdmin><UserLayout><EditorListPage /></UserLayout></ShelledAdmin>} />
               <Route path="/editor/:id" element={<AdminGuard><EditorPage /></AdminGuard>} />
             </Routes>
           </Suspense>

@@ -9,7 +9,6 @@ import {
 } from '@ant-design/icons';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
-import AppHeader from '../../components/AppHeader';
 
 const { Title, Text } = Typography;
 
@@ -45,7 +44,6 @@ export default function UserPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fb' }}>
-      <AppHeader />
       <div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 24px 0' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <Title level={3} style={{ margin: 0 }}>个人中心</Title>

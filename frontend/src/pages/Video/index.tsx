@@ -8,7 +8,6 @@ import {
   AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
-import AppHeader from '../../components/AppHeader';
 
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -228,7 +227,6 @@ export default function VideoListPage() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#f8f9fb' }}>
-      <AppHeader />
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 0' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <Title level={2} style={{ margin: 0 }}>作品管理</Title>

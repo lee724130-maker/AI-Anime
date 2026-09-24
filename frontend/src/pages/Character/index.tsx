@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, List, Typography, Avatar, Space, Popconfirm, message, Tag } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../../services/api';
-import AppHeader from '../../components/AppHeader';
 
 const { Title, Paragraph } = Typography;
 
@@ -38,7 +37,6 @@ export default function CharacterListPage() {
 
   return (
     <div>
-      <AppHeader />
       <div style={{ maxWidth: 850, margin: '0 auto', padding: '24px 24px 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <Title level={2} style={{ margin: 0 }}>我的角色</Title>

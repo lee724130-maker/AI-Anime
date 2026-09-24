@@ -11,6 +11,15 @@ to{opacity:1;transform:translateY(0)}
 .nav-item-hover:hover{background:var(--hover-bg)!important;color:var(--text)!important}
 .nav-icon-btn:hover,.nav-avatar-wrap:hover{border-color:var(--primary)!important;background:var(--primary-bg)!important}
 .nav-logout-btn:hover{background:var(--danger-bg)!important}
+.app-shell{margin-left:var(--sidebar-width);min-height:100vh}
+@media (width<=768px){.app-shell{margin-left:0;padding-top:52px}
+}
+.side-nav-item{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);transition:background .15s,color .15s;user-select:none}
+.side-nav-item:hover{background:var(--hover-bg);color:var(--text)}
+.side-nav-item.active{background:var(--bg-tertiary);color:var(--text);font-weight:600}
+.libtv-tile{cursor:pointer}
+.libtv-tile>div:first-child{transition:border-color .15s}
+.libtv-tile:hover>div:first-child{border-color:var(--text-secondary)!important}
 .auth-screen{background:var(--bg);min-height:100vh}
 @supports (height:100dvh){.auth-screen{min-height:100dvh}
 }
@@ -252,4 +261,7 @@ to{opacity:1;transform:translateY(0)}
 @media (width<=640px){.landing-pricing{flex-direction:column!important;align-items:center!important}
 .landing-pricing>div{flex:none!important;width:100%!important;max-width:320px!important}
 }
+/* LibTV 黑色主按钮：必须在 .ant-btn-primary/.ant-btn-default（均 !important）之后且特异性更高才生效；深浅色自动反转 */
+body .ant-btn.btn-dark{background:var(--text)!important;border-color:var(--text)!important;color:var(--bg)!important;font-weight:600!important;opacity:1!important}
+body .ant-btn.btn-dark:hover,body .ant-btn.btn-dark:focus,body .ant-btn.btn-dark:active{background:var(--text)!important;border-color:var(--text)!important;color:var(--bg)!important;opacity:.85!important}
 

@@ -1,5 +1,40 @@
 # 修复日志
 
+## 2026-09-24（晚间轮3：LibTV 风格改造 — 全站侧边栏替换 AppHeader + Dashboard LibTV 化 ✅ 新测试 20/20 + 既有套件全绿 + build EXIT=0 —— 未提交，等用户验收）
+
+> 用户提供 `Desktop\react-page`（liblib.tv 首页抓取稿，dev :5175）要求把该风格应用到当前前端。范围经四问确认：① 视觉+布局都贴近 LibTV；② 移除 AppHeader 全站改左侧边栏（含既有6页直接引用 + UserLayout 包裹页 + 无头的 BARE 子页）；③ 不要顶部彩色横幅；④ **仅 dashboard 内容区 LibTV 化**，其他页面内容保持原紫色风格（用户接受不一致）；铁律=功能零变更。
+
+### ✅ 实现（全部 Style/布局层，逻辑零改动）
+- **新组件 `components/AppShell/index.tsx`**：桌面 240px 固定左白边栏 / 移动端 52px 顶栏（汉堡+品牌+主题+头像）+ Drawer(260)。功能与 AppHeader 等价：7项导航（admin 含剪辑）、主题切换（title 含「切换到」）、充值 gate（GET /api/admin/site/config recharge_enabled==='1'）、头像+⚡积分→/user、退出；新增 LibTV 黑色「＋ 开始创作」→/generate。
+- **`App.tsx` 重写**：`Shelled`=ProtectedRoute→AppShell、`ShelledAdmin`=AdminGuard→AppShell 包裹受保护路由；**全屏页不套壳**：`/editor/:id`、`/canvas/editor/:id`、Landing、Login/Register。
+- **移除 AppHeader**：UserLayout 删 import+usage（面包屑/page-fade-in 保留）；6 个直接引用页（Character/Order/Script/Studio/User/Video）删 import+`<AppHeader/>`；`components/AppHeader/index.tsx` 文件保留未删（回滚用），src 内已零引用。
+- **`pages/Home/index.tsx` LibTV 重写**：点阵虚线 hero（欢迎回来/创作工作台/可用算力/充值黑按钮）+ 4 中性统计卡 + 快捷入口方块（`.libtv-tile`）+ 区块标题外置（我的短剧/任务概览/失败任务）+ chips；useState/handlers/接口调用原样保留。
+- **`index.css` 新增**：`.app-shell`（margin-left var(--sidebar-width)，移动端归零+52px 顶距）、`.side-nav-item`(+hover/active)、`.btn-dark`→最终版 `body .ant-btn.btn-dark`（见血泪2）、`.libtv-tile`；内容底 UserLayout 改 `var(--bg-secondary)`。深浅色走既有主题变量（dark 下黑按钮自动反色）。
+
+### ✅ 验证（全绿）
+- **编译**：`tsc -b` EXIT=0 ×2 + `npm.cmd run build`（tsc -b && vite build）EXIT=0（chunk>500kB 警告为存量）。
+- **新套件 `test-shell-func.js` 20/20**：侧边栏渲染/无 .app-header/无 ErrorBoundary/黑按钮计算样式(bg #1a1a2e+白字 ×2)/hero充值→/order/新建→/drama/create/tile→/studio/侧边栏导航→/viral/active=工作台/主题 dark↔light/移动端顶栏+零横向溢出+抽屉开+抽屉导航→/generate/桌面移动端各 0 pageerror。
+- **既有套件**：foundation **23/23**（选择器全部改侧边栏：brand/logo rect/前7个.side-nav-item=主导航/主题title/侧栏bg白+borderRight/⚡积分）· admin-login **13/13**（`.app-sidebar`+AppHeader已移除×2 断言）· order 20/20 · generate 31/31 · ga 35/35 · landing 79/79。
+- **截图**：浅色/深色 dashboard、order、generate、移动端 375 + 抽屉（`Temp\opencode\shot-new-*.png`），视觉贴近 LibTV 稿。
+
+### ⚠️ 本轮血泪（测试/编辑三连坑，务必记住）
+1. **vite dev watcher 秒级 mtime 粒度**：同一文件**同一秒内两次编辑只被重转换第一次** → 浏览器拿到「CSS/模块中间态」，症状诡异：源码明明对，dashboard 却弹 ErrorBoundary「AppHeader is not defined」（下发的是删除前旧 UserLayout）、黑按钮只应用一半（删了旧规则没下发新规则）。**对策：任何 edit/write 之后若怀疑缓存，touch 文件（`LastWriteTime=Get-Date`）+ sleep 2s 强制重转换**；并行 edit 同一文件＝高危操作。
+2. **`.btn-dark` (0,1,0)!important 打不过后声明的 `.ant-btn-primary`/`.ant-btn-default` (0,1,0)!important**（同特异性后声明胜）→ 被迫把黑按钮规则放**文件末尾**并升特异性 `body .ant-btn.btn-dark` (0,2,1)，同时压过 `[data-theme=dark] .ant-btn-default`(0,2,0)。
+3. **CSS 类名选择器写成 `.libtv-tile-\boxed`**：`\b` 被 CSS 解析为 U+000B 控制符 → 永远匹配不到 JSX 的 `libtv-tile-box`（死规则）→ 改用 `.libtv-tile>div:first-child`。
+4. **内联 style 的 border shorthand 永远压过类选择器**：tile box 内联 `border:1px solid var(--border)` 让 hover border-color 先天失效 → hover 规则必须 `!important`（实测 rgb(229,231,235)→rgb(107,114,128) 才算通过）。
+5. **edit 工具反斜杠转义**：oldString 含字面 `\` 必须写 `\\`（JSON `\b`=退格符会把两端归一成相同内容报 identical）；绕行法=换不含反斜杠的新选择器。
+6. **多套 FE 测试并行会竞态 Redis 验证码键**：foundation/admin-login/ga/landing 共用 `email_code:admin:...`（verify 成功即删）→ 后验证者 LOGIN FAILED 假象；**2FA 注入类测试与其它套件并行必炸，单独重跑即绿**（ga 单跑 35/35）。
+7. `.app-header` 旧选择器全量清查：只有 foundation + admin-login 两文件受影响（grep `app-header|nav-avatar-wrap|nav-item-hover` 收口）。
+
+### 📋 状态与待办
+- [ ] **用户手动验收**（截图/本地 :5173 实际点一遍）：视觉认可 + 功能（导航/充值/主题/退出/移动端抽屉）
+- [ ] 用户确认后 git 提交（本轮未提交；工作区含本轮全部改动）
+- [ ] AppHeader 文件保留待回滚参考，确认稳定后可删
+- 残留差异不变：其他页面内容区保持原紫色风格（用户已接受）、admin bundle 5174 未动、硬编码色差/越权页无 canEdit 门/无 socket.io 代理/gen-logs 500 生产对齐保留
+- 服务：本地后端 :3000（run9.log）、FE :5173、admin :5174、react-page :5175、MySQL、Redis 在线
+
+---
+
 ## 2026-09-24（晚间轮2：管理后台 2FA 体验两 bug 修复 + 全项目 git 推送 + 三端部署生产 ✅ 全部完成）
 
 > 用户验收前台 skipVerification 修复通过后，提出两件新事：① 管理后台输错验证码会退回账号密码步骤（应停留验证步弹错重输）；② 60s 内退出重登，上一次用过的旧验证码还能登录、且新码发不出来。随后要求：整个项目先推 git 保底，再把本地更新到生产。
