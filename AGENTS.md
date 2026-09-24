@@ -1,5 +1,39 @@
 # 修复日志
 
+## 2026-09-24（晚间轮2：管理后台 2FA 体验两 bug 修复 + 全项目 git 推送 + 三端部署生产 ✅ 全部完成）
+
+> 用户验收前台 skipVerification 修复通过后，提出两件新事：① 管理后台输错验证码会退回账号密码步骤（应停留验证步弹错重输）；② 60s 内退出重登，上一次用过的旧验证码还能登录、且新码发不出来。随后要求：整个项目先推 git 保底，再把本地更新到生产。
+
+### ✅ ① 2FA 两 bug 根因与修复
+- **问题1 根因**：`admin/src/services/api.ts` 拦截器把 `verify-admin` 的 401（验证码错误业务响应）当会话过期 → `location.href='/admin/login'` 整页刷新 → React `step` 状态丢失退回账号密码步。**修复**：新增 `AUTH_FLOW_URLS`（login/verify-admin/send-admin-code）401 豁免不跳转；`Login/index.tsx` 验证码错误时 `message.error('验证码错误或已过期')` + `formVerify.resetFields(['code'])` 清空重输（⚠️ `Form.useForm()` 实例必须挂 `form={formVerify}` 才有效）。
+- **问题2 根因（双因）**：`auth.service.ts verifyCode` 双写 Redis+内存，但 Redis 命中成功只 `redis.del` 不删内存 → 内存残留 5 分钟副本让下一次校验 fall-through 通过（旧码复用）；且 `login()` 进 2FA 分支不作废旧码、不清 `codeStore.sentAt` 60s 限频（重登自动发码被 400「发送太频繁」挡住，只能试旧码）。**修复（用户选完整方案）**：`verifyCode` 成功改调 `removeCode()` 双删；`login()` 2FA 分支先 `removeCode('admin:'+SUPER_ADMIN_EMAIL)` + `sentAt.delete` 再发 tempToken（ThrottlerGuard 5/min 仍兜底防刷）。
+- **回归适配**：`test-admin-fe.js` 原来「UI 操作前预注入 Redis 码」会撞上 login() 作废逻辑 → 改为 `injectCode()` 辅助函数在**点击登录进入验证步之后**注入。新增 `test-admin-2fa-fix.js` 19/19（错码停留验证步×2/输入框清空/正确码进 dashboard/退出重登旧码必失效/新码恢复/0 pageerror）。
+- **测试全绿**：2FA 专项 19/19 · `test-login-fix` 11/11 · `test-admin-fe` 93/93 · `test-fe-admin-login` 12/12 · 两端 tsc EXIT=0。断言坑：`text=管理员登录` 是子串匹配会命中验证步描述「超级管理员登录需要邮箱验证码」→ 用 `getByRole('heading',{name,exact:true})`。
+
+### ✅ ② git 全量推送（用户要求保底）
+- 提交 `bc903d3`（71 文件 +8700/-2346）：09-22~24 逆向对齐全部源码 + 两轮登录修复；顺带删根目录 12 字节垃圾文件 `800`。
+- **本机无 git 身份** → 按仓库历史设 repo 级 `user.name/email=lee724130-maker/lee724130@gmail.com`。
+- **直连 github.com:443 必失败**（Connection reset / 超时 ×4）→ 本机 `127.0.0.1:7890` 有代理（Clash 类），`git -c http.proxy=http://127.0.0.1:7890 -c https.proxy=... push` 一次成功 `afe7f20..bc903d3`；已 fetch 复核 origin/main 同步。**以后推送先测代理端口（7890 等常见口）**。
+
+### ✅ ③ 三端部署生产（backend+frontend+admin 全替换）
+- 构建：`npx tsc` / FE `npm run build` / admin `npm run build` 全 0；本地 hash FE=`index-DG0z6yGu.js`、admin=`index-V8ED2nSn.js`。
+- 打包三 zip → pscp 上传 `/home/www/ai-anime/deploy/` → `bash deploy/deploy.sh`：三端 mv 旧 dist 为 `*_bak` + unzip 双保险（backslash warning 照旧出现但解压成功）+ `pm2 restart ai-anime-backend --update-env` + curl --resolve 冒烟 + 清 zips。
+- **生产验证全过**：`skipVerification` 在 dist=1（新后端）/ 上线前=0；admin bundle 含 `/api/auth/verify-admin`+`send-admin-code`+`resetFields`（minify 后 `AUTH_FLOW_URLS` 变量名没了，**断言必须 grep URL 字符串字面量**）；FE/admin 页面引用 hash 与本地一致；`api_health=401`、front/admin root 200；API 冒烟 4/4（skip 登录 200+JWT / plain 登录 requiresVerification 无 token / profile 200 / 假 tempToken verify-admin 401，全程零发信）。
+- 进程：online pid 619913、`NODE_ENV=production`、`unstable_restarts=0`；error log mtime 仍 8-31（今天日志里的 `Cannot find module main.js` 是历史遗留，非本轮）。回滚路径：服务器 `backend|frontend|admin/dist_bak`。
+
+### ⚠️ 本轮血泪
+1. **pscp 也要 `-hostkey SHA256:...`**，只给 plink 加会在 batch 模式下 `Cannot confirm a host key` 直接断连。
+2. **plink 远程命令 cwd 不是 `/home/www/ai-anime`**（是 /root）→ `deploy/deploy.sh` 报 no such file，一律用绝对路径。
+3. **curl -d 的 JSON 经 PowerShell→plink 双层转义必坏**（老坑重申）→ 写 .sh 文件上传执行。
+4. **pm2 jlist 输出巨大**（含全量 env），`grep name` 会刷屏 → 直接 `pm2 ls` 表格或针对性查字段。
+5. 部署窗口期（mv 走 dist 到 unzip 完成之间）pm2 会报几次 `Cannot find module main.js`——以最终 `pm2 status` + error log mtime + 接口冒烟为准。
+
+### 📋 状态与待办
+- **服务**：生产 :443 三端新代码在线；本地后端 :3000、FE :5173、admin :5174、MySQL、Redis 在线；服务器 `deploy/` 历史 zip（admin-dist/be-dist/fe-dist 等）未动。
+- [ ] 用户手动验收生产管理后台 2FA（错码停留重输、重登立即收新码、旧码失效）
+- [x] git 推送 `bc903d3`（+ 本节文档提交）
+- 残留差异不变（硬编码色差 / 越权页无 canEdit 门 / 无 socket.io 代理 / gen-logs 500 生产对齐保留）
+
 ## 2026-09-24（晚间轮：前台 admin 登录被 2FA 阻断修复 ✅ API 11/11 + UI 12/12 + 全量回归全绿 —— 待用户手动验收后再谈 git 提交）
 
 > 用户报告：5173 前台用 admin 登录后刷新会弹「登录已过期 / 您的登录凭证已失效」（**生产同样存在此遗留 bug**；用户曾在另一台机器修过，本机无记录）。需求：**前台登录 admin 只要用户名+密码，不走邮箱二次验证；管理后台 5174 保持 2FA 不变**。
