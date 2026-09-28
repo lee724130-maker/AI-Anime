@@ -1,5 +1,30 @@
 # 修复日志
 
+## 2026-09-28（Part 3 C：视频自动生成封面 —— 编码完成双端 tsc 绿，测试待跑，本次提交仅保底）
+
+> 用户拍板三项后续功能先做 **C（P0）**，并确认 D-C1 封面**免费**、D-C2 smart-plan **输出 cover_prompt**。本轮仅本地编码（**未连服务器，生产未动**，线上仍是 `index-9NEW3kl0.js`）；测试全部未写未跑，本次先 git 保底。
+
+### ✅ 已完成（代码 + 编译，未验证）
+- **后端**（4 文件）：
+  - `generation-task.entity.ts` 加 `cover_url`（`type:'varchar', length:500, nullable`，防 DataTypeNotSupportedError 老坑）——本地库已由 synchronize 自动建列；
+  - `generate.controller.ts` / `generate.service.ts` 4 处 video dto（2 入口 + 2 执行器）加 `cover_prompt?: string`（控制器是 inline type 无 whitelist 剥离问题）；
+  - `generate.service.ts` 新增 `generateAutoCover()`：视频 completed 后 `void` 异步触发——开关 → 取 base（cover_prompt 优先，否则视频 prompt）→ `buildCoverImagePrompt()`（C.5：主体句 + cinematic keyframe + 风格后缀 + 比例后缀）→ `generateImage`（negativePrompt 挡文字/字幕/拼图，style 随任务注入 realistic/anime）→ `downloadToLocal` 存 `/static/cover_{taskId}_*.jpg` → 写 cover_url；非 http 图或下载失败一律保留 null 走 tint 占位，**失败绝不影响视频任务状态**；另加 `isAutoCoverEnabled()`、`coverSize()`（9:16→1080×1920 等，Tongyi 自行映射支持尺寸）；
+  - **smartPlan 重构**：switch 只产 enhancedPrompt，随后视频模式（t2v/i2v）**并行** `Promise.all([buildVoiceover, buildCoverPromptText])`——D-C2 新增的 `buildCoverPromptText()`（英文单句 ≤40 词：主体+场景+关键瞬间，禁止风格词/文字水印词/编造），不增加规划总时长；返回体加 `cover_prompt`；
+  - `deleteTask` 连带物理删封面文件；`cleanup.service.ts` 引用收集补 `UNION cover_url FROM generation_tasks`（防 30 天孤儿清理误删在用封面）。
+- **前端**（2 文件）：`generateSmartPlan` 把 `data.cover_prompt` 写入表单（mode≠t2i）；t2v/i2v 两表单加隐藏 `<Form.Item name="cover_prompt">`（随 body 提交 → input_data 天然透传 → 重试也保留）；`HistoryTable` 视频缩略图 + 结果轮播视频加 `poster={cover_url}`。
+- **编译**：后端 `tsc.cmd` EXIT=0 ×2、前端 `tsc -b` EXIT=0；后端已重启跑最终版（:3000，日志 `Temp\opencode\backend-run12.log`）。
+
+### ⚠️ 本轮血泪（新）
+- **`creditsService.getConfigInt` 有 `n > 0` 门槛**——`auto_cover_enabled='0'` 会被判非法而回退默认 1，**开关永远关不掉**（「开关=0 零调用」断言必炸）→ 凡「0 = 关闭」语义的开关不能复用 getConfigInt，必须直查 system_configs 原始值（本例 `isAutoCoverEnabled()`：缺省=开、'0'/'false'=关，与 admin setConfig 的 `INSERT…ON DUPLICATE` 兼容）。
+
+### ⏳ 下次接续（今天到此为止，按序执行）
+1. 写 `test-auto-cover.js`（API：smart-plan t2v 返回 `cover_prompt`（ASCII 无中文）/ t2i 不返回；带 cover_prompt 的 T2V 完成后 cover_url=`/static/cover_*` 且文件在 `backend/output`、GET 200、listTasks 含字段；`auto_cover_enabled='0'` 时新任务完成后 45s 内 cover_url 恒 null；**恢复缺省后无 cover_prompt 的任务走 fallback 也能出封面**；删任务后封面文件消失）+ FE 测试（route 捕获 smart-plan 响应 → 提交 body 必含同值 `cover_prompt`，route abort 不真建任务，0 pageerror）；
+2. 回归：`test-shell-func` 37/37 + `test-fe-foundation` 23/23 + `test-fe-generate` 31/31；
+3. 更新本文件 → 问用户是否部署（**部署需明确指示**）；
+4. B/A 仍按 `docs/dev-checklist.md` Part 3 顺序（D-A1~D-B2 待拍板；B 的「删任务区」已于当日第五轮完成）。
+
+---
+
 ## 2026-09-28（LibTV 首页完整复刻 dashboard —— 新测试 37/37 + foundation 23/23 全绿 —— ✅ 已提交已部署生产（前端 index-CtUPqgxJ.js））
 
 > 承接 09-24 LibTV 侧边栏轮。用户反馈 dashboard 未正确还原 LibTV 主页效果，要求**完整复刻 liblib.tv 首页页面样式**（仅 dashboard 内容区，其他页保持紫色不变；仅本地，不上生产）。

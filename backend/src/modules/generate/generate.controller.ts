@@ -34,6 +34,7 @@ export class GenerateController {
     voiceover?: boolean;
     voiceover_text?: string;
     tts_voice?: string;
+    cover_prompt?: string;
   }) {
     return this.generateService.textToVideo(req.user.id, body);
   }
@@ -51,6 +52,7 @@ export class GenerateController {
     voiceover?: boolean;
     voiceover_text?: string;
     tts_voice?: string;
+    cover_prompt?: string;
   }) {
     return this.generateService.imageToVideo(req.user.id, body);
   }

@@ -288,6 +288,9 @@ export default function GeneratePage() {
       if (mode !== 't2i' && data.voiceover) {
         patch.voiceover_text = data.voiceover;
       }
+      if (mode !== 't2i' && data.cover_prompt) {
+        patch.cover_prompt = data.cover_prompt;
+      }
       form.setFieldsValue(patch);
       hideLoading();
       setPlanLoading(false);
@@ -474,6 +477,9 @@ export default function GeneratePage() {
       case 'text-to-video':
         return (
           <Form form={formTextToVideo} layout="vertical" onFinish={(v) => doGenerate('/api/generate/text-to-video', v, formTextToVideo)}>
+            <Form.Item name="cover_prompt" hidden>
+              <Input />
+            </Form.Item>
             <Form.Item name="prompt" label="描述" rules={[{ required: true, message: '请输入视频描述' }]}>
               <TextArea rows={3} placeholder="描述视频画面内容、动作、风格..." />
             </Form.Item>
@@ -543,6 +549,9 @@ export default function GeneratePage() {
             doGenerate('/api/generate/image-to-video', payload, formImageToVideo);
           }}>
             <Form.Item name="image_url" hidden>
+              <Input />
+            </Form.Item>
+            <Form.Item name="cover_prompt" hidden>
               <Input />
             </Form.Item>
 
@@ -826,6 +835,7 @@ export default function GeneratePage() {
     return videoUrl ? (
       <video
         src={videoUrl}
+        poster={task.cover_url ? getUrl(task.cover_url) : undefined}
         controls
         playsInline
         preload="metadata"

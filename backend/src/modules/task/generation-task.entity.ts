@@ -47,6 +47,10 @@ export class GenerationTask {
   @Column({ name: 'credits_charged', type: 'boolean', default: false })
   credits_charged: boolean;
 
+  /** C：视频完成后文生图自动生成的封面（/static/cover_*.jpg；null = 未生成/失败，走占位） */
+  @Column({ name: 'cover_url', type: 'varchar', length: 500, nullable: true })
+  cover_url: string | null;
+
   @Column({ name: 'started_at', type: 'datetime', nullable: true })
   started_at: Date;
 

@@ -160,6 +160,7 @@ export default function HistoryTable({ pageSize = 8, showFilters = false, showPa
           <div style={{ position: 'relative', display: 'inline-block' }}>
             <video
               src={videoUrl}
+              poster={r.cover_url ? getUrl(r.cover_url) : undefined}
               width={160}
               height={90}
               controls

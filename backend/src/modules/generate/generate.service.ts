@@ -276,6 +276,7 @@ export class GenerateService {
     voiceover?: boolean;
     voiceover_text?: string;
     tts_voice?: string;
+    cover_prompt?: string;
   }) {
     const { prompt, model } = dto;
     if (!prompt) throw new BadRequestException('请输入描述');
@@ -320,6 +321,7 @@ export class GenerateService {
     voiceover?: boolean;
     voiceover_text?: string;
     tts_voice?: string;
+    cover_prompt?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -389,6 +391,13 @@ export class GenerateService {
       await this.updateProgress(task, 100);
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 文生视频完成`);
+      // C：异步自动生成封面（不阻塞任务收尾，失败静默降级）
+      void this.generateAutoCover(task.id, {
+        coverPrompt: dto.cover_prompt,
+        videoPrompt: prompt,
+        style,
+        ratio: ratio || '9:16',
+      });
     } catch (err: any) {
       task.status = 'failed';
       task.error_msg = err.message;
@@ -414,6 +423,7 @@ export class GenerateService {
     voiceover?: boolean;
     voiceover_text?: string;
     tts_voice?: string;
+    cover_prompt?: string;
   }) {
     const { image_url, media, model } = dto;
     if (!image_url && (!media || media.length === 0)) throw new BadRequestException('请提供参考图片');
@@ -461,6 +471,7 @@ export class GenerateService {
     voiceover?: boolean;
     voiceover_text?: string;
     tts_voice?: string;
+    cover_prompt?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -533,6 +544,13 @@ export class GenerateService {
       await this.updateProgress(task, 100);
       await this.taskRepo.save(task);
       this.logger.log(`任务 ${task.id} 图生视频完成`);
+      // C：异步自动生成封面（不阻塞任务收尾，失败静默降级）
+      void this.generateAutoCover(task.id, {
+        coverPrompt: dto.cover_prompt,
+        videoPrompt: prompt || '',
+        style,
+        ratio: ratio || '9:16',
+      });
     } catch (err: any) {
       task.status = 'failed';
       task.error_msg = err.message;
@@ -851,6 +869,82 @@ ${this.styleInstruction(style)}
     ], { temperature: 0.7, maxTokens: 1500 });
   }
 
+  // ─── C：视频自动封面（文生图）────────────────────────
+  /**
+   * 视频任务 completed 后异步生成封面，写 cover_url（D-C1：免费，不扣积分）。
+   * 开关 system_configs.auto_cover_enabled（默认 1；0 = 零调用）。
+   * 封面 prompt 优先用 smart-plan 输出的 cover_prompt（D-C2），否则取视频 prompt 提炼。
+   * 失败只打 warn，绝不影响视频任务状态（cover_url 留空走 tint 占位）。
+   */
+  private async generateAutoCover(taskId: number, opts: { coverPrompt?: string; videoPrompt?: string; style?: string; ratio?: string }) {
+    try {
+      if (!(await this.isAutoCoverEnabled())) return;
+      const task = await this.taskRepo.findOne({ where: { id: taskId } });
+      if (!task || task.status !== 'completed' || task.cover_url) return;
+      const base = (opts.coverPrompt || opts.videoPrompt || '').trim();
+      if (!base) { this.logger.warn(`任务 ${taskId} 无封面素材 prompt，跳过封面`); return; }
+      const coverPrompt = this.buildCoverImagePrompt(base, opts.style, opts.ratio);
+      const { width, height } = this.coverSize(opts.ratio);
+      const urls = await this.aiService.generateImage({
+        prompt: coverPrompt,
+        negativePrompt: 'no text, no subtitles, no watermark, no collage, no grid of multiple images',
+        style: opts.style === 'anime' ? 'anime' : 'realistic',
+        numImages: 1,
+        width,
+        height,
+      });
+      const remote = urls && urls[0];
+      if (!remote || !remote.startsWith('http')) { this.logger.warn(`任务 ${taskId} 封面生成未返回有效图片，保留占位`); return; }
+      const localUrl = await this.downloadToLocal(remote, `cover_${taskId}`);
+      if (!localUrl.startsWith('/static/')) { this.logger.warn(`任务 ${taskId} 封面下载失败，保留占位: ${localUrl}`); return; }
+      task.cover_url = localUrl;
+      await this.taskRepo.save(task);
+      this.logger.log(`任务 ${taskId} 自动封面完成: ${localUrl}`);
+    } catch (err: any) {
+      this.logger.warn(`任务 ${taskId} 自动封面失败（忽略，不影响视频）: ${err.message}`);
+    }
+  }
+
+  /**
+   * 封面开关（system_configs.auto_cover_enabled）：缺省=开（D-C1 免费），'0'/'false'=关（零调用）。
+   * ⚠️ 不能用 creditsService.getConfigInt——它 `n>0` 才返回配置值，'0' 会回退默认 1 永远关不掉。
+   */
+  private async isAutoCoverEnabled(): Promise<boolean> {
+    try {
+      const rows: any = await this.entityManager.query(
+        "SELECT config_value FROM system_configs WHERE config_key = 'auto_cover_enabled' LIMIT 1",
+      );
+      const v = rows?.[0]?.config_value;
+      if (v === undefined || v === null || v === '') return true;
+      return !(String(v) === '0' || String(v).toLowerCase() === 'false');
+    } catch {
+      return true;
+    }
+  }
+
+  /** C.5 封面 prompt 工程：主体句 + cinematic keyframe + 风格后缀 + 比例后缀（负向约束走 generateImage 的 negativePrompt） */
+  private buildCoverImagePrompt(base: string, style?: string, ratio?: string): string {
+    const subject = base.replace(/\s+/g, ' ').trim().slice(0, 500);
+    const styleSuffix = style === 'anime'
+      ? 'anime key visual, vivid colors, cel shading, studio-quality illustration'
+      : 'photorealistic film still, shallow depth of field, natural lighting, 35mm photography';
+    const ratioSuffix = ratio === '16:9' ? 'wide 16:9 composition'
+      : ratio === '1:1' ? 'square composition'
+      : ratio === '4:3' ? 'wide 4:3 composition'
+      : ratio === '3:4' ? 'vertical 3:4 composition'
+      : 'vertical 9:16 composition';
+    return `${subject}, cinematic keyframe, key moment composition, rule of thirds, ${styleSuffix}, ${ratioSuffix}, high detail`;
+  }
+
+  /** 封面尺寸（近似档位，generateImageWithTongyi 会映射到模型支持尺寸） */
+  private coverSize(ratio?: string): { width: number; height: number } {
+    if (ratio === '16:9') return { width: 1920, height: 1080 };
+    if (ratio === '1:1') return { width: 1024, height: 1024 };
+    if (ratio === '4:3') return { width: 1440, height: 1080 };
+    if (ratio === '3:4') return { width: 1080, height: 1440 };
+    return { width: 1080, height: 1920 };
+  }
+
   // ─── 智能规划主入口：三路分发 ─────────────────────────
   async smartPlan(userId: number, dto: { prompt: string; images?: string[]; mode?: string; style?: string; duration?: number; voiceoverType?: string }) {
     const { prompt, images, style } = dto;
@@ -863,7 +957,6 @@ ${this.styleInstruction(style)}
 
     try {
       let enhancedPrompt: string | undefined;
-      let voiceover: string | undefined;
 
       switch (mode) {
         case 't2i':
@@ -871,19 +964,29 @@ ${this.styleInstruction(style)}
           break;
         case 't2v':
           enhancedPrompt = await this.handleT2v(prompt, images, style);
-          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration, voiceoverType).catch(() => undefined);
           break;
         case 'i2v':
           enhancedPrompt = await this.handleI2v(prompt, images, style);
-          voiceover = await this.buildVoiceover(prompt, enhancedPrompt || prompt, duration, voiceoverType).catch(() => undefined);
           break;
         default:
           enhancedPrompt = await this.handleT2i(prompt, images, style);
       }
 
+      // 视频模式：配音词（原有）与封面 prompt（D-C2 新增）并行生成，不增加总时长
+      let voiceover: string | undefined;
+      let coverPrompt: string | undefined;
+      if (mode === 't2v' || mode === 'i2v') {
+        const finalPrompt = enhancedPrompt || prompt;
+        [voiceover, coverPrompt] = await Promise.all([
+          this.buildVoiceover(prompt, finalPrompt, duration, voiceoverType).catch(() => undefined),
+          this.buildCoverPromptText(finalPrompt).catch(() => undefined),
+        ]);
+      }
+
       return {
         prompt: enhancedPrompt || prompt,
         voiceover,
+        cover_prompt: coverPrompt,
         original_prompt: prompt,
         mode,
         voiceover_type: voiceoverType,
@@ -927,6 +1030,24 @@ ${roleRule}
     return (result || '').trim();
   }
 
+  /** D-C2：智能规划顺带产出封面图 prompt（英文单句，只描述画面内容；风格/比例后缀由封面工程追加） */
+  private async buildCoverPromptText(finalPrompt: string): Promise<string | undefined> {
+    const sys = `你是一名 AI 视频封面分镜师。根据给定的视频画面描述，提炼一张最能代表该视频内容的封面图提示词。
+
+规则：
+1. 只输出 1 句英文，不超过 40 个词，必须包含：主体（谁/是什么）、所在场景、最有张力的关键瞬间
+2. 主体突出、构图有主次（适合三分法构图）
+3. 只描述画面内容，不要风格词（anime/photorealistic 等），不要文字/字幕/水印/多图拼接相关词
+4. 严格基于给定描述，不得编造画面中没有的元素
+5. 直接输出这句英文，不要引号、不要任何解释`;
+    const out = await this.aiService.chatCompletion([
+      { role: 'system', content: sys },
+      { role: 'user', content: `视频画面描述：\n${finalPrompt}` },
+    ], { temperature: 0.6, maxTokens: 300 });
+    const text = (out || '').trim().replace(/^["'\s]+|["'\s]+$/g, '');
+    return text || undefined;
+  }
+
   /** 可用配音音色列表（CosyVoice 实测） */
   async getTTSVoices() {
     return this.aiService.cosyvoiceVoiceCatalog.map((v) => ({
@@ -968,6 +1089,13 @@ ${roleRule}
     };
 
     deleteFiles(task.output_data);
+
+    // C：封面文件一并删除（否则成孤儿）
+    if (task.cover_url && task.cover_url.startsWith('/static/')) {
+      const coverPath = path.join(outputDir, path.basename(task.cover_url));
+      try { if (fs.existsSync(coverPath)) fs.unlinkSync(coverPath); }
+      catch (e: any) { this.logger.warn(`Failed to delete cover ${task.cover_url}: ${e.message}`); }
+    }
 
     await this.entityManager.query('DELETE FROM task_events WHERE task_id = ?', [taskId]);
 
