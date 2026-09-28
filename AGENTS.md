@@ -9,7 +9,7 @@
 2. **工具小卡行 `.ltv-features`**：8 个小卡（短剧项目/AI 生成/全局资产/热门创作/画布/任务中心/生成历史/个人中心 → /drama /generate /global-assets /viral /canvas /tasks /generate/history /user），98×56 灰盒 + 纯文字 label；桌面 flex 横排（min-width 113），移动端 3 列网格。
 3. **快捷入口宽卡 `.ltv-row5`/`.ltv-wide`**（LibTV「最近上新」位）：5 张渐变封面卡（AI 生成/短剧工作室/大资产库/创作台/热门创作 → /generate /drama /global-assets /studio /viral）+ 青色徽章数字（totalGenerations/项目数/资产数/viral 模板数，创作台=Studio）；≥768 五列 gap16。
 4. **我的短剧 `.ltv-tv-head`+`.ltv-grid4`**（LibTV「TV Show」位）：sticky 头（桌面 top:0 / 移动 top:52px，bg var(--bg-secondary)）含区块标题 + 4 状态 tab（全部/创作中/已完成/失败，客户端过滤 `filteredProjects` useMemo）+ 胶囊搜索框（placeholder 搜索短剧）+ btn-dark「＋ 新建」→ /drama/create；封面卡网格（2/3/4 列响应式，hover var(--hover-bg) r20）= 封面图+头像+标题+状态 Tag+genre·集数；空态 暂无短剧项目+创建第一个短剧 / 没有匹配的短剧。
-5. **任务区 `.ltv-tasks`**（≥900 两栏）：任务概览（处理中/待处理 chip + 点击 → /tasks?status= + Progress）+ 失败任务（计数 chip、清空 Modal、刷新按钮、列表）功能全保留。
+5. **任务区 `.ltv-tasks`**（≥900 两栏）：任务概览（处理中/待处理 chip + 点击 → /tasks?status= + Progress）+ 失败任务（计数 chip、清空 Modal、刷新按钮、列表）功能全保留。→ ~~已于同日第五轮按用户指示整块删除（见 Part 3 B）~~
 - 设计令牌映射：卡片底 var(--hover-bg)、描边 var(--border)、sticky bg var(--bg-secondary)、徽章 rgba(8,182,221,.12)（dark 换 cyan 变体）；区块标题 16px/weight500/h32/pl8/mb12。
 - 原 `.libtv-tile` 规则已删；`.ltv-*` 块插在 btn-dark 规则**之前**（btn-dark 必须保持文件末尾，见 09-24 血泪2）。
 - 旧统计卡数字迁移为宽卡徽章（信息不丢失）；`refreshUser()` 保留，`user` 解构删除（dashboard 不再显示积分）；hooks 全部在 early-return 之前（TS/React 规则）。
@@ -25,9 +25,15 @@
 - **生产部署（仅前端，后端/管理端未动）**：`npm run build` → `index-CtUPqgxJ.js` / `index-CF5ad1p1.css` / `Home-DdZASGva.js` → pscp 上传 → `deploy-fe-ltv.sh`（FE-only：mv dist→dist_bak + unzip 双保险，**不动后端、不重启 pm2**）→ 服务器 hash 与本地一致、front_root=200、api_health=401、zip 脚本已清。
 - **独立复核**：线上 index.html 引用 hash 一致；CSS 含 `.ltv-wide-cover` 黑白渐变（#f4f4f6/#26262e）+ `.ltv-tabs` 规则无 overflow + `.ltv-tab` padding `6px 0 8px`；Home chunk 200；api 401。
 
+### ✅ 第五轮（同日晚，用户指示）：删除 dashboard「任务概览/失败任务」区块（= Part 3 B 第一步）
+- **`Home/index.tsx`**：删第⑤区块 `.ltv-tasks`（任务概览卡 + 失败任务卡）及全部关联死代码——`handleClearFailed`/`clearing`、`hasNoFailed/hasNoQueue/pc/pend`、antd 导入 `Card/List/Progress/Modal/message`、6 个图标（ClockCircle/CheckCircle/CloseCircle/Sync/Reload/Clear）、常量 `cardStyle/chipNeutral/chipDanger`；**`index.css`** 删 `.ltv-tasks` 两条规则；summary 10s 轮询**保留**（我的短剧网格 + 宽卡徽章仍依赖）。
+- **功能不丢**：`/tasks` 任务中心页与 `DELETE /api/workbench/failed-tasks` 接口原样保留，仅 dashboard 不再展示；页面收尾于「我的短剧」区，后续以 Part 3 B「优秀作品展示」补回同位。
+- **测试同步**：`test-shell-func.js` 区块标题断言 4→2 + 原「处理中→/tasks」导航断言替换为「任务概览/失败任务区块已删除」（`.ltv-tasks` + 两个标题计数 = 0），仍 **37/37**；`test-fe-foundation.js` **23/23**（无相关断言）；`tsc -b` EXIT=0。
+- **git + 生产部署**（用户指示，同日完成）：提交 `Home/index.tsx` / `index.css` / AGENTS.md（push 走 7890 代理，hash 见 git log）；`npm run build` → `index-9NEW3kl0.js` / `index-CE-82Dg9.css` / `Home-Cxa-MVI1.js` → `deploy-fe-ltv.sh` FE-only（不动后端、不重启 pm2）→ 服务器 hash 与本地一致、front_root=200、api_health=401；**独立复核 VERIFY_PASS**：线上 index.html 引用 hash 一致、CSS 已无 `.ltv-tasks` 且仍含 `.ltv-grid4`、Home chunk 无「任务概览/失败任务/当前无进行中的任务」字符串且含「我的短剧」、api 401。
+
 ### ✅ 验证（全绿）
 - `tsc -b` EXIT=0；vite 缓存坑按惯例 touch 文件 + sleep 3s。
-- **新 `test-shell-func.js` 37/37**：结构断言（create=1/features=8/wide=5/区块标题×4/tab×4/search×1/网格≥1）+ 样式（新建黑底白字 rgb(26,26,46)/白、侧边栏 CTA 黑底白字、创建卡 rgba(0,0,0,.04)+radial 点阵）+ 导航×7（创建卡→/generate、CTA→/generate、充值→/order、新建→/drama/create、宽卡创作台→/studio、工具卡任务中心→/tasks、侧栏→/viral）+ active=工作台 + tab 过滤（失败/全部 active）+ 搜索过滤（zzz-no-match→没有匹配的短剧、清空恢复原网格数）+ 队列空态跳过 + 主题 dark↔light + 0 pageerror；移动端 375：topbar/features=8/零横向溢出/抽屉开/抽屉导航→/generate/0 pageerror。
+- **新 `test-shell-func.js` 37/37**：结构断言（create=1/features=8/wide=5/区块标题×2【第五轮改】/tab×4/search×1/网格≥1）+ 样式（新建黑底白字 rgb(26,26,46)/白、侧边栏 CTA 黑底白字、创建卡 rgba(0,0,0,.04)+radial 点阵）+ 导航×7（创建卡→/generate、CTA→/generate、充值→/order、新建→/drama/create、宽卡创作台→/studio、工具卡任务中心→/tasks、侧栏→/viral）+ active=工作台 + tab 过滤（失败/全部 active）+ 搜索过滤（zzz-no-match→没有匹配的短剧、清空恢复原网格数）+ 任务概览/失败任务区块已删除断言【第五轮改】 + 主题 dark↔light + 0 pageerror；移动端 375：topbar/features=8/零横向溢出/抽屉开/抽屉导航→/generate/0 pageerror。
 - `test-fe-foundation.js` **23/23**（侧边栏/主题/面包屑/403 banned 全不受影响）。
 - 截图比对参考稿：浅色/深色/移动端/sticky 头（`Temp\opencode\ltv-dash-*.png`、`ltv-clip-sticky.png`），吸顶实测 headY=0。
 
@@ -42,7 +48,7 @@
 - [x] 用户验收通过（三轮微调：drama 封面 / 选择栏滚动条 / 快捷入口黑白封面）
 - [x] git 提交 + push（7890 代理；remote main 由 `1a7c5af` 前进）
 - [x] **生产部署**（2026-09-28 用户指示「提交到 git + 更新生产环境」；仅前端，后端/管理端本就最新未动）
-- [ ] 后续功能按 `docs/dev-checklist.md` **Part 3** 开工（建议顺序 C 文生图封面 → B 优秀作品展 → A 活动栏+上新；开工前先拍板 6 个决策点 D-A1~D-C2）
+- [ ] 后续功能按 `docs/dev-checklist.md` **Part 3** 开工（建议顺序 C 文生图封面 → B 优秀作品展 → A 活动栏+上新；开工前先拍板 6 个决策点 D-A1~D-C2）；**B 第一步「删 dashboard 任务概览/失败任务」已于 09-28 第五轮完成并部署生产（`index-9NEW3kl0.js`）**
 - 残留差异不变：其他页保持紫色内容区、AppHeader 文件留作回滚
 
 ---

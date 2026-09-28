@@ -1,12 +1,11 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Tag, Card, List, Button, Progress, Spin, Empty, Tooltip, Modal, message } from 'antd';
+import { Typography, Tag, Button, Spin, Empty, Tooltip } from 'antd';
 import {
   VideoCameraOutlined, ThunderboltOutlined, DatabaseOutlined, ExperimentOutlined,
   AppstoreOutlined, UnorderedListOutlined, HistoryOutlined, UserOutlined,
   SketchOutlined, FireOutlined, FileTextOutlined,
-  ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined,
-  ReloadOutlined, PlusOutlined, ClearOutlined, SearchOutlined,
+  PlusOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import UserLayout from '../../components/UserLayout';
@@ -45,25 +44,6 @@ interface WorkbenchSummary {
   totalGenerations: number;
 }
 
-// ───── LibTV 风格设计令牌（浅灰画布 / 白卡片 / 细描边 / 中性小圆标签） ─────
-const cardStyle = {
-  borderRadius: 14,
-  border: '1px solid var(--border)',
-  boxShadow: 'none',
-  background: 'var(--bg)',
-};
-
-const chipNeutral: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 4,
-  padding: '1px 9px', borderRadius: 999,
-  background: 'var(--bg-tertiary)', color: 'var(--text-secondary)',
-  fontSize: 11, fontWeight: 500, lineHeight: '18px', whiteSpace: 'nowrap',
-};
-
-const chipDanger: React.CSSProperties = {
-  ...chipNeutral, background: 'var(--danger-bg)', color: 'var(--danger)',
-};
-
 // ───── LibTV「最近上新」式快捷入口宽卡（黑白中性封面 + 标题 + 数值徽章） ─────
 // 封面不用彩色渐变（AI 感重），改黑白灰阶、随主题在 index.css 翻转
 interface WideEntry {
@@ -100,7 +80,6 @@ export default function HomePage() {
   const [viralStats, setViralStats] = useState<{ templateCount: number; projectCount: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const pollingRef = useRef<number | null>(null);
-  const [clearing, setClearing] = useState(false);
   const [tab, setTab] = useState('all');
   const [kw, setKw] = useState('');
 
@@ -128,27 +107,6 @@ export default function HomePage() {
     };
   }, []);
 
-  const handleClearFailed = () => {
-    Modal.confirm({
-      title: '清空失败任务',
-      content: '将清除列表中的全部失败任务记录（失败生成的产物文件也会一并删除），确定继续吗？',
-      okText: '清空', okType: 'danger', cancelText: '取消',
-      okButtonProps: { loading: clearing },
-      onOk: async () => {
-        setClearing(true);
-        try {
-          await api.delete('/api/workbench/failed-tasks');
-          message.success('已清空失败记录');
-          fetchSummary();
-        } catch (err: any) {
-          message.error('清空失败: ' + (err?.response?.data?.message || err.message));
-        } finally {
-          setClearing(false);
-        }
-      },
-    });
-  };
-
   // TV Show 网格过滤：状态 tab + 标题搜索（客户端过滤，不新增接口）
   const filteredProjects = useMemo(() => {
     const list = summary?.projects || [];
@@ -168,10 +126,6 @@ export default function HomePage() {
   const statusLabel = (s: string) => PROJECT_STATUS_MAP[s]?.label || s;
 
   const hasNoProjects = summary && summary.projects.length === 0;
-  const hasNoFailed = summary && summary.failedTasks.length === 0;
-  const hasNoQueue = summary && summary.processingCount === 0 && summary.pendingCount === 0;
-  const pc = summary?.processingCount ?? 0;
-  const pend = summary?.pendingCount ?? 0;
 
   // LibTV 工具小卡行：4 个统计入口 + 4 个功能入口
   const features: FeatureEntry[] = summary ? [
@@ -362,109 +316,6 @@ export default function HomePage() {
           )}
         </section>
 
-        {/* ───── ⑤ 任务概览 + 失败任务（功能全保留：跳转/清空/刷新） ───── */}
-        <section className="ltv-tasks">
-          <div>
-            <div className="ltv-section-title">
-              任务概览
-              {pc > 0 && (
-                <span style={chipNeutral}>
-                  <SyncOutlined spin /> {pc} 个任务运行中
-                </span>
-              )}
-              {pend > 0 && (
-                <span style={chipNeutral}>
-                  <ClockCircleOutlined style={{ fontSize: 11 }} /> 待处理 {pend}
-                </span>
-              )}
-            </div>
-            <Card style={cardStyle}>
-              {hasNoQueue ? (
-                <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                  <CheckCircleOutlined style={{ fontSize: 30, color: 'var(--success)', marginBottom: 8 }} />
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 13 }}>当前无进行中的任务</Text>
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    <div
-                      onClick={() => navigate('/tasks?status=processing')}
-                      style={{ background: 'var(--bg-tertiary)', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
-                    >
-                      <SyncOutlined spin={(summary?.processingCount ?? 0) > 0} style={{ fontSize: 18, color: 'var(--success)', marginBottom: 4 }} />
-                      <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)' }}>{summary?.processingCount ?? 0}</div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>处理中</Text>
-                    </div>
-                    <div
-                      onClick={() => navigate('/tasks?status=pending')}
-                      style={{ background: 'var(--bg-tertiary)', borderRadius: 12, padding: '14px 8px', textAlign: 'center', cursor: 'pointer', transition: 'box-shadow .2s' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; }}
-                    >
-                      <ClockCircleOutlined style={{ fontSize: 18, color: 'var(--warning)', marginBottom: 4 }} />
-                      <div style={{ fontSize: 26, fontWeight: 700, color: 'var(--text)' }}>{summary?.pendingCount ?? 0}</div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>待处理</Text>
-                    </div>
-                  </div>
-                  <Progress
-                    percent={pc + pend > 0 ? Math.round((pc / (pc + pend)) * 100) : 0}
-                    strokeColor="var(--text)" size="small" style={{ marginTop: 14 }} />
-                </>
-              )}
-            </Card>
-          </div>
-
-          <div>
-            <div className="ltv-section-title">
-              失败任务
-              {summary.failedTasks.length > 0 && (
-                <span style={chipDanger}>{summary.failedTasks.length}</span>
-              )}
-              <span style={{ flex: 1 }} />
-              {summary.failedTasks.length > 0 && (
-                <Button size="small" danger type="text" icon={<ClearOutlined />} style={{ color: 'var(--danger)', marginRight: 2 }} onClick={handleClearFailed}>
-                  清空
-                </Button>
-              )}
-              <Button type="text" size="small" icon={<ReloadOutlined />} style={{ color: 'var(--text-muted)' }} onClick={fetchSummary} />
-            </div>
-            <Card style={cardStyle}>
-              {hasNoFailed ? (
-                <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                  <CheckCircleOutlined style={{ fontSize: 26, color: 'var(--success)', marginBottom: 6 }} />
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 12 }}>最近没有失败任务</Text>
-                </div>
-              ) : (
-                <List
-                  size="small"
-                  split={false}
-                  dataSource={summary?.failedTasks ?? []}
-                  renderItem={(t) => (
-                    <List.Item style={{ padding: '8px 0', borderBottom: '1px solid var(--border-light)' }}>
-                      <List.Item.Meta
-                        avatar={<CloseCircleOutlined style={{ color: 'var(--danger)', fontSize: 13 }} />}
-                        title={
-                          <Tooltip title={t.errorRaw || t.error}>
-                            <Text style={{ fontSize: 12, color: 'var(--danger)' }} ellipsis>{t.error}</Text>
-                          </Tooltip>
-                        }
-                        description={
-                          <Text type="secondary" style={{ fontSize: 10 }}>
-                            [{t.source}] {t.type} · {new Date(t.time).toLocaleString('zh-CN')}
-                          </Text>
-                        }
-                      />
-                    </List.Item>
-                  )}
-                />
-              )}
-            </Card>
-          </div>
-        </section>
       </div>
     </UserLayout>
   );
