@@ -1,5 +1,52 @@
 # 修复日志
 
+## 2026-09-28（LibTV 首页完整复刻 dashboard —— 新测试 37/37 + foundation 23/23 全绿 —— ✅ 已提交已部署生产（前端 index-CtUPqgxJ.js））
+
+> 承接 09-24 LibTV 侧边栏轮。用户反馈 dashboard 未正确还原 LibTV 主页效果，要求**完整复刻 liblib.tv 首页页面样式**（仅 dashboard 内容区，其他页保持紫色不变；仅本地，不上生产）。
+
+### ✅ 结构（`Home/index.tsx` 整页重写 + `index.css` 新增 `.ltv-*` 块）
+1. **创建卡 `.ltv-create`**：h160 点阵虚线卡（radial 1.3px/16px 栅格 + var(--hover-bg) 底），居中 88×52 白渐变加号按钮（LibTV 原版 SVG path）+ 「开始创作」label → /generate。可用算力/充值只在侧边栏（充值 side-nav-item → /order，⚡积分行）。
+2. **工具小卡行 `.ltv-features`**：8 个小卡（短剧项目/AI 生成/全局资产/热门创作/画布/任务中心/生成历史/个人中心 → /drama /generate /global-assets /viral /canvas /tasks /generate/history /user），98×56 灰盒 + 纯文字 label；桌面 flex 横排（min-width 113），移动端 3 列网格。
+3. **快捷入口宽卡 `.ltv-row5`/`.ltv-wide`**（LibTV「最近上新」位）：5 张渐变封面卡（AI 生成/短剧工作室/大资产库/创作台/热门创作 → /generate /drama /global-assets /studio /viral）+ 青色徽章数字（totalGenerations/项目数/资产数/viral 模板数，创作台=Studio）；≥768 五列 gap16。
+4. **我的短剧 `.ltv-tv-head`+`.ltv-grid4`**（LibTV「TV Show」位）：sticky 头（桌面 top:0 / 移动 top:52px，bg var(--bg-secondary)）含区块标题 + 4 状态 tab（全部/创作中/已完成/失败，客户端过滤 `filteredProjects` useMemo）+ 胶囊搜索框（placeholder 搜索短剧）+ btn-dark「＋ 新建」→ /drama/create；封面卡网格（2/3/4 列响应式，hover var(--hover-bg) r20）= 封面图+头像+标题+状态 Tag+genre·集数；空态 暂无短剧项目+创建第一个短剧 / 没有匹配的短剧。
+5. **任务区 `.ltv-tasks`**（≥900 两栏）：任务概览（处理中/待处理 chip + 点击 → /tasks?status= + Progress）+ 失败任务（计数 chip、清空 Modal、刷新按钮、列表）功能全保留。
+- 设计令牌映射：卡片底 var(--hover-bg)、描边 var(--border)、sticky bg var(--bg-secondary)、徽章 rgba(8,182,221,.12)（dark 换 cyan 变体）；区块标题 16px/weight500/h32/pl8/mb12。
+- 原 `.libtv-tile` 规则已删；`.ltv-*` 块插在 btn-dark 规则**之前**（btn-dark 必须保持文件末尾，见 09-24 血泪2）。
+- 旧统计卡数字迁移为宽卡徽章（信息不丢失）；`refreshUser()` 保留，`user` 解构删除（dashboard 不再显示积分）；hooks 全部在 early-return 之前（TS/React 规则）。
+
+### ✅ 验收后两轮微调（同日，均全绿）
+1. **「我的短剧」封面改 drama 页同款**：删按 id 取模的饱和纯色渐变（COVER_GRADS）→ `linear-gradient(135deg, #7c3aed20, #ec489920)` 浅紫 tint + `FileTextOutlined`（#7c3aed40 / 40px）居中占位（= drama `index.tsx` ant-card-body 封面逐字同款）；有 cover_url 仍走 `<img>` + onError 兜底到 tint。`.ltv-show-cover>.anticon` 绝对定位居中（cover 是 display:block 为 img 保留，图标需显式居中）。
+2. **选择栏（全部/创作中/已完成/失败）竖滚动条修复**：根因 = `.ltv-tabs` 的 `overflow-x:auto` 迫使 `overflow-y` 计算为 auto，而 `.ltv-tab.active::after{bottom:-1px}` 下划线溢出 **1px**（scrollH 29/clientH 28）→ 桌面+移动都出竖滚动条；tabs 横向从未溢出（scrollW=clientW）。修复 = **删掉 `overflow-x:auto`**（4 个 tab 最宽约 198px，320px 屏也放得下）+ `.ltv-tab` padding-top 0→6（选择栏加高，移动端 tv-head 123→129）。诊断脚本 `diag-scroll.js` 复测两视口 `overflowing: []`（零可滚动溢出）。
+3. **快捷入口宽卡封面改黑白**：删 5 套彩色渐变（GLOW+紫/橙/绿/蓝/粉，AI 感重）与 `WideEntry.gradient` 字段，封面背景移入 CSS 类 `.ltv-wide-cover`——浅色 `linear-gradient(135deg,#f4f4f6,#dedee4)`、`[data-theme=dark]` 覆盖 `#26262e→#131318`；图标 `.ltv-wide-icon` 由白色+drop-shadow 改灰阶（light `rgba(26,26,46,.58)` / dark `rgba(241,245,249,.55)`），黑白随主题翻转。计算样式双主题实测生效，截图 `wide-bw-light/dark-v4.png`。
+
+### ✅ 第四轮（同日晚间）：后续开发大纲入册 + git 提交 + 生产部署
+- **后续开发大纲**：`docs/dev-checklist.md` 新增 **Part 3: Dashboard 后续开发大纲**（+9.8KB，node UTF-8 追加防转码）——A 快捷入口→活动栏+新功能上新（6 个活动创意、8 个上新候选、**A.5 全套 AI 封面生图提示词**（灰阶+单点青 #08B6DD 风格基底 + 7 条活动 banner + 7 条上新卡模板，开发时直接取用）、activities/feature_releases 表与接口草案）；B 任务概览/失败任务→**优秀作品展示**（tab=全部/活动制作/视频短片/长篇漫剧/广告，展示效果仿「我的短剧」；showcase_works 表草案；dashboard 不再展示成功/失败项目，`/tasks` 任务中心保留）；C **视频文生图自动封面**（completed 后异步 generateImage、封面须体现视频内容且美观，prompt 工程模板见 C.5、cover_url 列+cleanup 引用保护）；6 个决策点 D-A1~D-C2 + 施工顺序 C→B→A。**仅大纲，零代码实现**。
+- **git**：提交 Home/index.tsx + index.css + AGENTS.md + docs/dev-checklist.md，push 走 7890 代理（hash 见 git log）。
+- **生产部署（仅前端，后端/管理端未动）**：`npm run build` → `index-CtUPqgxJ.js` / `index-CF5ad1p1.css` / `Home-DdZASGva.js` → pscp 上传 → `deploy-fe-ltv.sh`（FE-only：mv dist→dist_bak + unzip 双保险，**不动后端、不重启 pm2**）→ 服务器 hash 与本地一致、front_root=200、api_health=401、zip 脚本已清。
+- **独立复核**：线上 index.html 引用 hash 一致；CSS 含 `.ltv-wide-cover` 黑白渐变（#f4f4f6/#26262e）+ `.ltv-tabs` 规则无 overflow + `.ltv-tab` padding `6px 0 8px`；Home chunk 200；api 401。
+
+### ✅ 验证（全绿）
+- `tsc -b` EXIT=0；vite 缓存坑按惯例 touch 文件 + sleep 3s。
+- **新 `test-shell-func.js` 37/37**：结构断言（create=1/features=8/wide=5/区块标题×4/tab×4/search×1/网格≥1）+ 样式（新建黑底白字 rgb(26,26,46)/白、侧边栏 CTA 黑底白字、创建卡 rgba(0,0,0,.04)+radial 点阵）+ 导航×7（创建卡→/generate、CTA→/generate、充值→/order、新建→/drama/create、宽卡创作台→/studio、工具卡任务中心→/tasks、侧栏→/viral）+ active=工作台 + tab 过滤（失败/全部 active）+ 搜索过滤（zzz-no-match→没有匹配的短剧、清空恢复原网格数）+ 队列空态跳过 + 主题 dark↔light + 0 pageerror；移动端 375：topbar/features=8/零横向溢出/抽屉开/抽屉导航→/generate/0 pageerror。
+- `test-fe-foundation.js` **23/23**（侧边栏/主题/面包屑/403 banned 全不受影响）。
+- 截图比对参考稿：浅色/深色/移动端/sticky 头（`Temp\opencode\ltv-dash-*.png`、`ltv-clip-sticky.png`），吸顶实测 headY=0。
+
+### ⚠️ 本轮血泪
+1. **Read 工具读 PNG 会错位返回别的文件内容**（实测：读 clip-top 得到 mobile 图、读 mobile 得到 dark 图）——**校验图像必须用像素采样**（PowerShell `System.Drawing.Bitmap.GetPixel` 或 canvas 解码），别只信 Read 返回的图；文件本身经宽高+像素验证全部正确。
+2. **点阵"溢出"是全页截图缩放误判**——诊断用 `elementFromPoint` + 全量 `backgroundImage` 扫描 + scrollWidth 对比，一次定论（只有 .ltv-create 带点阵、rect 精确、零溢出）。
+3. **断言"黑 CTA"抓到透明父容器**（父 div textContent 同为「开始创作」且 querySelectorAll 父先于子）→ 条件加 `el.style.background` 内联背景过滤，或直接挑非透明背景元素。
+4. antd 两字按钮空格坑规避：定位一律 `filter({hasText:/新\s*建/})` 正则（本例因带 icon 未触发空格，但正则写法两边通吃）。
+5. **pscp/plink 首连 `Connection timed out` ≠ 防火墙拦死**——同轮 443 通、tcp22 后测也通、原样重试一次即全成（本轮部署首连超时即此情况）；**先重试再诊断**，别急着改端口/找用户开白名单。
+
+### 📋 状态与待办
+- [x] 用户验收通过（三轮微调：drama 封面 / 选择栏滚动条 / 快捷入口黑白封面）
+- [x] git 提交 + push（7890 代理；remote main 由 `1a7c5af` 前进）
+- [x] **生产部署**（2026-09-28 用户指示「提交到 git + 更新生产环境」；仅前端，后端/管理端本就最新未动）
+- [ ] 后续功能按 `docs/dev-checklist.md` **Part 3** 开工（建议顺序 C 文生图封面 → B 优秀作品展 → A 活动栏+上新；开工前先拍板 6 个决策点 D-A1~D-C2）
+- 残留差异不变：其他页保持紫色内容区、AppHeader 文件留作回滚
+
+---
+
 ## 2026-09-24（晚间轮3：LibTV 风格改造 — 全站侧边栏替换 AppHeader + Dashboard LibTV 化 ✅ 新测试 20/20 + 既有套件全绿 + build EXIT=0 —— 未提交，等用户验收）
 
 > 用户提供 `Desktop\react-page`（liblib.tv 首页抓取稿，dev :5175）要求把该风格应用到当前前端。范围经四问确认：① 视觉+布局都贴近 LibTV；② 移除 AppHeader 全站改左侧边栏（含既有6页直接引用 + UserLayout 包裹页 + 无头的 BARE 子页）；③ 不要顶部彩色横幅；④ **仅 dashboard 内容区 LibTV 化**，其他页面内容保持原紫色风格（用户接受不一致）；铁律=功能零变更。

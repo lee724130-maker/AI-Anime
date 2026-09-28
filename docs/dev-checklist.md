@@ -2344,3 +2344,217 @@ AI 生成的视频经常"翻车"：**手变成六根指头、脸糊成一团、�
 - [x] 质检结果仅供参考不自动删除废片（避免误删），人工终审决定采纳
 - [x] 清理服务引用保护已补 `drama_segment_candidates`（否则未采纳候选视频 30 天后会被误删）
 - [ ] 生产部署：后端 dist + 前端 dist + 生产 system_configs 种键（quality_check_enabled/quality_check_strictness）
+
+
+---
+
+# Part 3: Dashboard 后续开发大纲（2026-09-28 记录，仅大纲未实现）
+
+> 背景：Dashboard 已完成 LibTV 风格复刻（2026-09-28，见 AGENTS.md 09-28 节）。用户确定 3 项后续功能，本 Part 是开工前的完整设计大纲。
+> **实现时先回读本文件**；封面类需求直接取用 A.5 / C.5 的提示词。
+> 状态：📋 仅大纲，零代码实现；2026-09-28 当轮只做 git 提交 + 生产部署（样式层）。
+
+## 总览
+
+| # | 功能 | 改动位置 | 依赖 | 优先级建议 |
+|---|------|---------|------|-----------|
+| A | 快捷入口 → 活动栏 + 新功能上新 | dashboard 中部 `.ltv-row5` 区 | 运营内容 + 后台配置 | P2（需先有活动/新功能内容） |
+| B | 任务概览/失败任务 → 优秀作品展示 | dashboard 底部 `.ltv-tasks` 区 | 有 C 封面效果更佳 | P1 |
+| C | 视频自动生成封面（文生图） | 后端 generate/drama 完成回调 | 无 | **P0（独立可先行，B/A 复用其封面）** |
+
+---
+
+## A. 快捷入口改造：活动栏 + 新功能上新区域
+
+### A.1 目标
+- 现状：dashboard 中部是 5 张黑白快捷入口宽卡（AI 生成/短剧工作室/大资产库/创作台/热门创作）。
+- 目标：拆成两块**运营位**：
+  1. **活动栏**：限时活动 banner（顶部，大图 + 倒计时/状态 tag + 「去参与」）；
+  2. **新功能上新**：平台新功能卡片展示（NEW 角标 + 一句话说明 + AI 封面图 + 「立即体验」）。
+- 铁律：原 5 个快捷入口的导航功能不能丢——方案：窄条「图标+文字」快捷行保留在活动栏下方（见决策点 D-A1）。
+- 封面：全部用**文生图模型生成**（提示词见 A.5），不用纯色/渐变占位，提升展示效果。
+
+### A.2 布局草图（桌面）
+```
+┌─ 活动栏 ─────────────────────────────────────┐
+│ [大 banner 3:1×1 或 16:9×2 列轮播] [副活动卡 ×2] │ ← 1 大 2 小非对称；标题+倒计时 tag+去参与
+├─ 新功能上新 ────────────────────────────────┤
+│ [NEW] 封面卡 ×N（桌面 4 列网格 / 移动横滑）      │ ← 标题 + 一句说明 + 立即体验
+├─ 快捷入口（保留窄条，图标+文字）──────────────┤
+│ ⚡AI生成 · 🎬短剧 · 📦资产库 · 🖼画布 · 🔥热门创作 │ ← 与侧边栏重复问题见 D-A2
+└──────────────────────────────────────────────┘
+```
+- 移动端：banner 单列轮播（swipe）、上新卡横滑、快捷行 3 列网格。
+- 深浅色：卡片底 var(--hover-bg)、描边 var(--border)，与现 LibTV 体系一致；封面图本身灰阶+青点缀，双主题都协调。
+
+### A.3 活动创意库（候选，上线时挑 1~3 个先做）
+| 切入点 | 活动 | 玩法 | 对接 |
+|--------|------|------|------|
+| 拉新留存 | **每周创作挑战赛** | 每周一个主题（夏日短剧/宠物大片），用户提交作品评选，入选送积分 + 上首页优秀作品展（与 B 联动） | 新表 + 积分发放（credits.service 同款 charge/refund） |
+| 付费转化 | **双倍算力日 / 首充翻利** | 指定日生成返双倍积分；首充额外赠送 | order + system_configs 比例键 |
+| 新手激活 | **新手任务清单** | 注册送 100（已有）→ 首次生成 / 首个短剧 / 首次分享 各送 N 积分 | user_task 表 + 领取接口 |
+| 节令运营 | **节日主题创作**（春节/万圣/圣诞） | 限定提示词模板 + 活动 banner + 专属分类 | prompt_templates + activities |
+| 模型上新 | **新模型免费试用 N 次** | 新 T2V/I2V 模型上线，每人免费 N 次（超出按原价） | model_configs + 试用计数键 |
+| 内容征集 | **作品征集展** | 官方征集 → 评审 → 入选首页优秀作品展（B） | showcase_works.status |
+
+### A.4 新功能上新候选（建议 1~2 周发一张卡）
+1. 视频自动生成封面（= 本大纲 C）
+2. 长篇漫剧上线（= 本大纲 B 分类）
+3. 批量生成队列 / 队列优先级
+4. 智能配音升级（音色克隆 / 多语种）
+5. 画布模板市场（canvas_templates 公开）
+6. 短剧分集一键成片
+7. 作品对外分享页
+8. 生成历史批量导出
+
+### A.5 封面 AI 生图提示词（**开发时直接取用**）
+> 规范（配合黑白 LibTV + 青色徽章）：**灰阶单色 + 单点青色（#08B6DD）点缀、扁平/极简、画面内无文字**（标题由 CSS 叠加，图内文字必崩）。
+> 尺寸：banner 3:1（1536×512）或 16:9（1536×864）；上新卡 16:9。prompt 用英文（项目惯例：进模型的 prompt 字段用英文）。
+> 生成入口：/generate 文生图（wanx2.1-t2i-plus/turbo 降级链），一张不满意生成 2~3 张挑。
+
+**风格基底（拼在每个 prompt 尾部）**
+```text
+monochrome grayscale palette with a single cyan accent (#08B6DD), clean minimal flat illustration, soft studio lighting, high detail, no text, no watermark
+```
+
+**活动 banner 提示词**
+| 活动 | prompt（前缀）+ 风格基底 |
+|------|--------------------------|
+| 创作挑战赛 | `anime short-drama creation contest key visual, film clapperboard and floating manga panels rising above a stylized city skyline, dramatic low-angle composition,` |
+| 双倍算力日 | `a glowing lightning bolt charging stacked hexagonal energy cells above a coin stack, energy boost concept art, strong diagonal composition,` |
+| 新手任务 | `onboarding quest illustration, tiny rocket launching from an open checklist card, paper-craft style, upward composition,` |
+| 节日·万圣 | `halloween creative event key visual, cute anime pumpkins and floating ghosts circling a vintage video camera, night scene with candle glow,` |
+| 节日·春节 | `spring festival creative event key visual, red lanterns and paper-cuts forming a film reel, festive but minimal composition,` |
+| 新模型首发 | `AI model launch banner, abstract neural network blooming into a cascade of film frames, wireframe tech art,` |
+| 作品征集 | `open call for creator submissions, gallery wall of video frames with one frame illuminated by a spotlight,` |
+
+**上新卡封面提示词（16:9）**
+| 功能 | prompt（前缀）+ 风格基底 |
+|------|--------------------------|
+| 自动生成封面 | `a photograph materializing out of a film strip surrounded by sparkle particles, camera shutter close-up,` |
+| 批量生成队列 | `top-down view of multiple film strips running on parallel conveyor belts, factory pattern composition,` |
+| 长篇漫剧 | `vertical comic panel cascade with screentone shading, manga page flowing diagonally,` |
+| 分集一键成片 | `puzzle-like episode cards snapping together into one continuous film reel, isometric view,` |
+| 模板市场 | `perspective grid of template cards floating in a minimal gallery, museum lighting,` |
+| 音色克隆 | `sound waveform morphing into a human profile silhouette, audio art composition,` |
+| 作品分享页 | `a video card being passed between two hands across a stylized network of lines, connection concept,` |
+
+### A.6 数据与接口（草案）
+- 新表 `activities`：id / title / subtitle / cover_url / link_url / kind(banner|card) / status(draft|online|expired) / priority / starts_at / ends_at / config(JSON) / created_at
+- 新表 `feature_releases`：id / title / summary / cover_url / link_url / tag(NEW|BETA) / priority / status / released_at
+- 量小时可先用 system_configs JSON 键（`home_activities` / `home_releases`）起步，量大再建表
+- API：`GET /api/workbench/activities`（只回 online + 在期，可缓存）；admin CRUD `/api/admin/activities|releases`
+- 前端：Home 新 section（`.ltv-promo` banner 轮播 antd Carousel + `.ltv-releases` 卡片行 + 倒计时 dayjs）
+
+### A.7 验收标准
+- [ ] 活动后台可配：新建 → 上架 → 过期自动隐藏；banner 点击跳 link_url
+- [ ] 上新卡 NEW 角标、点击跳转；无活动时整块隐藏（不留空洞）
+- [ ] 原 5 快捷入口功能仍全部可达
+- [ ] 深浅色 + 375/1440 双视口零横向溢出、0 pageerror
+- [ ] `test-shell-func.js` 扩展断言（banner 数 / 上新数 / 跳转）
+
+---
+
+## B. 任务概览/失败任务 → 优秀作品展示
+
+### B.1 目标
+- **删除** dashboard 底部「任务概览」（处理中/待处理）与「失败任务」两卡——dashboard 不再展示成功/失败项目统计；任务功能不丢，任务中心页 `/tasks?status=` 完整保留。
+- **新增**「优秀作品展」：tab 结构**完全仿「我的短剧」**（分区标题 + tab 行 + 封面网格 + 空态）。
+- 初始分类 tab：**全部 / 活动制作 / 视频短片 / 长篇漫剧 / 广告**（分类字典可配，后续可扩 游戏宣传 / 产品种草 等）；点击不同 tab 展示对应视频内容。
+
+### B.2 交互与 UI（复用 `.ltv-tv-*` 样式类）
+- 头部：`优秀作品展` 标题 + tab 行（激活下划线同 `.ltv-tab`）；是否吸顶见决策点 D-B1（建议不吸顶）。
+- 内容卡：封面（**优先取 C 自动生成的封面**，回退 drama 同款 tint+图标占位）+ hover 播放 icon + 标题 + 分类 tag + 时长/作者/点赞；点击 → antd Modal 视频播放（width 800，video controls 自动播放）或跳详情。
+- tab 切换：数据 ≤100 客户端过滤，否则 `?category=` 请求；空态「该分类暂无作品，快去创作吧」+ CTA → /generate。
+- 是否搜索/排序见决策点 D-B2（第一版建议只 tab + 最新排序）。
+
+### B.3 数据与接口（草案）
+- 新表 `showcase_works`：id / title / category / video_url / cover_url / duration / author_name / source_type(drama|generate|viral|editor|upload) / source_id / likes / views / status(pending|online|offline) / sort / created_at
+- 分类字典：system_configs `showcase_categories` JSON = `[{key:'ad',label:'广告'},...]`（英文 key + 中文 label）
+- API：`GET /api/workbench/showcase?category=`（只回 online）；admin 上架/下架/排序 `/api/admin/showcase`
+- 首版数据：管理员手工挑站内好作品录入（video/cover 路径复用 /static/）
+
+### B.4 与 C 联动
+- 作品卡封面优先取 `cover_url`（C 自动产出），保证「展示出内容且美观」；无封面回退 tint 占位。
+
+### B.5 验收标准
+- [ ] dashboard 不再出现任务概览/失败任务卡；`/tasks?status=processing|pending` 回归通过
+- [ ] 5 个 tab 正确过滤、每类样例数据 ≥1、点击播放正常、空态正确
+- [ ] 深浅色/移动端（tab 行不得引入滚动条——复用 09-28 选择栏修复经验：不加 overflow-x）0 pageerror
+- [ ] `test-shell-func.js` 断言替换（删队列断言、加作品展断言）
+
+---
+
+## C. 视频自动生成封面（文生图）
+
+### C.1 目标
+- 视频生成完成时，用**文生图模型**自动生成一张**与视频内容相关且美观**的封面图，存 `cover_url` 并在各列表展示（生成历史 / 我的短剧 / 优秀作品展）。
+- 验收线（用户原话）：封面要**展示出视频内容**还要**美观**。
+
+### C.2 触发范围与优先级
+- P0：`/generate` 文生视频、图生视频（generation_tasks）
+- P1：短剧片段（drama_segments）、热门创作场景（viral_projects）
+- P2：editor/canvas 成片、video_tasks
+- 封面是否收费见决策点 D-C1（建议免费，`auto_cover_cost=0`，一张图成本极低）。
+
+### C.3 生成流程
+```text
+视频任务 completed
+  → 取最终 prompt（智能规划后的 enhancedPrompt，含风格）
+  → 封面 prompt 工程（C.5 模板）：提主体/场景 + 风格后缀（anime|realistic 跟随 style）+ 比例后缀（跟随视频 ratio）
+  → generateImage()（复用 model_configs image 降级链 wanx2.1-t2i-plus/turbo）
+  → 下载产物 → output/cover_{task}_{ts}.jpg → 写 cover_url
+  → 失败：静默降级（warn 日志，不影响视频 completed，cover_url 留空走占位）
+```
+- **异步**：挂视频完成回调之后，不阻塞任务收尾；开关 `auto_cover_enabled=1`（system_configs）。
+- 可选增强（P1）：历史列表「换封面」按钮（重生成 1~N 次）。
+
+### C.4 存储改动（⚠️ 血泪预警）
+- `generation_tasks.cover_url` / `drama_segments.cover_url` / `viral_projects.cover_url` 加列——**union 类型 `string | null` 必须显式 `type:'varchar'`**（本项目已踩 3 次：不写 → DataTypeNotSupportedError 后端启动即崩）。
+- TypeORM synchronize:true 自动建列；老数据 cover_url=null 自然回退 tint 占位。
+- **cleanup 引用收集必须补 cover_url 列**（否则 30 天孤儿清理误删在用封面——08-05 事故同款防线）。
+
+### C.5 封面 prompt 工程模板（**核心，开发时取用**）
+- 通用骨架：
+  ```text
+  {从 video prompt 提炼的主体+场景，1 句}, cinematic keyframe, key moment composition, rule of thirds,
+  {风格后缀}, {比例后缀}, no text, no watermark, no subtitles, high detail
+  ```
+- 风格后缀（按任务 style 字段选）：
+  - anime：`anime key visual, vivid colors, cel shading, studio-quality illustration`
+  - realistic：`photorealistic film still, shallow depth of field, natural lighting, 35mm photography`
+- 比例后缀：9:16 → `vertical 9:16 composition`；16:9 → `wide 16:9 composition`；1:1 → `square composition`
+- 负向约束固定：`no text, no subtitles, no watermark, no collage, no grid of multiple images`（防出四宫格/带字图）
+- 提炼规则：取 enhancedPrompt 前 ~80 词的主体句；或让 smart-plan 顺带输出 `cover_prompt`（更准，见 D-C2）。
+- 示例（视频 prompt `a cat surfing on a wave, sunset beach...` → 封面 prompt）：
+  ```text
+  a cat riding a surfboard on a breaking wave at sunset beach, cinematic keyframe, rule of thirds,
+  anime key visual, vivid colors, cel shading, vertical 9:16 composition, no text, no watermark, high detail
+  ```
+
+### C.6 验收标准
+- [ ] 新生成 T2V/I2V 任务完成后自动带 cover_url，内容与 prompt 主题一致、风格匹配 anime/realistic
+- [ ] 封面失败不影响视频状态（completed 仍 completed，日志 warn）
+- [ ] 历史无封面任务回退 tint 占位不报错；`auto_cover_enabled=0` 时零调用
+- [ ] 各列表封面展示正确；cleanup 覆盖 cover_url 引用
+- [ ] 成本：每视频 +1 张图（免费档）
+
+### C.7 开发注意（复用血泪）
+- union 列显式 type；vite 改动 touch+sleep 2~3s；antd 两字按钮正则；测试 route mock 不真发信；模型链失败降级别抛错。
+
+---
+
+## 决策点汇总（开工前需用户拍板）
+| ID | 问题 | 默认建议 |
+|----|------|---------|
+| D-A1 | 原 5 快捷入口去留 | 保留窄条图标行 |
+| D-A2 | 与侧边栏导航重复 | 运营位场景可接受重复 |
+| D-B1 | 作品展头是否吸顶 | 不吸顶 |
+| D-B2 | 是否要搜索/热度排序 | 第一版只 tab + 最新 |
+| D-C1 | 封面向用户收费吗 | 免费（auto_cover_cost=0） |
+| D-C2 | smart-plan 顺带输出 cover_prompt | 是（封面更贴内容） |
+
+## 建议施工顺序
+1. **C（封面生成）**：独立无依赖，B/A 立即受益；
+2. **B（优秀作品展）**：依赖 C 封面效果；数据手工策展先跑通；
+3. **A（活动栏 + 上新）**：等内容/活动确定后做，纯前端 + 轻后台。

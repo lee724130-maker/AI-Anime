@@ -17,9 +17,6 @@ to{opacity:1;transform:translateY(0)}
 .side-nav-item{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:13px;color:var(--text-secondary);transition:background .15s,color .15s;user-select:none}
 .side-nav-item:hover{background:var(--hover-bg);color:var(--text)}
 .side-nav-item.active{background:var(--bg-tertiary);color:var(--text);font-weight:600}
-.libtv-tile{cursor:pointer}
-.libtv-tile>div:first-child{transition:border-color .15s}
-.libtv-tile:hover>div:first-child{border-color:var(--text-secondary)!important}
 .auth-screen{background:var(--bg);min-height:100vh}
 @supports (height:100dvh){.auth-screen{min-height:100dvh}
 }
@@ -261,6 +258,75 @@ to{opacity:1;transform:translateY(0)}
 @media (width<=640px){.landing-pricing{flex-direction:column!important;align-items:center!important}
 .landing-pricing>div{flex:none!important;width:100%!important;max-width:320px!important}
 }
+/* ───── LibTV 首页区块复刻（dashboard：创建卡 / 工具行 / 快捷入口宽卡 / TV Show 短剧网格 / 任务双栏） ───── */
+.ltv-page{display:flex;flex-direction:column;gap:28px}
+.ltv-hero{display:flex;flex-direction:column;gap:24px}
+.ltv-section-title{display:flex;align-items:center;gap:8px;height:32px;padding-left:8px;margin-bottom:12px;font-size:16px;font-weight:500;line-height:24px;color:var(--text);letter-spacing:-.2px}
+.ltv-create{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:13px;width:100%;height:160px;padding:0;border-radius:12px;border:1px solid var(--border);background-color:var(--hover-bg);background-image:radial-gradient(rgba(125,125,125,.4) 1.3px,transparent 1.3px);background-size:16px 16px;cursor:pointer;transition:border-color .2s}
+.ltv-create:hover{border-color:var(--text-muted)}
+.ltv-create-plus{display:flex;align-items:center;justify-content:center;width:88px;height:52px;border-radius:16px;border:1.35px solid #2c2c2c;background:linear-gradient(180deg,#fff 25%,rgba(255,255,255,.87) 89%);box-shadow:0 1.5px 18px rgba(255,255,255,.12),0 1px 5px rgba(0,0,0,.14);color:#000;transition:transform .15s ease-out}
+.ltv-create:hover .ltv-create-plus{transform:scale(1.05)}
+.ltv-create-label{font-size:16px;font-weight:500;line-height:24px;color:var(--text);white-space:nowrap}
+.ltv-features{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 8px;padding:8px 0;overflow-x:auto}
+.ltv-feature{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0;padding:0;border:0;background:none;cursor:pointer}
+.ltv-feature-box{display:flex;align-items:center;justify-content:center;width:98px;max-width:100%;height:56px;border-radius:16px;background:var(--hover-bg);box-shadow:inset 0 0 0 1px var(--border);font-size:24px;color:var(--text);transition:box-shadow .15s}
+.ltv-feature:hover .ltv-feature-box{box-shadow:inset 0 0 0 1px var(--text-muted)}
+.ltv-feature-label{max-width:100%;font-size:14px;line-height:22px;color:var(--text);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (width>=768px){.ltv-features{display:flex;gap:8px}
+.ltv-feature{flex:1 1 0;min-width:113px}
+}
+.ltv-row5{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.ltv-wide{display:flex;flex-direction:column;gap:12px;min-width:0;padding:0 0 8px;border:0;background:none;text-align:left;cursor:pointer}
+.ltv-wide-cover{position:relative;display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:16/9;border-radius:12px;box-shadow:0 0 0 1px var(--border);overflow:hidden;transition:filter .3s;background:linear-gradient(135deg,#f4f4f6,#dedee4)}
+[data-theme=dark] .ltv-wide-cover{background:linear-gradient(135deg,#26262e,#131318)}
+.ltv-wide:hover .ltv-wide-cover{filter:brightness(.92)}
+.ltv-wide-icon{font-size:44px;color:rgba(26,26,46,.58)}
+[data-theme=dark] .ltv-wide-icon{color:rgba(241,245,249,.55)}
+.ltv-wide-meta{display:flex;align-items:center;gap:6px;min-width:0;padding:0 8px}
+.ltv-wide-title{font-size:14px;line-height:22px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltv-badge{flex-shrink:0;height:18px;padding:0 6px;border-radius:4px;background:rgba(8,182,221,.12);color:#0e9fbd;font-size:11px;font-weight:500;line-height:18px}
+[data-theme=dark] .ltv-badge{background:rgba(34,211,238,.14);color:#67e8f9}
+@media (width>=768px){.ltv-row5{grid-template-columns:repeat(5,minmax(0,1fr))}
+.ltv-wide-cover{border-radius:16px}
+}
+.ltv-tv-head{position:sticky;top:0;z-index:10;background:var(--bg-secondary);padding-bottom:10px}
+.ltv-tv-head .ltv-section-title{margin-bottom:4px}
+.ltv-tv-bar{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.ltv-tabs{display:flex;align-items:flex-end;gap:20px;flex:1 1 auto;min-width:0;border-bottom:1px solid var(--border-light)}
+.ltv-tab{position:relative;padding:6px 0 8px;border:0;background:none;font-size:13px;line-height:20px;color:var(--text-muted);white-space:nowrap;cursor:pointer}
+.ltv-tab.active{color:var(--text)}
+.ltv-tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:2px;background:var(--text)}
+.ltv-tv-tools{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.ltv-search-box{position:relative;display:inline-flex;align-items:center}
+.ltv-search{width:280px;height:40px;padding:0 38px 0 16px;border-radius:999px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.ltv-search:focus{border-color:var(--text-muted)}
+.ltv-search::placeholder{color:var(--text-muted)}
+.ltv-search-icon{position:absolute;right:14px;color:var(--text-muted);font-size:14px;pointer-events:none}
+.ltv-grid4{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.ltv-show{display:flex;flex-direction:column;gap:8px;min-width:0;padding:4px 4px 10px;border:0;background:none;border-radius:20px;text-align:left;cursor:pointer;transition:background .15s}
+.ltv-show:hover{background:var(--hover-bg)}
+.ltv-show-cover{position:relative;display:block;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px var(--border)}
+.ltv-show-cover>.anticon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+.ltv-show-cover img{display:block;width:100%;height:100%;object-fit:cover}
+.ltv-show-info{display:flex;align-items:flex-start;gap:8px;min-height:60px;padding:0 4px}
+.ltv-show-avatar{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:26px;height:26px;margin-top:1px;border-radius:50%;background:var(--bg-tertiary);box-shadow:inset 0 0 0 1px var(--border);font-size:13px;color:var(--text-secondary)}
+.ltv-show-text{flex:1;min-width:0}
+.ltv-show-title{display:block;font-size:14px;line-height:22px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltv-show-meta{display:flex;align-items:center;gap:6px;min-width:0;margin-top:2px}
+.ltv-chip{flex-shrink:0;margin:0!important;padding:0 8px!important;border:none!important;border-radius:999px!important;font-size:10px!important;line-height:18px!important}
+.ltv-show-sub{min-width:0;font-size:12px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (width>=768px){.ltv-grid4{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.ltv-show-cover{border-radius:16px}
+}
+@media (width>=1100px){.ltv-grid4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (width<=768px){.ltv-tv-head{top:52px}
+.ltv-tv-bar{gap:8px}
+.ltv-tv-tools{width:100%}
+.ltv-search-\boxed{flex:1 1 auto;min-width:0}
+.ltv-search{width:100%}
+}
+.ltv-tasks{display:grid;grid-template-columns:1fr;gap:28px}
+@media (width>=900px){.ltv-tasks{grid-template-columns:1fr 1fr}}
 /* LibTV 黑色主按钮：必须在 .ant-btn-primary/.ant-btn-default（均 !important）之后且特异性更高才生效；深浅色自动反转 */
 body .ant-btn.btn-dark{background:var(--text)!important;border-color:var(--text)!important;color:var(--bg)!important;font-weight:600!important;opacity:1!important}
 body .ant-btn.btn-dark:hover,body .ant-btn.btn-dark:focus,body .ant-btn.btn-dark:active{background:var(--text)!important;border-color:var(--text)!important;color:var(--bg)!important;opacity:.85!important}
