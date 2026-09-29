@@ -39,4 +39,10 @@ export class WorkbenchController {
   diskUsage() {
     return this.service.getDiskUsage();
   }
+
+  /** B：优秀作品展（online + 最新；?category= 可选过滤） */
+  @Get('showcase')
+  showcase(@Query('category') category?: string) {
+    return this.service.getShowcase(category);
+  }
 }

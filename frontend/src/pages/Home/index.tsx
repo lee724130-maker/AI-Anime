@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Tag, Button, Spin, Empty, Tooltip } from 'antd';
+import { Typography, Tag, Button, Spin, Empty, Tooltip, Modal } from 'antd';
 import {
   VideoCameraOutlined, ThunderboltOutlined, DatabaseOutlined, ExperimentOutlined,
   AppstoreOutlined, UnorderedListOutlined, HistoryOutlined, UserOutlined,
   SketchOutlined, FireOutlined, FileTextOutlined,
-  PlusOutlined, SearchOutlined,
+  PlusOutlined, SearchOutlined, PlayCircleOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
 import UserLayout from '../../components/UserLayout';
@@ -66,6 +66,19 @@ const PROJECT_TABS = [
   { key: 'failed', label: '失败' },
 ];
 
+// ───── B：优秀作品展（分类字典由接口返回，此为缺省回退） ─────
+interface ShowcaseWork {
+  id: number; title: string; category: string; video_url: string;
+  cover_url: string | null; duration: number | null; author_name: string | null;
+  likes: number;
+}
+const DEFAULT_SHOWCASE_TABS = [
+  { key: 'event', label: '活动制作' },
+  { key: 'short_video', label: '视频短片' },
+  { key: 'series', label: '长篇漫剧' },
+  { key: 'ad', label: '广告' },
+];
+
 // 无封面占位 = drama 列表页 ant-card-body 同款（浅紫 tint 渐变 + 紫色文档图标）
 const COVER_FALLBACK = 'linear-gradient(135deg, #7c3aed20, #ec489920)';
 
@@ -82,6 +95,10 @@ export default function HomePage() {
   const pollingRef = useRef<number | null>(null);
   const [tab, setTab] = useState('all');
   const [kw, setKw] = useState('');
+  // ───── B：优秀作品展 ─────
+  const [showcase, setShowcase] = useState<{ categories: { key: string; label: string }[]; items: ShowcaseWork[] } | null>(null);
+  const [showcaseTab, setShowcaseTab] = useState('all');
+  const [playing, setPlaying] = useState<ShowcaseWork | null>(null);
 
   const fetchSummary = async () => {
     try {
@@ -98,9 +115,18 @@ export default function HomePage() {
     setLoading(false);
   };
 
+  // 作品展一次性拉取（策展数据变化不频繁，不轮询）
+  const fetchShowcase = async () => {
+    try {
+      const res = await api.get('/api/workbench/showcase');
+      setShowcase(res.data);
+    } catch { /* 失败隐藏区块，不留空洞 */ }
+  };
+
   useEffect(() => {
     refreshUser();
     fetchSummary();
+    fetchShowcase();
     pollingRef.current = window.setInterval(fetchSummary, 10000);
     return () => {
       if (pollingRef.current !== null) clearInterval(pollingRef.current);
@@ -124,6 +150,14 @@ export default function HomePage() {
 
   const statusColor = (s: string) => PROJECT_STATUS_MAP[s]?.color || 'default';
   const statusLabel = (s: string) => PROJECT_STATUS_MAP[s]?.label || s;
+
+  // 作品展过滤：客户端 tab 过滤（数据 take:100 上限）
+  const showcaseTabs = showcase?.categories?.length ? showcase.categories : DEFAULT_SHOWCASE_TABS;
+  const filteredWorks = useMemo(() => {
+    const list = showcase?.items || [];
+    return showcaseTab === 'all' ? list : list.filter((w) => w.category === showcaseTab);
+  }, [showcase, showcaseTab]);
+  const showcaseLabel = (key: string) => showcaseTabs.find((t) => t.key === key)?.label || key;
 
   const hasNoProjects = summary && summary.projects.length === 0;
 
@@ -315,6 +349,102 @@ export default function HomePage() {
             />
           )}
         </section>
+
+        {/* ───── ⑤ B：优秀作品展（仿「我的短剧」结构，D-B1 不吸顶 / D-B2 只 tab+最新） ───── */}
+        {showcase && showcase.items.length > 0 && (
+          <section className="ltv-showcase">
+            <div className="ltv-section-title">
+              <TrophyOutlined style={{ marginRight: 6, color: '#08b6dd' }} />
+              优秀作品展
+            </div>
+            <div className="ltv-tabs ltv-showcase-tabs">
+              <button
+                type="button"
+                className={`ltv-tab ltv-showcase-tab${showcaseTab === 'all' ? ' active' : ''}`}
+                onClick={() => setShowcaseTab('all')}
+              >
+                全部
+              </button>
+              {showcaseTabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`ltv-tab ltv-showcase-tab${showcaseTab === t.key ? ' active' : ''}`}
+                  onClick={() => setShowcaseTab(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {filteredWorks.length > 0 ? (
+              <div className="ltv-grid4 ltv-showcase-grid">
+                {filteredWorks.map((w) => (
+                  <button key={w.id} type="button" className="ltv-show" onClick={() => setPlaying(w)}>
+                    <span className="ltv-show-cover" style={{ background: COVER_FALLBACK }}>
+                      {w.cover_url ? (
+                        <img
+                          src={w.cover_url}
+                          alt=""
+                          loading="lazy"
+                          onError={(ev) => { ev.currentTarget.style.display = 'none'; }}
+                        />
+                      ) : (
+                        <FileTextOutlined style={{ fontSize: 40, color: '#7c3aed40' }} />
+                      )}
+                      <span className="ltv-show-play">
+                        <PlayCircleOutlined />
+                      </span>
+                    </span>
+                    <span className="ltv-show-info">
+                      <span className="ltv-show-avatar"><PlayCircleOutlined /></span>
+                      <span className="ltv-show-text">
+                        <span className="ltv-show-title">{w.title}</span>
+                        <span className="ltv-show-meta">
+                          <Tag color="cyan" className="ltv-chip">{showcaseLabel(w.category)}</Tag>
+                          <span className="ltv-show-sub">
+                            {w.author_name || '匿名创作者'}
+                            {w.duration ? ` · ${w.duration}s` : ''}
+                          </span>
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={<span style={{ color: 'var(--text-secondary)' }}>该分类暂无作品，快去创作吧</span>}
+                style={{ margin: '32px 0' }}
+              >
+                <Button type="primary" className="btn-dark" style={{ borderRadius: 10 }} onClick={() => navigate('/generate')}>
+                  去创作
+                </Button>
+              </Empty>
+            )}
+          </section>
+        )}
+
+        {/* 作品展播放弹窗 */}
+        <Modal
+          open={!!playing}
+          title={playing?.title}
+          footer={null}
+          width={800}
+          centered
+          onCancel={() => setPlaying(null)}
+          destroyOnHidden
+        >
+          {playing && (
+            <video
+              src={playing.video_url}
+              controls
+              autoPlay
+              style={{ width: '100%', maxHeight: '70vh', borderRadius: 10, background: '#000' }}
+            />
+          )}
+        </Modal>
 
       </div>
     </UserLayout>

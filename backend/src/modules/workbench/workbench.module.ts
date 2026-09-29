@@ -7,6 +7,7 @@ import { DramaAsset } from '../drama/drama-asset.entity';
 import { GlobalAsset } from '../global-asset/global-asset.entity';
 import { GenerationTask } from '../task/generation-task.entity';
 import { VideoTask } from '../video/video.entity';
+import { ShowcaseWork } from './showcase-work.entity';
 import { User } from '../user/user.entity';
 import { WorkbenchController } from './workbench.controller';
 import { WorkbenchService } from './workbench.service';
@@ -15,7 +16,7 @@ import { WorkbenchService } from './workbench.service';
   imports: [
     TypeOrmModule.forFeature([
       DramaProject, DramaEpisode, DramaSegment, DramaAsset,
-      GlobalAsset, GenerationTask, VideoTask, User,
+      GlobalAsset, GenerationTask, VideoTask, ShowcaseWork, User,
     ]),
   ],
   controllers: [WorkbenchController],

@@ -10,6 +10,7 @@ import { DramaAsset } from '../drama/drama-asset.entity';
 import { GlobalAsset } from '../global-asset/global-asset.entity';
 import { GenerationTask } from '../task/generation-task.entity';
 import { VideoTask } from '../video/video.entity';
+import { ShowcaseWork } from './showcase-work.entity';
 import { User } from '../user/user.entity';
 
 const ERROR_MAP: Record<string, string> = {
@@ -75,6 +76,8 @@ export class WorkbenchService {
     private readonly videoTaskRepo: Repository<VideoTask>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(ShowcaseWork)
+    private readonly showcaseRepo: Repository<ShowcaseWork>,
     private readonly entityManager: EntityManager,
   ) {}
 
@@ -394,6 +397,37 @@ export class WorkbenchService {
       output: { path: outputDir, sizeBytes: outputSize, sizeReadable: this.formatBytes(outputSize) },
       upload: { path: uploadDir, sizeBytes: uploadSize, sizeReadable: this.formatBytes(uploadSize) },
     };
+  }
+
+  /**
+   * B：优秀作品展 —— 只回 status=online，最新在前（首版只 tab + 最新，无搜索/热度）。
+   * 分类字典读 system_configs.showcase_categories（JSON [{key,label}]），缺省用内置 4 类。
+   */
+  async getShowcase(category?: string) {
+    const items = await this.showcaseRepo.find({
+      where: { status: 'online' },
+      order: { created_at: 'DESC', id: 'DESC' },
+      take: 100,
+    });
+    let categories: Array<{ key: string; label: string }> = [
+      { key: 'event', label: '活动制作' },
+      { key: 'short_video', label: '视频短片' },
+      { key: 'series', label: '长篇漫剧' },
+      { key: 'ad', label: '广告' },
+    ];
+    try {
+      const row = await this.entityManager.query(
+        `SELECT config_value FROM system_configs WHERE config_key = 'showcase_categories'`,
+      );
+      const raw = row?.[0]?.config_value;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) categories = parsed;
+      }
+    } catch { /* 字典坏了用内置默认 */ }
+    const k = (category || '').trim();
+    const filtered = k && k !== 'all' ? items.filter((w) => w.category === k) : items;
+    return { categories, items: filtered };
   }
 
   private tasksFromGen(tasks: GenerationTask[]) {

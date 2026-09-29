@@ -1,5 +1,82 @@
 # 修复日志
 
+## 2026-09-29（Part 3 B：优秀作品展示 —— 全部落地，测试 27/27 + 42/42 + 23/23 + 31/31 全绿；用户指示更新 md + git 提交）
+
+> 承接同日 Part 3 C 收尾。用户拍板「跳过封面 e2e，继续 dev-checklist Part 3 下一步 = B 优秀作品展示」。开工前三决策点已确认：**D-B1 不吸顶** / **D-B2 只 5 tab + 最新排序（无搜索无热度）** / **首版数据从站内已有作品手工挑**。B 第一步（删 dashboard 任务概览/失败任务）已于 09-28 第五轮完成，本轮补主体。
+
+### ✅ ① 后端（workbench 模块）
+- **新实体 `showcase-work.entity.ts` → `showcase_works` 表**：title/category/video_url/cover_url(nullable)/duration/author_name/source_type/source_id/likes/views/status(pending|online|offline)/sort/created_at。
+- **`GET /api/workbench/showcase?category=`**（JwtAuthGuard）：只回 `status='online'`，`created_at DESC, id DESC`，`take:100`；分类字典读 `system_configs.showcase_categories`（JSON `[{key,label}]`），坏/缺省用内置 4 类（event 活动制作 / short_video 视频短片 / series 长篇漫剧 / ad 广告）；返回 `{categories, items}`，`?category=` 精确过滤、bogus 分类回 0 条。
+- **cleanup 引用保护**：`collectReferenced` 补 `UNION video_url/cover_url FROM showcase_works`（防 30 天孤儿清理误删在用作品——08-05 事故同款防线）。
+- 注册：app.module 两处 entities 数组 + workbench.module forFeature。
+- **⚠️ 老坑第 4 踩**：`author_name: string | null` 联合类型漏写显式 `type:'varchar'` → 反射成 Object → 启动 `DataTypeNotSupportedError`（run15 崩）；补上后重启（run16）正常建表。
+
+### ✅ ② 数据（零 AI 成本）
+- 封面 = **ffmpeg 抽帧**（`seed-showcase-frames.js`：`-ss 1 -frames:v 1 -q:v 3` → `showcase_cover_1..7.jpg`）+ ffprobe 取时长。
+- 种子 7 条（`seed-showcase.js`，幂等按 video_url 先删）：活动制作 1（viral_result_1 英雄联盟改动解析 17s）/ 视频短片 3（vid_27 拳风、vid_3 风衣行者、vid_5 低空掠影）/ 长篇漫剧 1（seg_2 雨夜对峙）/ 广告 2（vid_23、vid_4）——**4 分类每类 ≥1**。
+
+### ✅ ③ 前端（Home/index.tsx + index.css）
+- 我的短剧区块后新增 `<section className="ltv-showcase">`：标题（TrophyOutlined 青色）+ **非吸顶** tab 行（`.ltv-tab` 加 `.ltv-showcase-tab` 附加类，防与短剧 4 tab 混淆）+ `.ltv-grid4` 封面卡（cover img + hover `.ltv-show-play` 播放浮层 + title + 分类 chip + 作者·时长）。
+- 点击卡片 → antd Modal（width 800, centered, destroyOnHidden）`<video controls autoPlay>` 播放；空态 `Empty`「该分类暂无作品，快去创作吧」+ 去创作 CTA → /generate；无封面走 tint 占位 + FileTextOutlined。
+- 数据一次性拉取不轮询（策展数据变化不频），API 挂了整块隐藏不留空洞；showcase items=0 时不渲染。
+- CSS 新增 `.ltv-showcase`（margin-top 24，**不复用 sticky 的 `.ltv-tv-head`**）/ `.ltv-showcase-tabs` / `.ltv-show-play`（hover opacity 浮层）——插在 `.ltv-*` 块内、`btn-dark` 之前（09-24 血泪遵守）。
+
+### ✅ ④ 测试（全绿）
+- **新 `test-fe-showcase.js` 27/27**：区块=1/标题含优秀作品展/非吸顶/showcase tab=5 且短剧 tab 仍 4/全部 7 卡 7 封面全加载无破图/tab 过滤（广告 2、长篇漫剧 1、回全部 7）/点卡 Modal 开+video src=/static/+标题与卡一致+关/空态 route mock（该分类 0 条 → 文案+CTA）/无封面 tint 占位/移动端 375 tab=5 零横溢/双端 0 pageerror/0 破静态资源。
+- **`test-fe-showcase-api.js` 28/28**：401/items=7/categories 4/字段齐全/最新排序/分类过滤 ad=2、bogus=0/7 封面 image/* >5KB、7 视频 HEAD 200。
+- **回归**：`test-shell-func` **42/42**（37+5：区块标题 ×2→×3、`.ltv-tab` 计数改 scope `.ltv-tv-head`、网格断言改 `section:has(.ltv-tv-head)`、新增作品展结构 4 条 + tab 过滤 1 条）、`test-fe-foundation` **23/23**、`test-fe-generate` **31/31**。双端 tsc EXIT=0。
+- **测试断言坑**：作品展排序 id 降序首卡是 id=7，Modal 标题断言写死「英雄联盟」FAIL → 改动态取首卡 title（断言 bug 非代码 bug）。
+
+### 📋 状态与待办（下个上下文从这里接）
+- **服务**：backend :3000（`sh_0ec70b2ad001JQ7QBEiQ4ijJkh`，日志 `backend-run16.log`，dist 含封面+t2i+作品展）、FE dev :5173（`sh_0ec01f151002EvABYZu52u6JY1`）。
+- [x] Part 3 B 主体完成（后端+数据+前端+测试全绿）
+- [x] 用户指示更新 AGENTS.md + git 提交（本轮）
+- [ ] **用户新需求：作品展后台管理**（更换/删除/新增视频 → 计划做 admin CRUD，见下轮记录）
+- [ ] **等用户指示是否部署**（仍「先不部署」；部署需明确指示）
+- [ ] 封面 e2e 15 条仍等视频供应商恢复（`VIDEO_E2E=1`）；t2i 修复同样未部署
+
+---
+
+## 2026-09-29（Part 3 C 测试收官 + t2i 图片端点真 bug 修复 —— 测试全绿，零提交，按用户指示先不部署）
+
+> 承接 09-28 Part 3 C（视频自动封面）。本轮完成 C 轮测试 + 三套回归；期间发现**视频供应商全链阻塞**（封面端到端天然不可测，用户指示先跳过该功能验证）；随后经用户批准顺手修复 **t2i 文生图端点真 bug**（本轮仅本地，**生产未动**，线上仍是 `index-9NEW3kl0.js`）。**本轮零 git 提交**（HEAD=cdb897d）。
+
+### ✅ ① C 轮测试（全绿）
+- **`test-fe-cover.js` 11/11 PASS**：FE 层——route mock smart-plan → 提交 body 必含同值 `cover_prompt`、abort 不真建任务、0 pageerror。
+- **`test-auto-cover.js` 实跑 12/12 PASS + 15 SKIP**（`VIDEO_E2E` 门控）：A 组常跑覆盖——注册、smart-plan t2v 返回 `cover_prompt`（ASCII 无中文/≤60 词/voiceover 不回归）、t2i **不**返回 cover_prompt、T2V 提交 cover_prompt 未被 whitelist 剥离、持久化进 input_data、listTasks 每项含 `cover_url` 字段、任务到达终态（记 error_msg）、DELETE 200 + listTasks 无该任务；B 组 15 条封面端到端断言（completed 后 cover_url=/static/cover_*、文件在 backend/output、GET 200、开关=0 零调用、fallback 出封面、删任务删封面文件）**显式 SKIP**——额度恢复后 `VIDEO_E2E=1` 重跑即可。cleanup 后 output cover_* = 0。
+- **回归（t2i 修复后串行重跑，防 Redis 验证码竞态）**：`test-shell-func` **37/37**、`test-fe-foundation` **23/23**、`test-fe-generate` **31/31**。
+
+### ⛔ ② 视频供应商阻塞（封面 e2e 天然不可达的根因，实锤）
+- 3 个视频任务全 failed「所有视频供应商均不可用」：阿里云 **`403 AllocationQuota.FreeTierOnly`**（免费额度尽）；z.ai **`429 error code 1113 Insufficient balance...Please recharge`**（欠费）。
+- DB active 视频模型仅 aliyun `wan3.0-video-prime`(p1)/`wan3.0-video`(p2)，其余 27 个全 inactive；system_configs 仅 `tongyi_api_key`/`zai_api_key` 两把 key（.env 只有 JWT_SECRET）。**无第三家 key → 视频链路当前死透**；封面 `generateAutoCover` 为私有方法无独立端点，故封面 e2e 只能等视频恢复。**该问题同样影响生产（同一 key 同一份代码）。**
+
+### ✅ ③ t2i 图片端点真 bug 修复（用户拍板「修，现在就改」，`backend/src/utils/ai-service.util.ts`，tsc EXIT=0）
+- **根因（`probe-old-endpoint.js` 零成本探针实锤）**：全部 active qwen-image 系列走旧 `text2image`/`image-synthesis` 端点全部 **400 InvalidParameter "url error, please check url"**（`qwen-image-3.0-pro`/`qwen-image-3.0`/`qwen-mt-image-2.0` ×3）；`qwen-image-2.0-pro-2026-06-22`(p4) **403 FreeTierOnly**；智谱 CogView-4 **429** → 全链失败 → `No image API key configured. Using placeholder image.` → 本地 ffmpeg 不在 PATH 又炸 `Cannot generate placeholder image` → **任务却标 completed 指向不存在的图**（生产 ffmpeg 在 PATH 会出纯色紫图，仍非真图）。
+- **修复**（旧端点分支字节未动，wan/wanx/happyhorse 仍走旧路）：
+  - 新增 `pickImageSize(width, height, allowed)`（精确匹配优先，否则最接近宽高比）；
+  - 新增 `generateImageWithQwenMessage(apiKey, model, options)`：**`multimodal-generation` 端点 + `input.messages`**，同步解析 `output.choices[0].message.content[].image`，`allowedSizes=['1024*1024','768*1344','720*1280','1280*720']`，**恒 `n:1` 并按 `numImages` 循环**（规避 `n>1` 同样 400 的坑），`negative_prompt`/`watermark:false`，timeout 120000；内容安全命中正则抛 `noRetry=true`，其余错误标 `err.qwenMsg=true`；
+  - 循环内插分支 `/^qwen-image|^qwen-mt-image/` → 走新方法并 `logModelUsage` 返回；catch：`noRetry` 直接 throw，`qwenMsg || 403 || 400` → continue 试下一模型（原仅 403）。
+  - 已核实全部 11 处 `generateImage(` 调用方均 `numImages: 1`（t2i 按视角自行循环），封面生成同样受益。
+- **验证 `test-t2i-fix.js` 20/20 PASS**：9:16→**720x1280**、16:9→**1280x720** 双任务 completed + `/static/` 真图 + 体积>50KB + GET 200 image/* + PNG 解码尺寸精确匹配 + 无 placeholder + 日志含 `via multimodal-generation`。3 轮共耗 qwen-image-3.0-pro **6/10 次**（剩 4）。测试数据/产物全清（测试用户 0、任务 0、孤儿图 0、cover 0）。
+
+### ⚠️ 本轮血泪（新）
+1. **后台 shell `>` 重定向的日志是 UTF-16LE（BOM FF FE）**——node `readFileSync(p,'utf8')` 读出来中英混杂乱码，`log.includes('via multimodal-generation')` 假 FAIL → 按 BOM 自适应解码（`raw[0]===0xff && raw[1]===0xfe ? raw.slice(2).toString('utf16le') : raw.toString('utf8')`）；且该日志里**中文行会被 PS 管道二次转码成 mojibake**（`Trying 通义万相` 匹配不上），断言正则**别依赖中文**（改 `/Trying .* image model/`）。
+2. **测试脚本探测后端就绪别用会 401 的端点**——`/api/generate/tts-voices` 带鉴权，`Invoke-WebRequest` 抛异常被 catch 吞 → 40 轮 `backend_ready=False` 假象，其实后端已启动（netstat/日志为准）。
+3. **PowerShell 管道给 `node` stderr 加 `2>&1` 会触发 NativeCommandError 包装**（脚本崩时错误头变成 PS 的红字噪音）——排障时先裸跑 node 看原始输出。
+4. **qwen 新端点实测尺寸档**：`1024*1024`/`768*1344`/`720*1280`/`1280*720` 全通过（~46-60s/图，~1.3MB）；`n:2` 必 400 → 恒 `n:1` 循环。
+5. `NODE_PATH` 不是所有临时测试脚本都内置——`test-shell-func.js` 裸跑报 `Cannot find module 'playwright'`，须 `$env:NODE_PATH='D:\AI-Anime-main\backend\node_modules'`。
+
+### 📋 状态与待办（下个上下文从这里接）
+- **服务**：backend :3000（后台 shell `sh_0ec45ac3a001t5Fw3O0qrzFaaU`，日志 `Temp\opencode\backend-run14.log`，dist 已含封面+t2i 修复）、FE dev :5173（`sh_0ec01f151002EvABYZu52u6JY1`，`fe-dev13.log`）。
+- [x] C 轮测试 + 三套回归全绿（见①）
+- [x] t2i 端点 bug 修复 + 20/20 验证（见③，**仅本地**）
+- [ ] **等用户指示是否部署**（用户已明确答「先不部署」——除非改口；部署需明确指示）
+- [ ] **本轮零 git 提交**（HEAD=cdb897d；含封面收尾+t2i 修复，提交前先问用户）
+- [ ] 视频供应商额度/欠费恢复后：`VIDEO_E2E=1 node test-auto-cover.js` 跑封面端到端 15 条；**生产同样受 403/欠费影响，值得提示用户**
+- [ ] `qwen-image-3.0-pro` 仅剩 4/10 次（到期 2026/11/03），后续测试可让 p2/p3 承接（`qwen-mt-image-2.0` 有 100 次）
+
+---
+
 ## 2026-09-28（Part 3 C：视频自动生成封面 —— 编码完成双端 tsc 绿，测试待跑，本次提交仅保底）
 
 > 用户拍板三项后续功能先做 **C（P0）**，并确认 D-C1 封面**免费**、D-C2 smart-plan **输出 cover_prompt**。本轮仅本地编码（**未连服务器，生产未动**，线上仍是 `index-9NEW3kl0.js`）；测试全部未写未跑，本次先 git 保底。
@@ -17,7 +94,7 @@
 ### ⚠️ 本轮血泪（新）
 - **`creditsService.getConfigInt` 有 `n > 0` 门槛**——`auto_cover_enabled='0'` 会被判非法而回退默认 1，**开关永远关不掉**（「开关=0 零调用」断言必炸）→ 凡「0 = 关闭」语义的开关不能复用 getConfigInt，必须直查 system_configs 原始值（本例 `isAutoCoverEnabled()`：缺省=开、'0'/'false'=关，与 admin setConfig 的 `INSERT…ON DUPLICATE` 兼容）。
 
-### ⏳ 下次接续（今天到此为止，按序执行）
+### ⏳ 下次接续（今天到此为止，按序执行）→ **已于 2026-09-29 全部完成，见顶部最新节**（测试全绿 + t2i 修复；仅部署未做，等用户指示）
 0. **服务现场**：本机后台 shell 已因服务器重启全部取消（backend:3000 / FE:5173 / admin:5174 / 参考稿:5175 全部离线）——先重启 backend（`cd backend && node dist\src\main.js *> Temp\opencode\backend-run13.log`，dist 已是最终版无需重编）+ FE dev（`cd frontend && npm.cmd run dev`），再跑测试；
 1. 写 `test-auto-cover.js`（API：smart-plan t2v 返回 `cover_prompt`（ASCII 无中文）/ t2i 不返回；带 cover_prompt 的 T2V 完成后 cover_url=`/static/cover_*` 且文件在 `backend/output`、GET 200、listTasks 含字段；`auto_cover_enabled='0'` 时新任务完成后 45s 内 cover_url 恒 null；**恢复缺省后无 cover_prompt 的任务走 fallback 也能出封面**；删任务后封面文件消失）+ FE 测试（route 捕获 smart-plan 响应 → 提交 body 必含同值 `cover_prompt`，route abort 不真建任务，0 pageerror）；
 2. 回归：`test-shell-func` 37/37 + `test-fe-foundation` 23/23 + `test-fe-generate` 31/31；

@@ -490,6 +490,71 @@ export class AIServiceUtil {
     throw lastError || new Error('All Seedream models unavailable');
   }
 
+  /** 请求尺寸 → 模型支持尺寸（精确匹配优先，否则取宽高比最接近的一档） */
+  private pickImageSize(width: number | undefined, height: number | undefined, allowed: string[]): string {
+    const w = width || 1080;
+    const h = height || 1920;
+    const req = `${w}*${h}`;
+    if (allowed.includes(req)) return req;
+    const ratio = w / h;
+    return allowed.reduce((best, s) => {
+      const [sw, sh] = s.split('*').map(Number);
+      const [bw, bh] = best.split('*').map(Number);
+      return Math.abs(sw / sh - ratio) < Math.abs(bw / bh - ratio) ? s : best;
+    });
+  }
+
+  /**
+   * qwen-image / qwen-mt-image 系列专用（2026-09-29 实测）：
+   * ⚠️ 这些模型只接受 multimodal-generation + input.messages（同步返回图片 URL）；
+   *    打旧的 text2image/image-synthesis 端点一律 400 InvalidParameter "url error"。
+   * ⚠️ 不接受 n>1（n:2 同样 400）→ 拆成多次单图请求。
+   */
+  private async generateImageWithQwenMessage(
+    apiKey: string,
+    model: string,
+    options: ImageGenerationOptions,
+  ): Promise<string[]> {
+    const allowedSizes = ['1024*1024', '768*1344', '720*1280', '1280*720'];
+    const size = this.pickImageSize(options.width, options.height, allowedSizes);
+    const count = Math.max(1, options.numImages || 1);
+    const parameters: Record<string, any> = { size, n: 1, watermark: false };
+    if (options.negativePrompt) parameters.negative_prompt = options.negativePrompt;
+
+    const urls: string[] = [];
+    for (let i = 0; i < count; i++) {
+      try {
+        const res = await axios.post(
+          'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+          {
+            model,
+            input: { messages: [{ role: 'user', content: [{ text: options.prompt }] }] },
+            parameters,
+          },
+          { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
+        );
+        const content = res.data?.output?.choices?.[0]?.message?.content;
+        const url = Array.isArray(content)
+          ? (content.find((c: any) => c && typeof c.image === 'string') || {}).image
+          : null;
+        if (!url) throw new Error('multimodal-generation 返回体里没有图片');
+        this.logger.log(`通义万相 ${model} generated ${i + 1}/${count} image(s) via multimodal-generation`);
+        urls.push(url);
+      } catch (err: any) {
+        const msg = err.response?.data?.message || err.response?.data?.error?.message || err.message;
+        if (/sensitive|policy|illegal|violate|security|inappropriate|内容安全|违规/i.test(String(msg))) {
+          const e: any = new Error('提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述');
+          e.noRetry = true;
+          throw e;
+        }
+        // qwen 端点失败（缺图/400/403/超时…）一律换下一个模型，内容安全除外
+        err.qwenMsg = true;
+        throw err;
+      }
+    }
+    return urls;
+  }
+
   /** Generate image using Tongyi Wanxiang (通义万相) */
   private async generateImageWithTongyi(
     apiKey: string,
@@ -508,6 +573,13 @@ export class AIServiceUtil {
     for (const model of fallbackModels) {
       try {
         this.logger.log(`Trying 通义万相 image model: ${model}`);
+
+        // qwen-image / qwen-mt-image 系列走 multimodal-generation（旧端点对它们一律 400）
+        if (/^qwen-image|^qwen-mt-image/.test(model)) {
+          const urls = await this.generateImageWithQwenMessage(apiKey, model, options);
+          this.logModelUsage(model, options.prompt, true);
+          return urls;
+        }
 
         const reqWidth = options.width || 1080;
         const reqHeight = options.height || 1920;
@@ -606,8 +678,9 @@ export class AIServiceUtil {
         const errMsg = err.response?.data?.message || err.message;
         this.logger.warn(`通义万相 ${model} failed: ${errMsg}`);
         this.logModelUsage(model, options.prompt, false, errMsg);
-        if (err.response?.status === 403) {
-          this.logger.warn(`${model} 返回 403 (${errMsg})，尝试下一个模型...`);
+        if (err.noRetry) throw err; // 内容安全等业务错误，换模型无意义
+        if (err.qwenMsg || err.response?.status === 403 || err.response?.status === 400) {
+          this.logger.warn(`${model} 尝试失败 (${err.response?.status || 'ERR'})，尝试下一个模型...`);
           continue;
         }
         throw err;
