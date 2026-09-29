@@ -1,5 +1,41 @@
 # 修复日志
 
+## 2026-09-29（作品展后台管理：admin 后台增删改 + 视频抽帧封面 —— 新测试 33/33 + 23/23，回归 93/93 + 28/28 + 42/42 + 23/23 + 31/31 全绿；零提交待用户拍板）
+
+> 用户需求：「用超级管理员或者管理员账户在后台管理页面里面操作吗？你看看怎么添加这个新功能」——即管理员在 admin 后台更换/删除/新增作品展视频。按 admin 既有模式实现（`RolesGuard` 只校验 `user.role==='admin'`，**普通 admin 与超管都可用**，非 superAdminOnly）。
+
+### ✅ ① 后端（admin 模块）
+- **新 `showcase-admin.service.ts`**：`list()`（全量记录 + 分类字典）/ `create()` / `update()` / `delete()` / `coverFromVideo()`。校验：title/category/video_url 必填、URL 仅 `/static/` 或 http(s)（≤500，路径穿越防护 `resolve+startsWith(outputDir)`）、status ∈ pending|online|offline、source_type 白名单、update 走 12 键 `UPDATABLE` 白名单防任意列写入。
+- **自动化**：创建/更新留空 duration → `ffprobe` 自动读本地视频时长；创建未给封面、或 **PUT 换 video_url 且未显式传 cover_url → 自动 ffmpeg 抽 1s 帧换封面**（`extractFrame` → `/static/frame_*.jpg`，失败保旧封面不影响主流程）。
+- **`admin.controller.ts` 5 端点**：`GET/POST/PUT/DELETE /api/admin/showcase(/:id)` + `POST showcase/cover-from-video`，全部 `@Roles('admin')` + `adminService.log(..., 'showcase', id)`；删除**只删记录不删文件**（种子视频被 cleanup 引用保护，孤儿文件走 30 天策略）。
+- **`admin.module.ts`**：`TypeOrmModule.forFeature` 补 `ShowcaseWork`；**FFmpegUtil 直接注册进 providers**——⚠️ `UtilsModule` 已反向 `imports: [AdminModule]`，admin 再 import UtilsModule 会**循环依赖**；FFmpegUtil 无参构造无状态，直接注册第二个实例安全。
+- 对外展示仍只走 `workbench.getShowcase`（status=online），前端零改动。
+
+### ✅ ② admin 前端
+- **新页 `pages/ShowcaseManage/index.tsx`**（仿 PromptTemplate 的 Table+Modal+Popconfirm 模式）：列 = 封面(84×48 img/无封面 tint 占位)/标题/分类 Tag(字典中文)/预览链接/时长/作者/状态 Tag(展示中·已下线·待审核)/排序/喜欢浏览/创建时间/操作（编辑 aria-label、上线⇄下线切换、删除 Popconfirm）；Modal 表单含 **上传视频/上传封面**（`POST /api/media/upload` FormData，beforeUpload return false 手动传）+ **抽帧封面** 按钮（调 cover-from-video 回填 cover_url）+ 时长留空自动读提示。
+- **接入**：`Dashboard/index.tsx` import + `resolveKey` 集合 + `MENU`（11→**12**，`permission:'showcase'`、PlayCircleOutlined 图标、插在 prompts 后）+ `renderPage` case；`App.tsx` 子路由 `showcase`；`UserManage` `PERMISSION_MATRIX` 加 `{ key:'showcase', label:'作品展管理', levels:['view','edit'] }`（9→10 行标签、复选框 19→21）。
+
+### ✅ ③ 测试（全绿）
+- **新 `test-admin-showcase-api.js` 33/33**：401/普通用户403/缺 title·坏 URL·坏 status 各 400/admin token 上传图片/创建+duration 自动读>0/对外 online 可见→下线不可见但 admin 列表仍见/改标题/换视频自动抽帧换封面+重读时长/抽帧端点出 `/static/frame_*` 且 GET 200 image/缺文件抽帧 400/操作日志含「作品展」/删除 200→再删 404/种子文件完好（测试产物全清）。
+- **新 `test-admin-showcase-fe.js` 23/23**：菜单 12 项 + 作品展管理入口→h3/表格 ≥7 行/分类中文·状态 Tag/预览链接=行数/封面 img 渲染/新增 Modal（含抽帧封面按钮）→填表→行出现→模态关闭/时长列有 `Ns`/下线⇄上线切换/编辑改名/删除 Popconfirm→行消失回种子数/0 pageerror（建前建后 API 双清残留）。
+- **回归**：`test-admin-fe` **93/93**（断言同步：菜单 11→12、权限复选框 19→21、权限标签 9→10；假权限注入菜单仍=3 不受影响）、`test-showcase-api` **28/28**、`test-shell-func` **42/42**、`test-fe-foundation` **23/23**、`test-fe-generate` **31/31**；admin `tsc -b`+`npm run build` EXIT=0（`index-C0EqmWnf.js`）、后端 tsc EXIT=0。
+
+### ⚠️ 本轮血泪（新）
+1. **`test-admin-fe` 的 `LOG` 硬编码 `backend-run9.log` 早已过期**（后端已换 run10~18）→ delta 恒空、`二次验证通过` 断言必 FAIL（上次通过是 run9 还在用时）→ 改**动态取最新 `backend-run*.log`**（mtime 排序）。
+2. **PowerShell `*>` 重定向日志 = UTF-16LE（BOM FF FE）+ 中文经 PS 转码 mojibake**，中文断言不可靠 → 后端改 **`cmd /c "node dist\src\main.js > run18.log 2>&1"` 原生重定向**（raw UTF-8、node 可读、中文无损、无 ANSI 转码）；测试读日志加 **BOM 自适应**（FF FE → utf16le 且偶数偏移）兜底。
+3. **antd Modal 有 ~200ms 退场动画**：「行已出现」≠「模态已关」，紧跟 `count===0` 断言会撞动画中段假 FAIL → 必须轮询（首轮 22/23 唯一 FAIL 即此）。
+4. `test-admin-fe` 首轮 logout 下拉 FAIL = 时序 flake，复跑即绿（非代码问题）。
+5. 测试自动抽帧会在 `output/` 留孤儿 `frame_*.jpg`——删行不删文件，测试收尾要按「showcase_works 零引用」核对后手动清（本轮已清 2 个）。
+
+### 📋 状态与待办（下个上下文从这里接）
+- **服务**：backend :3000（`sh_0ecbd6b1a001FmhTelGbOC3g4y`，日志 `backend-run18.log` raw UTF-8）、FE dev :5173（`sh_0ec01f151002EvABYZu52u6JY1`）、**admin dev :5174**（`sh_0ecb35657001SAJjQPJp8TJ5Dy`，日志 `admin-dev17.log`）。
+- [x] 作品展后台管理全部实现 + 测试全绿（见①②③）
+- [ ] **git 提交前先问用户**（本轮零提交；HEAD=`411f4e9` 已推送；改动=后端 3 文件 + admin 4 文件 + 新 ShowcaseManage/新 showcase-admin.service.ts）
+- [ ] **部署等用户明确指示**（线上仍 `index-9NEW3kl0.js`，封面+t2i+本轮全未部署）
+- [ ] 视频供应商恢复后 `VIDEO_E2E=1 node test-auto-cover.js` 补封面 e2e 15 条；Part 3 A 活动栏+上新待开工
+
+---
+
 ## 2026-09-29（Part 3 B：优秀作品展示 —— 全部落地，测试 27/27 + 42/42 + 23/23 + 31/31 全绿；用户指示更新 md + git 提交）
 
 > 承接同日 Part 3 C 收尾。用户拍板「跳过封面 e2e，继续 dev-checklist Part 3 下一步 = B 优秀作品展示」。开工前三决策点已确认：**D-B1 不吸顶** / **D-B2 只 5 tab + 最新排序（无搜索无热度）** / **首版数据从站内已有作品手工挑**。B 第一步（删 dashboard 任务概览/失败任务）已于 09-28 第五轮完成，本轮补主体。

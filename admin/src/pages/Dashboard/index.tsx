@@ -13,6 +13,7 @@ import {
   CloudSyncOutlined,
   DatabaseOutlined,
   SafetyCertificateOutlined,
+  PlayCircleOutlined,
   SunOutlined,
   MoonOutlined,
   BellOutlined,
@@ -32,6 +33,7 @@ import LogsPage from '../Logs';
 import SystemConfigPage from '../SystemConfig';
 import ModelManagePage from '../ModelManage';
 import PromptTemplatePage from '../PromptTemplate';
+import ShowcaseManagePage from '../ShowcaseManage';
 import NotificationsPage from '../Notifications';
 import PaymentsPage from '../Payments';
 import ServerPage from '../Server';
@@ -48,6 +50,7 @@ function resolveKey(pathname: string): string {
     'apikeys',
     'models',
     'prompts',
+    'showcase',
     'users',
     'logs',
     'config',
@@ -67,6 +70,7 @@ const MENU = [
   { key: 'apikeys', icon: <KeyOutlined />, label: 'API 密钥', permission: 'apikeys' },
   { key: 'models', icon: <CloudServerOutlined />, label: '模型管理', permission: 'models' },
   { key: 'prompts', icon: <FormOutlined />, label: '提示词模板', permission: 'prompts' },
+  { key: 'showcase', icon: <PlayCircleOutlined />, label: '作品展管理', permission: 'showcase' },
   { key: 'users', icon: <UserOutlined />, label: '用户管理', permission: 'users' },
   { key: 'access', icon: <SafetyOutlined />, label: '访问统计', permission: 'access' },
   { key: 'payments', icon: <DollarOutlined />, label: '支付记录', permission: 'payments' },
@@ -151,6 +155,8 @@ export default function AdminLayout() {
         return <ModelManagePage />;
       case 'prompts':
         return <PromptTemplatePage />;
+      case 'showcase':
+        return <ShowcaseManagePage />;
       case 'notifications':
         return <NotificationsPage />;
       case 'payments':

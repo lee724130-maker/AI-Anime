@@ -20,6 +20,7 @@ import { AdminService } from './admin.service';
 import { AdminNotificationService } from './admin-notification.service';
 import { ModelConfigService } from './model-config.service';
 import { PromptTemplateService } from './prompt-template.service';
+import { ShowcaseAdminService } from './showcase-admin.service';
 
 @Controller('api/admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -29,6 +30,7 @@ export class AdminController {
     private readonly notificationService: AdminNotificationService,
     private readonly modelConfigService: ModelConfigService,
     private readonly promptTemplateService: PromptTemplateService,
+    private readonly showcaseAdminService: ShowcaseAdminService,
   ) {}
 
   // ── Public Site Config ──
@@ -218,6 +220,45 @@ export class AdminController {
   async deletePromptTemplate(@Param('id', ParseIntPipe) id: number, @Req() req) {
     const result = await this.promptTemplateService.delete(id);
     await this.adminService.log(req.user.id, '删除提示词模板', `模板ID: ${id}`, 'prompt_template', id);
+    return result;
+  }
+
+  // ── Showcase Works（作品展管理：管理员更换/删除/新增展示作品） ──
+  @Get('showcase')
+  @Roles('admin')
+  getShowcaseWorks() {
+    return this.showcaseAdminService.list();
+  }
+
+  @Post('showcase')
+  @Roles('admin')
+  async createShowcaseWork(@Body() body: any, @Req() req) {
+    const result = await this.showcaseAdminService.create(body);
+    await this.adminService.log(req.user.id, '新增作品展作品', `标题: ${result.title}, 分类: ${result.category}`, 'showcase', result.id);
+    return result;
+  }
+
+  @Put('showcase/:id')
+  @Roles('admin')
+  async updateShowcaseWork(@Param('id', ParseIntPipe) id: number, @Body() body: any, @Req() req) {
+    const result = await this.showcaseAdminService.update(id, body);
+    await this.adminService.log(req.user.id, '更新作品展作品', `ID: ${id}, 变更: ${Object.keys(body || {}).join(', ') || '无'}`, 'showcase', id);
+    return result;
+  }
+
+  @Delete('showcase/:id')
+  @Roles('admin')
+  async deleteShowcaseWork(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const result = await this.showcaseAdminService.delete(id);
+    await this.adminService.log(req.user.id, '删除作品展作品', `ID: ${id}`, 'showcase', id);
+    return result;
+  }
+
+  @Post('showcase/cover-from-video')
+  @Roles('admin')
+  async extractShowcaseCover(@Body() body: { video_url?: string }, @Req() req) {
+    const result = await this.showcaseAdminService.coverFromVideo(body?.video_url);
+    await this.adminService.log(req.user.id, '作品展视频抽帧', `视频: ${body?.video_url || '-'} → ${result.cover_url}`, 'showcase', 0);
     return result;
   }
 
