@@ -18,6 +18,7 @@
 - **`creditsService.getConfigInt` 有 `n > 0` 门槛**——`auto_cover_enabled='0'` 会被判非法而回退默认 1，**开关永远关不掉**（「开关=0 零调用」断言必炸）→ 凡「0 = 关闭」语义的开关不能复用 getConfigInt，必须直查 system_configs 原始值（本例 `isAutoCoverEnabled()`：缺省=开、'0'/'false'=关，与 admin setConfig 的 `INSERT…ON DUPLICATE` 兼容）。
 
 ### ⏳ 下次接续（今天到此为止，按序执行）
+0. **服务现场**：本机后台 shell 已因服务器重启全部取消（backend:3000 / FE:5173 / admin:5174 / 参考稿:5175 全部离线）——先重启 backend（`cd backend && node dist\src\main.js *> Temp\opencode\backend-run13.log`，dist 已是最终版无需重编）+ FE dev（`cd frontend && npm.cmd run dev`），再跑测试；
 1. 写 `test-auto-cover.js`（API：smart-plan t2v 返回 `cover_prompt`（ASCII 无中文）/ t2i 不返回；带 cover_prompt 的 T2V 完成后 cover_url=`/static/cover_*` 且文件在 `backend/output`、GET 200、listTasks 含字段；`auto_cover_enabled='0'` 时新任务完成后 45s 内 cover_url 恒 null；**恢复缺省后无 cover_prompt 的任务走 fallback 也能出封面**；删任务后封面文件消失）+ FE 测试（route 捕获 smart-plan 响应 → 提交 body 必含同值 `cover_prompt`，route abort 不真建任务，0 pageerror）；
 2. 回归：`test-shell-func` 37/37 + `test-fe-foundation` 23/23 + `test-fe-generate` 31/31；
 3. 更新本文件 → 问用户是否部署（**部署需明确指示**）；
