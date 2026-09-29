@@ -30,8 +30,12 @@
 ### 📋 状态与待办（下个上下文从这里接）
 - **服务**：backend :3000（`sh_0ecbd6b1a001FmhTelGbOC3g4y`，日志 `backend-run18.log` raw UTF-8）、FE dev :5173（`sh_0ec01f151002EvABYZu52u6JY1`）、**admin dev :5174**（`sh_0ecb35657001SAJjQPJp8TJ5Dy`，日志 `admin-dev17.log`）。
 - [x] 作品展后台管理全部实现 + 测试全绿（见①②③）
-- [ ] **git 提交前先问用户**（本轮零提交；HEAD=`411f4e9` 已推送；改动=后端 3 文件 + admin 4 文件 + 新 ShowcaseManage/新 showcase-admin.service.ts）
-- [ ] **部署等用户明确指示**（线上仍 `index-9NEW3kl0.js`，封面+t2i+本轮全未部署）
+- [x] **git 提交并推送 `59c8a90`**（用户拍板「提交并推送」；后端 3 + admin 4 + AGENTS.md + 新增 2 文件）
+- [x] **生产部署完成（2026-09-29 用户拍板「现在部署」，三端全量）**：
+  - 打包 `deploy/{backend,frontend,admin}.zip`（FE 构建 `index-BetPFjEJ.js`/`index-B8mm60tv.css`、admin `index-C0EqmWnf.js`）→ pscp 上传 → `bash deploy/deploy.sh`：三端 mv dist_bak + unzip 双保险 + pm2 restart + 冒烟 + 清 zips 全过。
+  - **SSH 连接恢复**：本地部署脚本已清理无密码留存 → 用户提供实例密码；**pscp/plink 首连挂起不吐 prompt（stdin 管道 y 无效）→ `-batch` 先拿 hostkey `SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A`，之后一律 `-batch -hostkey` 即通**；plink/pscp 在 `Temp\opencode\` 下。
+  - **验证**：api_health=401、front/admin root=200、`GET /api/admin/showcase`=401（路由存在）、线上 index.html 双端 hash 与本地一致、FE CSS `.ltv-showcase`=1、Home chunk 含 showcase、admin bundle「作品展管理」=1、pm2 pid=671033 online 稳定 NODE_ENV=production、error log mtime 仍 08-31（部署窗口零新错）。
+  - **生产灌数据**（`seed-prod-showcase.js` 走 admin API，**13/13 PASS**）：上传 14 素材（7 视频 24MB + 7 封面）到 `backend/output/` → POST 7 条（4 分类，status=online，sort=100-n）→ admin 列表 7 + categories 4 + 对外 `workbench/showcase`=7 + 14 资源 HEAD 全 200。生产 `showcase_works` 表由 synchronize 自动建；本地无 `showcase_categories` 配置键 → 生产同走内置 4 分类兜底，无需灌配置；7 视频已被 cleanup `collectReferenced` 保护。
 - [ ] 视频供应商恢复后 `VIDEO_E2E=1 node test-auto-cover.js` 补封面 e2e 15 条；Part 3 A 活动栏+上新待开工
 
 ---
