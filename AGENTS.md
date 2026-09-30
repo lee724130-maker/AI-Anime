@@ -42,7 +42,7 @@
 
 ### 📋 状态与待办（下次接续）
 - **服务**：backend :3000（`backend-run25.log`，含 works 接口）、FE :5173、admin :5174。
-- [x] 5 件收尾任务全部完成 + 4 套测试全绿 + **git 提交（本轮完成，hash 见下条提交）**
+- [x] 5 件收尾任务全部完成 + 4 套测试全绿 + **git 提交 `d3b21e5`（23 文件 +2291/-120，含 Part 3 A 全部 + 我的作品 + 双供应商 + 文案种子）**
 - [ ] **剩余回归未跑**（时间关系按用户指示跳过）：`test-fe-foundation` / `test-fe-generate` / `test-promo-smoke` / `test-promo-admin-fe` / `test-admin-fe` 等；`test-shell-func` 与 promo/showcase 已覆盖本轮改动面
 - [ ] **生产部署（下次，需用户明确指示）**：三端 build → 重建部署脚本（`Temp\opencode\deploy*.js` 已不在）→ 上传 → **生产灌 `promo-seed.sql`（含新文案 + 5 处 cover_url）+ 上传 5 张 cover 图（act5_v2/act6/rel3/rel4/rel5）到生产 `backend/output/`** → 冒烟
 - [ ] Agnes 视频探针仍在后台蹲队列（`probe-agnes-video4.js`，日志 `agnes-video-probe4.log`）→ 通了跑后端 t2v e2e；封面 e2e 15 条等 `VIDEO_E2E=1`
@@ -50,7 +50,7 @@
 
 ---
 
-## 2026-09-30（供应商后备接入：商汤 SenseNova + Agnes AI —— 图像三测试 10/10×3 全绿（含自动链后备 + 修「用完即停」硬编码兜底 bug）；视频限免但队列拥堵待 e2e；零提交待用户拍板）
+## 2026-09-30（供应商后备接入：商汤 SenseNova + Agnes AI —— 图像三测试 10/10×3 全绿（含自动链后备 + 修「用完即停」硬编码兜底 bug）；视频限免但队列拥堵待 e2e；已随 `d3b21e5` 提交）
 
 > 背景：阿里云「用完即停」，用户给两把新 key 做后备。商汤 key `sk-7fAUg...`（system_configs `sensenova_api_key`）、Agnes key `sk-ec3b...`（`agnes_api_key`）。⚠️ 两 key 不进 git/不进日志，只落 system_configs。
 
