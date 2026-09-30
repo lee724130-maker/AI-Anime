@@ -21,6 +21,8 @@ import { AdminNotificationService } from './admin-notification.service';
 import { ModelConfigService } from './model-config.service';
 import { PromptTemplateService } from './prompt-template.service';
 import { ShowcaseAdminService } from './showcase-admin.service';
+import { ActivityAdminService } from './activity-admin.service';
+import { ReleaseAdminService } from './release-admin.service';
 
 @Controller('api/admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,6 +33,8 @@ export class AdminController {
     private readonly modelConfigService: ModelConfigService,
     private readonly promptTemplateService: PromptTemplateService,
     private readonly showcaseAdminService: ShowcaseAdminService,
+    private readonly activityAdminService: ActivityAdminService,
+    private readonly releaseAdminService: ReleaseAdminService,
   ) {}
 
   // ── Public Site Config ──
@@ -259,6 +263,68 @@ export class AdminController {
   async extractShowcaseCover(@Body() body: { video_url?: string }, @Req() req) {
     const result = await this.showcaseAdminService.coverFromVideo(body?.video_url);
     await this.adminService.log(req.user.id, '作品展视频抽帧', `视频: ${body?.video_url || '-'} → ${result.cover_url}`, 'showcase', 0);
+    return result;
+  }
+
+  // ── Activities（活动栏管理：dashboard 中部限时活动） ──
+  @Get('activities')
+  @Roles('admin')
+  getActivities() {
+    return this.activityAdminService.list();
+  }
+
+  @Post('activities')
+  @Roles('admin')
+  async createActivity(@Body() body: any, @Req() req) {
+    const result = await this.activityAdminService.create(body);
+    await this.adminService.log(req.user.id, '新增活动', `标题: ${result.title}, 玩法: ${result.gameplay || '无'}`, 'activity', result.id);
+    return result;
+  }
+
+  @Put('activities/:id')
+  @Roles('admin')
+  async updateActivity(@Param('id', ParseIntPipe) id: number, @Body() body: any, @Req() req) {
+    const result = await this.activityAdminService.update(id, body);
+    await this.adminService.log(req.user.id, '更新活动', `ID: ${id}, 变更: ${Object.keys(body || {}).join(', ') || '无'}`, 'activity', id);
+    return result;
+  }
+
+  @Delete('activities/:id')
+  @Roles('admin')
+  async deleteActivity(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const result = await this.activityAdminService.delete(id);
+    await this.adminService.log(req.user.id, '删除活动', `ID: ${id}`, 'activity', id);
+    return result;
+  }
+
+  // ── Feature Releases（新功能上新管理） ──
+  @Get('releases')
+  @Roles('admin')
+  getReleases() {
+    return this.releaseAdminService.list();
+  }
+
+  @Post('releases')
+  @Roles('admin')
+  async createRelease(@Body() body: any, @Req() req) {
+    const result = await this.releaseAdminService.create(body);
+    await this.adminService.log(req.user.id, '新增上新', `标题: ${result.title}, 标签: ${result.tag}`, 'release', result.id);
+    return result;
+  }
+
+  @Put('releases/:id')
+  @Roles('admin')
+  async updateRelease(@Param('id', ParseIntPipe) id: number, @Body() body: any, @Req() req) {
+    const result = await this.releaseAdminService.update(id, body);
+    await this.adminService.log(req.user.id, '更新上新', `ID: ${id}, 变更: ${Object.keys(body || {}).join(', ') || '无'}`, 'release', id);
+    return result;
+  }
+
+  @Delete('releases/:id')
+  @Roles('admin')
+  async deleteRelease(@Param('id', ParseIntPipe) id: number, @Req() req) {
+    const result = await this.releaseAdminService.delete(id);
+    await this.adminService.log(req.user.id, '删除上新', `ID: ${id}`, 'release', id);
     return result;
   }
 

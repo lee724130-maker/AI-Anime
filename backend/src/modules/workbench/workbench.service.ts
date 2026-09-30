@@ -48,6 +48,27 @@ const PROJECT_NEXT_STEP: Record<string, string> = {
   failed: '查看失败原因并重试',
 };
 
+/** 「我的作品」条目（按模块聚合该用户在各区块生成的视频） */
+export interface WorkItem {
+  id: string;            // `module:id`，前端 key
+  module: string;        // generate | drama | viral | canvas | editor
+  title: string;
+  video_url: string | null;
+  cover_url: string | null;
+  status: string;
+  time: Date | string;
+  link: string;          // 无视频时点击跳转的模块页面
+}
+
+/** 模块字典（剪辑仅管理员可见 —— 与 AppShell 侧边栏一致） */
+const WORK_MODULES: Record<string, { label: string; link: (id: string) => string }> = {
+  generate: { label: 'AI 生成', link: () => '/generate/history' },
+  drama:    { label: '短剧', link: (id) => `/drama/${id}` },
+  viral:    { label: '热门创作', link: (id) => `/viral/projects/${id}` },
+  canvas:   { label: '画布', link: (id) => `/canvas/editor/${id}` },
+  editor:   { label: '剪辑', link: (id) => `/editor/${id}` },
+};
+
 function localizeError(msg: string | null | undefined): string {
   if (!msg) return '未知错误';
   const lower = msg.toLowerCase();
@@ -428,6 +449,127 @@ export class WorkbenchService {
     const k = (category || '').trim();
     const filtered = k && k !== 'all' ? items.filter((w) => w.category === k) : items;
     return { categories, items: filtered };
+  }
+
+  /**
+   * 我的作品：按模块聚合该用户生成的视频（AI 生成 / 短剧 / 热门创作 / 画布 / 剪辑）。
+   * - 有视频的条目（completed）+ 正在生成/失败的条目（给状态反馈）；pending 空项目不进列表。
+   * - 每模块最多 40 条，前端按 tab 客户端过滤；剪辑模块仅管理员返回（侧边栏同规则）。
+   */
+  async getWorks(userId: number) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const isAdmin = user?.role === 'admin';
+
+    const [genTasks, dramaRows, viralRows, canvasRows, editorRows] = await Promise.all([
+      this.genTaskRepo.find({
+        where: { user_id: userId, type: 'video' },
+        order: { created_at: 'DESC' },
+        take: 40,
+      }),
+      this.entityManager.query(
+        `SELECT s.id, s.segment_no, s.status, s.video_url, s.updated_at AS time,
+                e.id AS episode_id, e.episode_no, p.id AS project_id, p.title AS project_title, p.cover_url
+           FROM drama_segments s
+           JOIN drama_episodes e ON e.id = s.episode_id
+           JOIN drama_projects p ON p.id = e.project_id
+          WHERE p.user_id = ?
+            AND ((s.video_url IS NOT NULL AND s.video_url NOT LIKE 'ERROR:%')
+                 OR s.status IN ('generating','failed'))
+          ORDER BY s.updated_at DESC LIMIT 40`,
+        [userId],
+      ),
+      this.entityManager.query(
+        `SELECT id, name AS title, result_url, status, updated_at AS time
+           FROM viral_projects
+          WHERE user_id = ?
+            AND ((result_url IS NOT NULL AND result_url <> '') OR status IN ('generating','failed'))
+          ORDER BY updated_at DESC LIMIT 40`,
+        [userId],
+      ),
+      this.entityManager.query(
+        `SELECT id, name AS title, result_url, status, updated_at AS time
+           FROM canvas_projects
+          WHERE user_id = ?
+            AND ((result_url IS NOT NULL AND result_url <> '') OR status IN ('rendering','failed'))
+          ORDER BY updated_at DESC LIMIT 40`,
+        [userId],
+      ),
+      isAdmin
+        ? this.entityManager.query(
+            `SELECT id, name AS title, result_url, status, updated_at AS time
+               FROM editor_projects
+              WHERE user_id = ?
+                AND ((result_url IS NOT NULL AND result_url <> '') OR status IN ('rendering','failed'))
+              ORDER BY updated_at DESC LIMIT 40`,
+            [userId],
+          )
+        : Promise.resolve([]),
+    ]);
+
+    const items: WorkItem[] = [];
+
+    for (const t of genTasks) {
+      items.push({
+        id: `generate:${t.id}`,
+        module: 'generate',
+        title: this.genTitle(t.input_data) || `视频任务 #${t.id}`,
+        video_url: this.genVideoUrl(t.output_data),
+        cover_url: t.cover_url || null,
+        status: t.status,
+        time: t.completed_at || t.created_at,
+        link: WORK_MODULES.generate.link(String(t.id)),
+      });
+    }
+
+    for (const r of dramaRows as any[]) {
+      const video = r.video_url && !String(r.video_url).startsWith('ERROR:') ? r.video_url : null;
+      items.push({
+        id: `drama:${r.id}`,
+        module: 'drama',
+        title: `${r.project_title || '短剧'} · 第 ${r.episode_no} 集 片段 ${r.segment_no}`,
+        video_url: video,
+        cover_url: r.cover_url || null,
+        status: r.status === 'generating' ? 'processing' : r.status,
+        time: r.time,
+        link: WORK_MODULES.drama.link(`${r.project_id}/episodes/${r.episode_id}`),
+      });
+    }
+
+    for (const [mod, rows] of [['viral', viralRows], ['canvas', canvasRows], ['editor', editorRows]] as Array<[string, any[]]>) {
+      for (const r of rows) {
+        const video = r.result_url && String(r.result_url).trim() ? r.result_url : null;
+        items.push({
+          id: `${mod}:${r.id}`,
+          module: mod,
+          title: r.title || `${WORK_MODULES[mod].label} #${r.id}`,
+          video_url: video,
+          cover_url: null,
+          status: r.status,
+          time: r.time,
+          link: WORK_MODULES[mod].link(String(r.id)),
+        });
+      }
+    }
+
+    items.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    const modules = (['generate', 'drama', 'viral', 'canvas', 'editor'] as const)
+      .filter((k) => (k !== 'editor' || isAdmin))
+      .map((k) => ({ key: k, label: WORK_MODULES[k].label }));
+
+    return { modules, items };
+  }
+
+  /** 生成任务 output_data → 视频 url（{url} / [{url}] 两种形态） */
+  private genVideoUrl(outputData: string | null): string | null {
+    if (!outputData) return null;
+    try {
+      const data = JSON.parse(outputData);
+      if (Array.isArray(data)) return data.find((d: any) => d?.url)?.url || null;
+      if (data?.video?.url) return data.video.url;
+      if (data?.url) return data.url;
+    } catch { /* 非 JSON */ }
+    return null;
   }
 
   private tasksFromGen(tasks: GenerationTask[]) {

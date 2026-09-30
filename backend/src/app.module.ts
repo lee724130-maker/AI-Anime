@@ -32,6 +32,9 @@ import { MediaFile } from './modules/media/media-file.entity';
 import { GenerationTask } from './modules/task/generation-task.entity';
 import { TaskEvent } from './modules/task/task-event.entity';
 import { ShowcaseWork } from './modules/workbench/showcase-work.entity';
+import { Activity } from './modules/workbench/activity.entity';
+import { FeatureRelease } from './modules/workbench/feature-release.entity';
+import { UserTaskClaim } from './modules/workbench/user-task-claim.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UserModule } from './modules/user/user.module';
 import { ScriptModule } from './modules/script/script.module';
@@ -96,14 +99,14 @@ const logDir = path.resolve(process.cwd(), 'logs');
             extra: {
               charset: 'utf8mb4',
             },
-entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaSegmentCandidate, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, EditorProject, MediaFile, GenerationTask, TaskEvent, ShowcaseWork],
+entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaSegmentCandidate, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, EditorProject, MediaFile, GenerationTask, TaskEvent, ShowcaseWork, Activity, FeatureRelease, UserTaskClaim],
             synchronize: true,
           };
         }
         return {
           type: 'better-sqlite3',
           database: config.get('DB_PATH', './data/dev.db'),
-          entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaSegmentCandidate, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, EditorProject, MediaFile, GenerationTask, TaskEvent, ShowcaseWork],
+          entities: [User, Script, Character, SystemConfig, AdminLog, ModelConfig, AdminNotification, PromptTemplate, VideoTask, Order, DramaProject, DramaOutline, DramaEpisode, DramaSegment, DramaSegmentCandidate, DramaAsset, GlobalAsset, ViralTemplate, ViralProject, CanvasProject, CanvasTemplate, EditorProject, MediaFile, GenerationTask, TaskEvent, ShowcaseWork, Activity, FeatureRelease, UserTaskClaim],
           synchronize: true,
         };
       },

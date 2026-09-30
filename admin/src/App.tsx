@@ -45,6 +45,8 @@ export default function App() {
           <Route path="models" element={null} />
           <Route path="prompts" element={null} />
           <Route path="showcase" element={null} />
+          <Route path="activities" element={null} />
+          <Route path="releases" element={null} />
           <Route path="notifications" element={null} />
           <Route path="payments" element={null} />
           <Route path="server" element={null} />

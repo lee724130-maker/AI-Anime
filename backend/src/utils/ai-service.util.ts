@@ -286,6 +286,16 @@ export class AIServiceUtil {
           if (key) return await this.generateImageWithOpenAI(key, options);
           throw new Error('OpenAI Key 未配置，无法使用 ' + options.model);
         }
+        if (options.model.startsWith('sensenova-')) {
+          const key = await this.getApiKey('sensenova_api_key');
+          if (key) return await this.generateImageWithSenseNova(key, options);
+          throw new Error('SenseNova Key 未配置，无法使用 ' + options.model);
+        }
+        if (options.model.startsWith('agnes-image')) {
+          const key = await this.getApiKey('agnes_api_key');
+          if (key) return await this.generateImageWithAgnes(key, options);
+          throw new Error('Agnes Key 未配置，无法使用 ' + options.model);
+        }
       } catch (err: any) {
         this.logger.warn(`Requested image model ${options.model} failed: ${err.message}. Falling back to auto mode.`);
         delete options.model;
@@ -337,6 +347,20 @@ export class AIServiceUtil {
       this.logger.log('Using 通义万相 for image generation');
       try { return await this.generateImageWithTongyi(tongyiKey, options); }
       catch (err: any) { this.logger.warn(`通义万相 failed: ${err.message}`); }
+    }
+    // 阿里云额度用尽/停用后的后备（2026-09-30 接入，公测免费）
+    const senseNovaKey = await this.getApiKey('sensenova_api_key');
+    if (senseNovaKey) {
+      this.logger.log('Using SenseNova (商汤) for image generation (fallback)');
+      try { return await this.generateImageWithSenseNova(senseNovaKey, options); }
+      catch (err: any) { this.logger.warn(`SenseNova failed: ${err.message}`); }
+    }
+    // 图像第 3 后备（2026-09-30 接入，Agnes 限免期）
+    const agnesImgKey = await this.getApiKey('agnes_api_key');
+    if (agnesImgKey) {
+      this.logger.log('Using Agnes Image for image generation (fallback)');
+      try { return await this.generateImageWithAgnes(agnesImgKey, options); }
+      catch (err: any) { this.logger.warn(`Agnes image failed: ${err.message}`); }
     }
     if (volcKey) {
       this.logger.log('Using 火山引擎 Seedream for image generation');
@@ -563,9 +587,12 @@ export class AIServiceUtil {
     const models = (await this.getActiveModels('image'))
       .filter((m: any) => m.provider === 'aliyun')
       .map((m: any) => m.model_id);
-    const fallbackModels = models.length ? models : [
-      'qwen-image-3.0-pro', 'qwen-image-3.0', 'qwen-mt-image-2.0', 'qwen-image-2.0-pro-2026-06-22',
-    ];
+    if (!models.length) {
+      // 「用完即停」语义（2026-09-30）：阿里云 image 行全停用/无行 → 不再硬编码兜底 qwen 列表，
+      // 直接抛错交棒后备链（商汤 SenseNova → Agnes → 火山 → OpenAI → 智谱）
+      throw new Error('阿里云图像模型已全部停用或不存在，跳过通义万相');
+    }
+    const fallbackModels = models;
 
     const allowedSizes = ['1024*1024', '720*1280', '1280*720', '768*1152'];
 
@@ -691,6 +718,154 @@ export class AIServiceUtil {
     throw lastError || new Error('All 通义万相 image models unavailable');
   }
 
+  /** 请求尺寸 → SenseNova 合法尺寸（32 的倍数、512~4096、宽高比最大 3:1） */
+  private pickSenseNovaSize(width?: number, height?: number): string {
+    const clamp32 = (v: number) => Math.max(512, Math.min(4096, Math.round(v / 32) * 32));
+    let w = clamp32(width || 1280);
+    let h = clamp32(height || 720);
+    if (w / h > 3) w = h * 3;   // h 已是 32 倍数 → 乘 3 仍是 32 倍数
+    if (h / w > 3) h = w * 3;
+    return `${w}x${h}`;
+  }
+
+  /**
+   * SenseNova (商汤) 文生图后备（2026-09-30 实测探针 2/2 通过）：
+   * POST https://token.sensenova.cn/v1/images/generations（OpenAI 兼容）
+   * ⚠️ n 只支持 1 → 按张数拆多次请求；
+   * ⚠️ response_format 默认 b64_json → 显式传 'url'（URL 24h 过期，调用方需及时下载）；
+   * ⚠️ watermark 默认 true → 显式 false 才是公测无水印原图；
+   * ⚠️ prompt_extend 默认 true → 显式 false 保提示词忠实（避免风格漂移）；
+   * ⚠️ size 为 32 的倍数、512~4096、最大 3:1；错误 429 = 积分限流。
+   * 公测免费：1,500 次/5 小时/模型 + 滚动积分池；usage 单张 ≈ 4.4k~4.6k tokens。
+   */
+  private async generateImageWithSenseNova(
+    apiKey: string,
+    options: ImageGenerationOptions,
+  ): Promise<string[]> {
+    const requested = options.model && options.model.startsWith('sensenova-') ? [options.model] : [];
+    const models = requested.length ? requested : ['sensenova-u1.5-lite', 'sensenova-u1.5-fast'];
+    const size = this.pickSenseNovaSize(options.width, options.height);
+    const count = Math.max(1, options.numImages || 1);
+
+    let lastError: any;
+    for (const model of models) {
+      const urls: string[] = [];
+      for (let i = 0; i < count; i++) {
+        try {
+          const res = await axios.post(
+            'https://token.sensenova.cn/v1/images/generations',
+            {
+              model,
+              prompt: options.prompt,
+              n: 1,
+              size,
+              response_format: 'url',
+              watermark: false,
+              prompt_extend: false,
+            },
+            { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
+          );
+          const url = res.data?.data?.[0]?.url;
+          if (!url) throw new Error('SenseNova 返回体里没有图片');
+          urls.push(url);
+        } catch (err: any) {
+          lastError = err;
+          const msg = err.response?.data?.detail || err.response?.data?.error?.message || err.response?.data?.message || err.message;
+          this.logger.warn(`SenseNova ${model} image ${i + 1}/${count} failed (HTTP ${err.response?.status || 'ERR'}): ${msg}`);
+          if (/sensitive|policy|illegal|violate|security|inappropriate|内容安全|违规/i.test(String(msg))) {
+            const e: any = new Error('提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述');
+            e.noRetry = true;
+            throw e;
+          }
+          break; // 换下一个模型
+        }
+      }
+      if (urls.length === count) {
+        this.logger.log(`SenseNova ${model} generated ${urls.length} image(s) (size ${size})`);
+        this.logModelUsage(model, options.prompt, true);
+        return urls;
+      }
+      this.logModelUsage(model, options.prompt, false, lastError?.message);
+    }
+
+    this.logger.error(`All SenseNova image models failed. Last error: ${lastError?.message}`);
+    throw lastError || new Error('All SenseNova image models unavailable');
+  }
+
+  /** 请求尺寸 → Agnes 图像尺寸档（1K/2K/4K）+ 最近比例（1:1/16:9/9:16/4:3/3:4/21:9） */
+  private pickAgnesImageSize(width?: number, height?: number): { size: string; ratio: string } {
+    const w = width || 1280, h = height || 720;
+    const mp = (w * h) / 1_000_000;
+    const size = mp <= 1.3 ? '1K' : mp <= 4.2 ? '2K' : '4K';
+    const target = w / h;
+    const RATIOS: Array<[string, number]> = [['1:1', 1], ['16:9', 16 / 9], ['9:16', 9 / 16], ['4:3', 4 / 3], ['3:4', 3 / 4], ['21:9', 21 / 9]];
+    let best = '16:9', diff = Infinity;
+    for (const [name, r] of RATIOS) {
+      const d = Math.abs(r - target);
+      if (d < diff) { diff = d; best = name; }
+    }
+    return { size, ratio: best };
+  }
+
+  /**
+   * Agnes Image 文生图后备（2026-09-30 探针 2/2 实测通过，限免期 $0）：
+   * POST https://apihub.agnes-ai.com/v1/images/generations（OpenAI 兼容，返回 data[0].url）
+   * ⚠️ size 是档位 '1K'/'2K'/'4K'（不是像素串）+ ratio 比例参数；n 按张拆分；
+   *    响应含 revised_prompt（自动扩写不可关——与 SenseNova 不同，风格漂移需靠提示词本身约束）。
+   */
+  private async generateImageWithAgnes(
+    apiKey: string,
+    options: ImageGenerationOptions,
+  ): Promise<string[]> {
+    const requested = options.model && options.model.startsWith('agnes-image') ? [options.model] : [];
+    const models = requested.length ? requested : ['agnes-image-2.5-flash', 'agnes-image-2.1-flash', 'agnes-image-2.0-flash'];
+    const { size, ratio } = this.pickAgnesImageSize(options.width, options.height);
+    const count = Math.max(1, options.numImages || 1);
+
+    let lastError: any;
+    for (const model of models) {
+      const urls: string[] = [];
+      for (let i = 0; i < count; i++) {
+        try {
+          const res = await axios.post(
+            'https://apihub.agnes-ai.com/v1/images/generations',
+            {
+              model,
+              prompt: options.prompt,
+              size,
+              ratio,
+              n: 1,
+              extra_body: { response_format: 'url' },
+            },
+            { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
+          );
+          const url = res.data?.data?.[0]?.url;
+          if (!url) throw new Error('Agnes 返回体里没有图片');
+          urls.push(url);
+        } catch (err: any) {
+          lastError = err;
+          const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
+          this.logger.warn(`Agnes ${model} image ${i + 1}/${count} failed (HTTP ${err.response?.status || 'ERR'}): ${msg}`);
+          if (/sensitive|policy|illegal|violate|security|inappropriate|内容安全|违规/i.test(String(msg))) {
+            const e: any = new Error('提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述');
+            e.noRetry = true;
+            throw e;
+          }
+          break; // 换下一个模型
+        }
+      }
+      if (urls.length === count) {
+        this.logger.log(`Agnes ${model} generated ${urls.length} image(s) (size ${size}, ratio ${ratio})`);
+        this.logModelUsage(model, options.prompt, true);
+        return urls;
+      }
+      this.logModelUsage(model, options.prompt, false, lastError?.message);
+    }
+
+    this.logger.error(`All Agnes image models failed. Last error: ${lastError?.message}`);
+    throw lastError || new Error('All Agnes image models unavailable');
+  }
+
   /** Generate video from image/text using configured AI provider */
   async generateVideo(options: VideoGenerationOptions, textPrompt?: string, onProgress?: (progress: number) => void): Promise<string> {
     const provider = await this.getConfigValue('video_provider') || 'auto';
@@ -722,6 +897,11 @@ export class AIServiceUtil {
           const key = await this.getApiKey('zai_api_key');
           if (key) return await this.generateVideoWithZhipu(key, options, textPrompt, onProgress);
           throw new Error('智谱 Key 未配置，无法使用 ' + options.model);
+        }
+        if (options.model.startsWith('agnes-')) {
+          const key = await this.getApiKey('agnes_api_key');
+          if (key) return await this.generateVideoWithAgnes(key, options, textPrompt, onProgress);
+          throw new Error('Agnes Key 未配置，无法使用 ' + options.model);
         }
       } catch (err: any) {
         this.logger.warn(`Requested model ${options.model} failed: ${err.message}. Falling back to auto mode.`);
@@ -776,6 +956,13 @@ export class AIServiceUtil {
       try { return await this.generateVideoWithTongyi(tongyiKey, options, textPrompt); }
       catch (err: any) { this.logger.error(`通义万相 failed: ${err.message}`); }
     }
+    // 阿里云视频额度用尽/停用后的后备（2026-09-30 接入，Agnes Video 2.5 Flash 限免期）
+    const agnesKey = await this.getApiKey('agnes_api_key');
+    if (agnesKey && activeVideoModels.some((m: any) => m.provider === 'agnes')) {
+      this.logger.log('Using Agnes Video 2.5 Flash for video generation (fallback)');
+      try { return await this.generateVideoWithAgnes(agnesKey, options, textPrompt, onProgress); }
+      catch (err: any) { this.logger.error(`Agnes video failed: ${err.message}`); }
+    }
     if (volcKey && !this.isProviderOnCooldown('volcengine') && activeVideoModels.some((m: any) => m.provider === 'volcengine')) {
       this.logger.log('Using 火山引擎 Seedance for video generation');
       try { return await this.generateVideoWithSeedance(volcKey, options, textPrompt); }
@@ -807,6 +994,147 @@ export class AIServiceUtil {
     }
 
     throw new Error('所有视频供应商均不可用');
+  }
+
+  /** ratio → Agnes 支持的 aspect_ratio（最近匹配；缺省 16:9 与 API 默认一致） */
+  private mapAgnesAspectRatio(ratio?: string): string {
+    const SUPPORTED: Array<[string, number]> = [['9:16', 9 / 16], ['3:4', 3 / 4], ['1:1', 1], ['4:3', 4 / 3], ['16:9', 16 / 9], ['21:9', 21 / 9]];
+    const m = ratio && ratio.match(/^(\d+):(\d+)$/);
+    if (m) {
+      const t = Number(m[1]) / Number(m[2]);
+      let best = '16:9', diff = Infinity;
+      for (const [name, v] of SUPPORTED) {
+        const d = Math.abs(v - t);
+        if (d < diff) { diff = d; best = name; }
+      }
+      return best;
+    }
+    return '16:9';
+  }
+
+  /**
+   * Agnes Video 2.5 Flash 文生/图生视频后备（2026-09-30 文档核实，限免期 $0/s）：
+   * POST /v1/videos 异步创建（响应 video_id）→ GET /agnesapi?video_id=&model_name= 轮询 status/url。
+   * ⚠️ Flash 限制：size 仅 "720P"、reference 图 ≤5 张、不支持参考视频；seconds 为字符串 "4"~"12"；n=1。
+   * 模式：0 图=text、1 图=keyframe（first_frame 保留真实首帧，≈i2v）、多图=reference（prompt 用 <Picture N> 引用，≈r2v）。
+   * ⚠️ 媒体 URL 须公网可达 → 本地 /static/ 一律转 data URI（同 Runway 手法）。
+   * ⚠️ 503 video_queue_full / 429 免费档限流是限免期常态 → 创建退避重试 4 次；轮询 429 单独退避。
+   * 完成返回远端 url（generate.service.downloadToLocal 负责本地化，与其它 provider 一致）。
+   */
+  private async generateVideoWithAgnes(
+    apiKey: string,
+    options: VideoGenerationOptions,
+    textPrompt?: string,
+    onProgress?: (progress: number) => void,
+  ): Promise<string> {
+    const model = 'agnes-video-2.5-flash';
+    const prompt = textPrompt || options.prompt || 'cinematic video';
+
+    // 收集参考图：media 优先，其次 imageUrl
+    const imgUrls: string[] = [];
+    for (const m of options.media || []) {
+      if (m && m.type === 'image' && m.url) imgUrls.push(m.url);
+    }
+    if (!imgUrls.length && options.imageUrl) imgUrls.push(options.imageUrl);
+    const toPublic = async (u: string): Promise<string> => {
+      if (u.startsWith('data:')) return u;
+      const isLocal = /^https?:\/\/[^/]+\/static\//.test(u) || (!/^https?:\/\//.test(u) && !u.startsWith('data:'));
+      if (isLocal) {
+        try { return `data:image/jpeg;base64,${await this.imageToBase64(u)}`; }
+        catch { return u; }
+      }
+      return u;
+    };
+
+    const rawSec = options.duration || 5;
+    const seconds = String(Math.min(12, Math.max(4, Math.round(rawSec))));
+    if (rawSec > 12 || rawSec < 4) {
+      this.logger.warn(`Agnes seconds 由 ${rawSec}s 夹到 ${seconds}s（支持 4~12s）`);
+    }
+    const body: any = {
+      model,
+      prompt,
+      seconds,
+      mode: 'text',
+      size: '720P',
+      aspect_ratio: this.mapAgnesAspectRatio(options.ratio),
+      n: 1,
+    };
+    if (imgUrls.length === 1) {
+      body.mode = 'keyframe';
+      body.first_frame = await toPublic(imgUrls[0]);
+    } else if (imgUrls.length > 1) {
+      body.mode = 'reference';
+      body.images = await Promise.all(imgUrls.slice(0, 5).map(toPublic));
+      body.prompt = `Use <Picture 1> as the content and style reference. ${prompt}`;
+    }
+
+    // 创建任务（503 队列满 / 429 限流 → 退避重试）
+    let created: any = null;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const res = await axios.post(
+          'https://apihub.agnes-ai.com/v1/videos',
+          body,
+          { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 30000 },
+        );
+        created = res.data;
+        break;
+      } catch (err: any) {
+        const status = err.response?.status;
+        const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
+        if ((status === 503 || status === 429) && attempt < 4) {
+          // 实测（2026-09-30 长探针）：免费档创建限流 ≈2 次/分钟（25s 间隔必撞每 3 次 429）→ 固定 45s 退避
+          const wait = 45;
+          this.logger.warn(`Agnes video create ${status} (attempt ${attempt}): ${msg} → ${wait}s 后重试`);
+          await this.delay(wait * 1000);
+          continue;
+        }
+        throw new Error(`Agnes video 创建失败(HTTP ${status}): ${msg}`);
+      }
+    }
+    if (!created) throw new Error('Agnes video 创建失败：队列持续拥堵');
+    const vid = created.video_id || created.id;
+    if (!vid) throw new Error(`Agnes video 创建响应缺少 video_id: ${JSON.stringify(created).slice(0, 200)}`);
+    this.logger.log(`Agnes video task created: ${vid} mode=${body.mode} ${seconds}s ${body.aspect_ratio}`);
+
+    // 轮询（6s 间隔，最多 10 分钟；免费档限流 ≈2 次/分钟 → 429 单独退避 20s）
+    onProgress?.(5);
+    const t0 = Date.now();
+    for (let i = 0; i < 100; i++) {
+      await this.delay(6000);
+      let pj: any = null;
+      try {
+        const pr = await axios.get('https://apihub.agnes-ai.com/agnesapi', {
+          params: { video_id: vid, model_name: model },
+          headers: { Authorization: `Bearer ${apiKey}` },
+          timeout: 30000,
+        });
+        pj = pr.data;
+      } catch (err: any) {
+        if (err.response?.status === 429) { this.logger.warn('Agnes video poll 429，退避 20s'); await this.delay(20000); }
+        else this.logger.warn(`Agnes video poll failed: ${err.message}`);
+        continue;
+      }
+      if (typeof pj.progress === 'number') onProgress?.(Math.min(95, Math.round(5 + pj.progress * 0.9)));
+      if (pj.status === 'completed') {
+        if (!pj.url) {
+          this.logModelUsage(model, prompt, false, 'completed 但缺少 url');
+          throw new Error('Agnes video completed 但响应缺少 url');
+        }
+        onProgress?.(96);
+        this.logger.log(`Agnes video ${vid} completed in ${Math.round((Date.now() - t0) / 1000)}s → ${String(pj.url).slice(0, 120)}`);
+        this.logModelUsage(model, prompt, true);
+        return pj.url;
+      }
+      if (pj.status === 'failed') {
+        const em = pj.error?.message || JSON.stringify(pj.error);
+        this.logModelUsage(model, prompt, false, em);
+        throw new Error(`Agnes video 生成失败: ${em}`);
+      }
+    }
+    this.logModelUsage(model, prompt, false, 'poll timeout');
+    throw new Error('Agnes video 轮询超时（10 分钟）');
   }
 
   /** Generate video using 通义万相 (Aliyun Bailian) — async task-based API */

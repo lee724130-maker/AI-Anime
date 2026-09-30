@@ -1,5 +1,154 @@
 # 修复日志
 
+## 2026-09-30（收尾轮：dashboard「我的短剧」→「我的作品」模块入口重构 + 上新文案/封面/吉祥物清理 —— 新测试 11/11 + 44/44 + 27/27 + 40/40 全绿；**已 git 提交，生产部署留下次**）
+
+> 承接同日「供应商后备接入」节。用户拍板本轮收尾 5 件：② 上新卡改正式宣传语、③「我的短剧」→「我的作品」按模块入口切换展示各模块生成的视频、④ 吉祥物文件清理、⑤ 礼物封面定 `promo_cover_act5_v2`、① 种子同步。**功能全部完成**；按用户指示「太久就先提交 md + git，剩下的下次做」→ 本轮**只提交不部署**。
+
+### ✅ ① 上新卡新文案（用户原话，正式宣传语非技术描述）
+- 本地 DB `feature_releases` id3：`title='生成视频同步生成封面'`，`summary='生成视频时，模型会沿用视频的提示词生成该视频的封面，画面更美观，而不是用视频第一帧作为封面'`（已 UPDATE + 回查确认）。
+- `Temp\opencode\promo-seed.sql`（生产灌种子）同步：新标题/新 summary + **DELETE 列表同时含新旧标题**（防幂等重复插入）+ `activities`/`feature_releases` 五处 `cover_url` 由 NULL 补实际路径（act5_v2 / act6 / rel3 / rel4 / rel5）→ 生产灌完即有图。
+- 本地 DB 五处 cover_url 已回查齐全。
+
+### ✅ ② 「我的作品」模块入口重构（本轮主体）
+- **后端新 `GET /api/workbench/works`**（`workbench.service.ts getWorks` + controller，JwtAuthGuard）：
+  - 模块字典 `WORK_MODULES`：`generate AI 生成 / drama 短剧 / viral 热门创作 / canvas 画布 / editor 剪辑`，返回 `{modules, items}`；
+  - **`editor 剪辑` 仅 `user.role==='admin'` 返回**（与 AppShell 侧边栏 admin-only 规则一致，普通用户 tab 只有 5 个）；
+  - 数据源：`generation_tasks(type='video')`（`output_data` 解析 `{url}`/`[{url}]`，`cover_url` 直取）+ `drama_segments JOIN episodes JOIN projects`（`video_url` 非空且非 `ERROR:`）+ `viral/canvas/editor_projects.result_url`；**每模块 take 40，时间倒序合并**；
+  - 入列表规则 = **有视频 ∪ 正在生成(generating/rendering/processing) ∪ failed**（给状态反馈），`pending` 空项目不进；
+  - drama 条目 `link = /drama/{project}/episodes/{episode}`，其余回模块页；`genVideoUrl` 生成任务 url 解析。
+- **前端 `Home/index.tsx` 区块⑥**：标题「我的短剧」→**「我的作品」**；`PROJECT_TABS` 状态 tab 整删 → **tab 由接口 `modules` 驱动（全部 + 5 模块）**；新增 `WORK_STATUS_MAP`（pending/processing/generating/rendering/completed/failed → 中文标签），`PROJECT_STATUS_MAP`/`filteredProjects`/`hasNoProjects` 全删；
+  - 卡片：有 `cover_url` 用 `<img>`、否则有视频用 `<video preload="metadata" muted>` 首帧、否则 tint 占位；有视频显 `.ltv-show-play` hover 播放浮层；**点卡片有视频 → 复用作品展播放 Modal，无视频 → `navigate(link)`**；meta = 状态 Tag + 模块名；
+  - 搜索框 placeholder 改「搜索作品」、空态改「暂无作品/没有匹配的作品」、右上按钮「新建→/drama/create」改**「去创作 → /generate」**；
+  - 数据 `fetchWorks()` 随 summary 同 10s 静默轮询；请求失败整块隐藏（与作品展/活动栏同策略）；
+  - `playing` state 类型放宽为 `{title, video_url}`，作品展 Modal 复用零改动；
+  - `index.css` 补 `.ltv-show-cover video{...object-fit:cover;background:#000}`（原只有 img 规则）。
+
+### ✅ ④ ⑤ 文件清理（已执行）
+- **吉祥物删 25 张**：v1 mascot×10 + mascot2_sn×5 + mascot2_ag_4/5 + `promo_turn_*`×3 + `promo_i2i_*`×3 + `promo_cover_act5_sn/ag`×2。
+- **现存 `backend/output/promo_*.png` 11 张**：`cover_act5 / cover_act5_v2 / cover_act6 / cover_rel3 / cover_rel4 / cover_rel5` + `mascot2_ag_1/2/3` + `s3_ag1/2/3` + `s3b_ag1` + `s4_ag1` + `s5_ag1`（定稿 `promo_s3_ag3.png`）。`promo_cover_act5.png`（最早版）用户未点名暂留。
+- 新背景图（吉祥物应用图）留**下次项目工作**再生成。
+
+### ✅ 测试（全绿）
+- **`test-works-api.js` 11/11**（新）：401 / 模块字典 5 键 + 剪辑 label=剪辑 / 字段完整 / 时间倒序 / drama link 含 episodes / 无 `ERROR:` 残留 video_url。
+- **`test-shell-func` 44/44**（断言同步）：`我的作品` 标题、`module tabs = 6` + 6 个 label 齐全、空态 `暂无作品`、「去创作黑底白字」+「去创作 → /generate」、`短剧 tab → cards all drama module`、`没有匹配的作品`。
+- **`test-fe-showcase` 27/27**（断言同步）：`drama tabs still 4` → `works module tabs = 6`。
+- **`test-promo-fe` 40/40**（两处同步）：上新卡标题改新文案；**新增预清理 SQL**（见血泪 1）。
+- 双端 tsc EXIT=0；后端已重启跑新代码（`backend-run25.log`）。
+
+### ⚠️ 本轮血泪
+1. **新手任务「可领取」断言会被历史领取残留打成假 FAIL**：`user_task_claims` 里 admin 对种子活动 id5 的 first_generate/first_drama 残留 → 面板全「已领取」→ `btns=0` + 后续点击超时（本轮 promo-fe 首轮即此）。**对策 = 测试开跑前预清理**（`DELETE user_task_claims WHERE user_id=(admin)` + `credits 重置 9999`），收尾原有回滚保持不变——凡「断言可领状态」的测试都必须自备预清理，测试才可反复跑。
+2. **改文案 = 改 DB + 改 seed 两处**，且 seed 的幂等 `DELETE ... WHERE title IN (...)` 必须**新旧标题都列**，否则换标题后重复灌种子会撞唯一/产生重复行。
+3. `test-shell-func` 的「新建 → /drama/create」导航断言绑的是我改掉的那个按钮 → 改按钮必须同步改**样式断言（evaluate 里的精确文本匹配）+ 导航断言**两处，且定位改 scope `.ltv-tv-tools button` 防误点别处。
+
+### 📋 状态与待办（下次接续）
+- **服务**：backend :3000（`backend-run25.log`，含 works 接口）、FE :5173、admin :5174。
+- [x] 5 件收尾任务全部完成 + 4 套测试全绿 + **git 提交（本轮完成，hash 见下条提交）**
+- [ ] **剩余回归未跑**（时间关系按用户指示跳过）：`test-fe-foundation` / `test-fe-generate` / `test-promo-smoke` / `test-promo-admin-fe` / `test-admin-fe` 等；`test-shell-func` 与 promo/showcase 已覆盖本轮改动面
+- [ ] **生产部署（下次，需用户明确指示）**：三端 build → 重建部署脚本（`Temp\opencode\deploy*.js` 已不在）→ 上传 → **生产灌 `promo-seed.sql`（含新文案 + 5 处 cover_url）+ 上传 5 张 cover 图（act5_v2/act6/rel3/rel4/rel5）到生产 `backend/output/`** → 冒烟
+- [ ] Agnes 视频探针仍在后台蹲队列（`probe-agnes-video4.js`，日志 `agnes-video-probe4.log`）→ 通了跑后端 t2v e2e；封面 e2e 15 条等 `VIDEO_E2E=1`
+- [ ] 下次项目工作时用吉祥物生成新背景图替代礼物封面背景
+
+---
+
+## 2026-09-30（供应商后备接入：商汤 SenseNova + Agnes AI —— 图像三测试 10/10×3 全绿（含自动链后备 + 修「用完即停」硬编码兜底 bug）；视频限免但队列拥堵待 e2e；零提交待用户拍板）
+
+> 背景：阿里云「用完即停」，用户给两把新 key 做后备。商汤 key `sk-7fAUg...`（system_configs `sensenova_api_key`）、Agnes key `sk-ec3b...`（`agnes_api_key`）。⚠️ 两 key 不进 git/不进日志，只落 system_configs。
+
+### ✅ ① 商汤 SenseNova（`sensenova_api_key`，已接入 + 实测 10/10）
+- **探针**（`probe-sensenova.js`）：`POST https://token.sensenova.cn/v1/images/generations` ×2 全 200——`sensenova-u1.5-lite` 15s / `sensenova-u1.5-fast` 4s，URL 格式 PNG 1.1MB，usage 单张 ≈4.4k~4.6k tokens（公测免费 1,500 次/5h/模型 + 滚动积分池）。
+- **接入**（`ai-service.util.ts`）：图像自动链 = **阿里云 → 商汤 → Agnes → 火山 → OpenAI → 智谱**；`model` 以 `sensenova-` 开头直通 `generateImageWithSenseNova`。配方：`n:1` 拆张、`response_format:'url'`、`watermark:false`、**`prompt_extend:false`**（防风格漂移）、size 自动换算 32 倍数/512~4096/≤3:1；内容安全 → noRetry 中文可读错误。
+- **DB**：`model_configs` id93/94 = `sensenova-u1.5-lite`(p40)/`-fast`(p41) active；显式指定 t2i → completed → 真 PNG → 日志命中（`test-sensenova-int.js` **10/10**）。⚠️ t2i dto 校验走 `model_configs`，新模型必须插行否则 400「模型不存在或未启用」。
+
+### ✅ ② Agnes AI 图像（`agnes_api_key`，已接入 + 实测 10/10）
+- **探针**（`probe-agnes.js`）：`agnes-image-2.5-flash` 200（9.8s，PNG 404KB）。Base `https://apihub.agnes-ai.com/v1` OpenAI 兼容；**限免促销 $0**（文本/图像/视频 flash 全线，随时可能结束）。
+- **接入**：`generateImageWithAgnes` + `pickAgnesImageSize`（**size 是档位 `1K`/`2K`/`4K` + `ratio` 比例参数**，与商汤像素串完全不同）；模型降级 2.5→2.1→2.0 flash；`agnes-image` 前缀直通。⚠️ Agnes 会返回 `revised_prompt`（自动扩写**不可关**，风格约束只能靠提示词本身）。
+- **DB**：image id95 `agnes-image-2.5-flash`(p42)；显式 t2i → completed → PNG 646KB → 日志命中（`test-agnes-int.js` **10/10**）。
+
+### ✅ ③ Agnes 视频（代码已写 + DB 已灌，⏳ 等限免队列空档做 e2e）
+- **契约**（官方 docs 核实，flash 继承 video-2.5）：`POST /v1/videos` 创建（响应 `video_id`）→ `GET /agnesapi?video_id=&model_name=agnes-video-2.5-flash` 轮询 `status/progress/url`；**Flash 限制：size 仅 `720P`、reference 图 ≤5、不支持参考视频**；`seconds` 字符串 `"4"~"12"`、`n:1`、aspect 支持 `9:16`(720x1280)/16:9/1:1/4:3/3:4/21:9。
+- **模式映射**：0 图=`text`；1 图=`keyframe`+`first_frame`（保留真实首帧 ≈ i2v）；多图=`reference`+`images`（prompt 前缀 `Use <Picture 1> as...` ≈ r2v）。**媒体 URL 须公网可达 → 本地 `/static/` 转 data URI**（同 Runway 手法）。
+- **接入**：`generateVideoWithAgnes`（创建 503/429 → 退避重试 4 次；轮询 3s×10min，429 单独退避 6s；完成返回远端 url，`downloadToLocal` 本地化由 generate.service 负责）；**视频自动链 = 阿里云 → Agnes → 火山 → Runway → 智谱**；`agnes-` 前缀直通。
+- **DB**：video id96/97/98 = `agnes-video-2.5-flash` sub_capability `t2v`/`i2v`/`r2v` active（显式传 model 的校验要按 sub_capability 匹配行）。
+- **⏳ 阻塞**：限免视频队列持续 `503 video_queue_full`（外加偶发 429 free user rate limit）——短探针 8 次退避全撞满（`probe-agnes-video.js` 0/1）；**长探针 `probe-agnes-video2.js` 后台跑**（每 25s 重试 ×60 ≈25 分钟 + 完成后轮询落盘 `agnes_vid.mp4`，日志 `agnes-video-probe.log`）。队列空档拿到 e2e 后再补后端 t2v 任务验证。
+- ⚠️ `seconds` 超 4~12 会夹到边界并 warn（阿里云模型 5/15s 习惯不同，短剧片段时长可能被夹）。
+
+### ✅ ④ 图像自动链实测（阿里云「用完即停」→ 后备接住，10/10）+ 硬编码兜底 bug 修复
+- **发现真 bug**：`generateImageWithTongyi` 原来在阿里云 image 行**全 inactive 时回落硬编码 qwen 列表**（line 590 `fallbackModels = models.length ? models : [...]`）→ 「用完即停」形同虚设，永远打阿里云。**修复**：空列表直接抛「阿里云图像模型已全部停用或不存在，跳过通义万相」交棒后备（auto 链 line 315/349 均有 catch，安全）；显式 `wan*` 请求受 dto 校验（inactive 即 400）不受影响。
+- **验证**（`test-fallback-chain2.js` **10/10**，可逆）：脚本事务式「记录 12 行 aliyun image 原状态 → 全置 inactive → no-model 提交 t2i → 断言日志窗口无阿里云出图 + 命中 `Using SenseNova (商汤)... fallback` → 商汤 15s 出图 completed → 任务清理 → finally 恢复原状态并核对 active=4/4」。日志链完整可见：`通义万相 failed: 已全部停用` → `Using 通义万相（auto 二跳）failed` → `Using SenseNova (商汤) for image generation (fallback)` → `sensenova-u1.5-lite generated 1 image(s) (size 1280x736)`。
+- ⚠️ 测试教训：断言「后备出图」必须**按提交前日志偏移切窗**（先前用 `slice(-N)` 命中了上一任务的同名日志 = 假阳性，把「阿里云自己成功」误判成「后备命中」）；停用/恢复 DB 状态的测试必须 finally 恢复 + 恢复后计数断言。
+
+### ✅ ⑤ Agnes 视频限免实测结论（⏳ 等队列空档）+ 退避参数按实测定型
+- **长探针实测收官**（`probe-agnes-video2.js`，每 25s ×60 次，09:19~09:45）：**0/60 全败 = 40×`503 video_queue_full` + 20×免费档 429**，26 分钟零空档；429 呈**固定每 3 次命中**（25s 间隔 → 创建限流 ≈2 次/分钟）。错峰探针 `probe-agnes-video3.js`（60s 间隔 ×60 ≈1h 后台，成功即停 + 自动轮询下载）继续蹲队列空档。
+- **按实测调参**（`generateVideoWithAgnes`）：创建退避 `15*attempt`（15/30/45s，必撞 429）→ **固定 45s**（限流友好）；轮询 3s×200 → **6s×100**（429 单独退避 20s，仍 10min 上限）。
+- **⚠️ 契约补充（09-30 错峰探针意外收获）**：`POST /v1/videos` **`mode` 是必填字段**——队列满/限流时 503/429 先于参数校验返回，错峰探针（60s 间隔）首两次请求暴露 `400 invalid_request "mode is required" {param:"mode"}`。后端 `generateVideoWithAgnes` 已带 `mode: text|keyframe|reference` ✓；**后续任何裸测脚本必须带 mode，否则拿到 400 误判为参数映射 bug**。
+- **✅ 生图高峰限流探针**（`probe-image-peak.js`，09:52~09:56，每家 = 3 并发突发 + 8 次顺序 ×10s）：**商汤 u1.5-fast 10/10 + Agnes image-2.5-flash 11/11，零 429/零 503/零排队**——3 并发突发两家都直接 200（不限并发）；延迟商汤 min 3.7s / max 5.8s / avg 4.6s（快一倍），Agnes min 8.8s / max 13.9s / avg 9.7s。商汤 seq3 一次 `fetch failed`（本地网络抖动，非供应商限流，seq4 起恢复）；本轮耗商汤额度 11 次（u1.5-fast 1500/5h 余量充足）。**结论：生图链路高峰可用，仅视频队列拥堵。**
+- 队列空档拿到 create→completed→下载 的 e2e 后，再补一单后端 t2v（model=agnes-video-2.5-flash）端到端。
+
+### 📋 状态与待办
+- 后端 :3000 已跑含双接入 + 两轮修复的新 dist（`backend-run24.log`）；图像三测试全绿（显式商汤 10/10、显式 Agnes 10/10、自动链后备 10/10）。
+- [ ] Agnes 视频 e2e（等后台探针）→ 过了再跑一单后端 t2v（model=agnes-video-2.5-flash）端到端
+- [ ] `test-auto-cover`/封面 e2e 仍等视频链可用（阿里云 403/欠费）——Agnes 视频通了以后可作为替代跑法
+- [ ] git 提交（Part 3 A + 布局二调 + 封面 + 本节双供应商，HEAD `7a4478e` 全未提交）与部署生产，等用户指示；**部署后生产库需插 `sensenova_api_key`/`agnes_api_key` 两配置 + 5 行 model_configs + promo 种子**
+
+---
+
+## 2026-09-30（Part 3 A：活动栏 + 新功能上新 + 新手任务玩法 —— 全部落地，新测试 36/36 + 37/37 + 32/32 + 10/10，回归 42+23+27+28+31+20+35+79+93+23 全绿；零提交待用户拍板）
+
+> 承接作品展后台管理（`7a4478e` 已部署）。本轮做 `docs/dev-checklist.md` Part 3 A（A.1~A.7）。开工前拍板：**D-A1 原 5 快捷入口宽卡改窄条 `.ltv-quickrow`（徽章数字随宽卡删除）** / **D-A2 与侧边栏导航重复可接受**；数据走**重方案**（`activities`/`feature_releases`/`user_task_claims` 三新表 + admin CRUD，非 JSON 配置）；首发 **2~3 张真上新卡 + 占位活动 1~2**；首个玩法 = **新手任务清单**（进度全靠现有数据实时 COUNT，不建进度表；claim 写唯一键 + 发积分 50/50/50/50/50/30）。
+
+### ✅ ① 后端（workbench + admin）
+- **三实体**（synchronize 自动建表）：`activity.entity.ts`（title/subtitle/cover_url/link_url/button_text/kind banner|card/status/priority/starts_at/ends_at/gameplay/config text）、`feature-release.entity.ts`（title/summary/cover_url/link_url/tag NEW|BETA|HOT/priority/status/released_at）、`user_task_claim.entity.ts`（唯一键防双领）。
+- **`gameplay.constants.ts`**：`GAMEPLAY_TYPES=['newbie_tasks']` + `TASK_DETECTORS`（6 key → SQL+title+默认积分：first_generate/first_drama/first_canvas/first_viral/first_editor=50、first_asset=30）+ `TASK_KEYS`——admin 校验与 workbench 判定共用，防两端白名单漂移。
+- **`promo.service.ts`**：`getPromo`（status=online 且在期，活动 priority DESC；上新 priority DESC）/ `gameplayTasks`（当前 newbie_tasks 活动取 priority 最高者，config.tasks 解析失败按无任务；每任务实时 COUNT 判定 done → claimed（查 user_task_claims）→ claimable=done&&!claimed）/ `claim`（未完成 400、已领 400、**DB 层幂等插入+affectedRows 判定防并发双领**、发积分）。
+- **workbench 3 端点**（JwtAuthGuard）：`GET /api/workbench/promo`、`GET /api/workbench/gameplay/tasks`（返回 `{activity, tasks[]}`，无任务时 activity=null）、`POST /api/workbench/gameplay/claim {task_key}`。
+- **admin CRUD**：`promo-validate.ts`（title 必填、link 仅站内路由或 http(s)、starts≤ends、config JSON 结构 + 任务 key 白名单、tag 白名单）+ `activity-admin.service.ts` / `release-admin.service.ts`（列表含 `task_keys` 字典、update 12 键白名单防任意列写入）+ `admin.controller` 8 端点（`@Roles('admin')`，log type `activity|release`，GET/POST/PUT/DELETE ×2）。**普通用户全部 403**（实测 10/10）。
+- 编译：backend `tsc` EXIT=0；后端已重启（shell `sh_0f118d07e001x4Sr43SeiVKCbw`，日志 `backend-run20.log` raw UTF-8）。
+
+### ✅ ② admin 前端（菜单 12→14）
+- **新 `ActivityManage/index.tsx`**：列 = 封面（无封面走 `CSS 占位` 渐变块）/标题/副标题/类型 tag（主横幅·副活动卡）/玩法 tag（新手任务·纯展示）/状态（展示中·已下线·草稿）/优先级/起止时间/跳转/操作（编辑 aria-label、上线⇄下线、Popconfirm 删除）；Modal 含起止时间 dayjs 文本回填、**玩法选「新手任务清单」才显任务配置 JSON + 「填入默认任务」按钮**（DEFAULT_TASKS_JSON 同 gameplay.constants）、上传封面（`POST /api/media/upload` beforeUpload return false）、`''→null`、非 newbie_tasks 时 config 置 null。
+- **新 `ReleaseManage/index.tsx`**：tag 三色（NEW cyan/BETA gold/HOT red）+ 同款 Modal（上架时间/跳转/封面）。
+- **接线**：`Dashboard` MENU 12→**14**（activities GiftOutlined / releases ThunderboltOutlined 插 showcase 后）+ resolveKey 白名单 + renderPage case；`App.tsx` 两子路由；`UserManage.PERMISSION_MATRIX` 10→**12**（+活动管理、+上新管理）。`tsc -b` EXIT=0。
+
+### ✅ ③ 前台 Home（`.ltv-row5`/`.ltv-wide`/`.ltv-badge` 整块替换）
+- **新增三段**（`index.css` `.ltv-*` 区、`btn-dark` 之前）：
+  1. **`.ltv-promo` 活动栏**（A.2 草图位）：桌面 2 列 `minmax(0,1fr) 280px`，主 banner 3:1（有 cover 走 `background-image` + 底部 scrim 渐变条放标题/副标题/倒计时/CTA；**无 cover 走 `.ltv-banner-ph` 灰阶点阵 + 青色旋转方块 CSS 占位**）+ 右列副卡 `.ltv-promo-card`（图标块+标题+剩余倒计时+CTA，≤2 张）；移动端单列。
+  2. **`.ltv-releases` 上新区**：2/3/4 列响应网格，`.ltv-rel-cover` 16:9 + 左上 `.ltv-rel-tag-*` 角标 + `.ltv-rel-ph` 占位图标 + 标题/两行摘要/「立即体验」。
+  3. **`.ltv-quickrow` 快捷入口窄条**（D-A1）：3 列（移动）/5 列（≥768），48px 高圆角胶囊「图标+文字」，5 项标题与原宽卡逐字一致，导航功能零丢失。
+- **逻辑**：`fetchPromo` 并入主 useEffect（一次性拉取，失败整块隐藏）；有 `ends_at` 才开 1s `now` tick 倒计时；`go()`（http 外开新窗/站内 navigate）；`enterActivity()`（gameplay→开任务面板，否则 go link_url）；`claimTask()`（toast `+N 积分` → 刷新 tasks → refreshUser）；**删 `viralStats` + `/api/viral/stats` 调用 + `wideBadge`**（徽章随宽卡删除，防 TS6133）。
+- **新手任务 Modal**：进度行「已完成 x / N」+ 每行（勾选点/标题/+积分/右侧动作：已领取 Tag、可领 `btn-dark` 领取按钮、未完成「去完成」→ `TASK_ROUTES` 跳转）+ 空态 `Empty`；destroyOnHidden。
+- 区块注释重编号 ③~⑦；`tsc -b` EXIT=0（移除未用 `Carousel`/`ClockCircleOutlined`）。
+- **09-30 二次布局调整（用户反馈）**：限时活动区**只留单个满宽 banner**（`.ltv-promo-grid` 改单列，删 `.ltv-promo-card*` 副卡规则与 `sideActs`）；**card 型活动（每周创作挑战赛）并入「新功能上新」网格**（`.ltv-rel-tag-act` 紫角标「活动/任务」+ `.ltv-rel-remain` 倒计时 + `enterActivity` 点击）；无 cover 时 rel 卡加 `.ltv-rel-cover-ph` 点阵+光晕纹理（有图不渲染占位图标/纹理）；banner 占位加强（`::before` 青/紫光晕 + `::after` 方块加辉光）；admin KIND_META `副活动卡`→`上新活动卡`、Select label 注明所在区。测试同步：`test-promo-fe` **40/40**（新增：无副卡列=0、banner 满宽 ≥95%、上新卡=4、活动角标=1、活动卡倒计时、mobile banner=1）。
+- **09-30 封面生成（路线 2 AI 批量，5/5 全成）**：`Temp\opencode\gen-promo-covers.js`（v3）走 `multimodal-generation` 端点（t2i 已验证配方：`input.messages`+`parameters{size:'1280*720',n:1,watermark:false,negative_prompt}`，**`n>1` 必 400**；首试带 negative、失败自动去 negative 重试 ≤3 次、429 退避 40s、魔数定扩展名、字节 >20KB 校验、单张 UPDATE 回填 + HEAD 200 验证、13min 硬超时）。**模型分配（用户拍板「余量先用掉」）**：banner=`qwen-image-3.0-pro`（4→3 剩）、4 张卡=`qwen-image-3.0`（5→**1 剩**），全部 attempts=1（40~74s/张，475KB~1.3MB PNG）。产物 `backend/output/promo_cover_{act5,act6,rel3,rel4,rel5}.png`，DB `cover_url` 已回填。提示词 = checklist A.5 前缀 + 风格基底（灰阶+单点青 #08B6DD、扁平极简、无文字）。浏览器验证：banner/上新 4 卡 `background-image` 全渲染、light/dark 双主题 0 pageerror（截图 `Temp\opencode\covers-{light,dark}-{promo,releases}.png`）。
+- **⚠️ 图片模型结论（09-30 探针实锤）**：**`qwen-mt-image-2.0` 是图像翻译模型（`input.image_url` 必填），不能做 t2i**——multimodal-generation 上偶发 200 纯属撞到后端路由，不可依赖（先前 AGENTS「mt-image 有 100 次可承接测试」的说法**作废**）；后续图片测试/生成只能用 `qwen-image-3.0`（剩 1）与 `qwen-image-3.0-pro`（剩 3），`qwen-image-2.0-pro-2026-06-22` 旧端点 403 FreeTierOnly 不可用。探针脚本 `probe-mt-image{,2,3}.js` 留档。
+
+### ✅ ④ 种子数据（本地，`promo-seed.sql` SQL 文件法）
+- 活动：`新手任务 · 三重礼`（banner/online/在期 30 天/gameplay=newbie_tasks/config 3 任务 first_generate·first_drama·first_asset）+ `每周创作挑战赛`（card/online/14 天/纯展示 → /viral）。
+- 上新 3 张真卡：`视频自动生成封面`(NEW→/generate)、`优秀作品展上线`(NEW→/)、`长篇漫剧连载`(HOT→/drama)，均 online。
+
+### ✅ ⑤ 测试（全绿）
+- **`test-promo-smoke.js` 36/36**（原 34 断言扩容）：401、校验 400×6、创建/过滤、任务面板、领取+50、重复领 400、未完成领 400、白名单剥离、删除 404、操作日志、清理幂等。
+- **新 `test-promo-fe.js` 37/37**（一次全绿）：无旧 `.ltv-wide`/`.ltv-row5`、窄条 5 项齐全、活动栏=1+主 banner=1+副卡=1、倒计时「剩余 N」、上新 3 卡 NEW×2+HOT×1、section titles x5、点 banner→任务弹窗 3 行+进度 x/3、**点击领取→toast→已领取 Tag→积分+50**、关弹窗、上新卡→/drama、副卡→/viral、窄条创作台→/studio、主题切换后活动栏仍在、desktop+mobile 各 0 pageerror、mobile 窄条 5 + 零横溢。收尾 SQL 回滚积分 + 删 claims。
+- **新 `test-promo-admin-fe.js` 32/32**（token 直注 `admin_token`+`admin_user` 登录，零发信）：菜单 14 + 两新入口、活动管理 h3/行≥2/各类 tag/CSS 占位、编辑弹窗起止时间+config 回填、新增（玩法切换→JSON 出现→填入默认任务→切回纯展示→确定→行出现）、上线⇄下线 tag 切换、Popconfirm 删除、上新管理 h3/行=3/tag NEW·HOT/增删、0 pageerror。
+- **新 `test-promo-403.js` 10/10**：新注册普通用户（Redis 注入验证码 db0）对 8 个 admin 端点全 403，`GET promo` 200；测后删用户+清 Redis 键。
+- **回归（串行，全绿）**：`test-shell-func` **42/42**（断言同步：wide=5→`.ltv-quick`=5、section titles 3→5 含限时活动/新功能上新、`.ltv-wide` 导航改 `.ltv-quick`）、`test-fe-foundation` 23/23、`test-fe-showcase` 27/27、`test-showcase-api` 28/28、`test-fe-generate` 31/31、`test-fe-order` 20/20、`test-fe-ga` 35/35、`test-fe-landing` 79/79、`test-admin-fe` **93/93**（菜单 14、复选框 25、权限标签 12 行同步）、`test-admin-showcase-fe` **23/23**（菜单 12→14 同步）。
+- 三端 tsc：backend 0 / frontend 0 / admin 0。测试后 DB 干净：claims=0、admin credits=9999、无 E2E/promo403 残留用户、种子 2 活动+3 上新完好。
+
+### ⚠️ 本轮血泪（新）
+1. **冒烟套件必须对种子数据免疫**：smoke 原断言「任务面板 3 条」用固定 priority=10，被种子 priority=100 抢走活动槽位→假 FAIL；「测试上新已清干净」按标题 `视频自动生成封面` 匹配，撞了种子同名卡 → **测试造数一律 priority=999 + 标题加 `E2E` 前缀**，通用回归才可反复跑在有种子的库上。
+2. **antd 多 Modal 残留 DOM**：`destroyOnHidden` 之外的 Modal 关闭后留在 DOM（display:none），`.ant-modal input[placeholder*="…"]` 会命中隐藏实例导致 fill 超时 → **新增弹窗的填写/确定按钮一律 scope `.ant-modal:visible`**。
+3. **`/api/admin/activities/task-keys` 路由不存在**（404）——task_keys 是 `GET /api/admin/activities` 响应内联字段，写 403 断言前先 grep controller 确认路由。
+4. **token 直注登录跑 admin UI 测试**：`AdminGuard` 只查 `admin_token` 存在 + JWT exp，`POST /api/auth/login {skipVerification:true}` 拿 token + user 直接 `localStorage.setItem('admin_token'/'admin_user')` 即进 dashboard——**不需要 2FA 流程也能覆盖页面 CRUD**（2FA 流程仍由 `test-admin-fe` 覆盖）。
+5. 本地 redis-cli 不在 PATH → 注入验证码用 `require('redis')` 客户端连 `redis://127.0.0.1:6379/0`（老教训重申）。
+
+### 📋 状态与待办（下个上下文从这里接）
+- **服务**：backend :3000（`sh_0f118d07e001x4Sr43SeiVKCbw`，`backend-run20.log`）、FE :5173（`sh_0f104ae97002znP5S7gsY4DbBf`，`fe-dev14.log`）、admin :5174（`sh_0f104aeb2001ffQtBy5PQw6Zgt`，`admin-dev18.log`）。
+- [x] Part 3 A 全部落地（后端 + admin 两页 + 前台三段 + 种子 + 4 套新测试 + 10 套回归全绿）
+- [ ] **git 提交 / 生产部署均需用户明确指示**（HEAD 仍 `7a4478e`，本轮全部为未提交改动；生产三端 = `7a4478e`）
+- [ ] 生产灌种子（部署后需在生产库跑活动/上新种子，或走 admin 手工建）
+- [ ] 视频供应商恢复后 `VIDEO_E2E=1 node test-auto-cover.js` 补封面 e2e 15 条
+
+---
+
 ## 2026-09-29（作品展后台管理：admin 后台增删改 + 视频抽帧封面 —— 新测试 33/33 + 23/23，回归 93/93 + 28/28 + 42/42 + 23/23 + 31/31 全绿；零提交待用户拍板）
 
 > 用户需求：「用超级管理员或者管理员账户在后台管理页面里面操作吗？你看看怎么添加这个新功能」——即管理员在 admin 后台更换/删除/新增作品展视频。按 admin 既有模式实现（`RolesGuard` 只校验 `user.role==='admin'`，**普通 admin 与超管都可用**，非 superAdminOnly）。
@@ -113,7 +262,7 @@
 - [ ] **等用户指示是否部署**（用户已明确答「先不部署」——除非改口；部署需明确指示）
 - [ ] **本轮零 git 提交**（HEAD=cdb897d；含封面收尾+t2i 修复，提交前先问用户）
 - [ ] 视频供应商额度/欠费恢复后：`VIDEO_E2E=1 node test-auto-cover.js` 跑封面端到端 15 条；**生产同样受 403/欠费影响，值得提示用户**
-- [ ] `qwen-image-3.0-pro` 仅剩 4/10 次（到期 2026/11/03），后续测试可让 p2/p3 承接（`qwen-mt-image-2.0` 有 100 次）
+- [ ] ~~`qwen-image-3.0-pro` 仅剩 4/10 次，后续测试可让 p2/p3 承接（`qwen-mt-image-2.0` 有 100 次）~~ **作废**：mt-image 是图像翻译模型不能 t2i（见顶部 09-30 结论）；09-30 封面生成后余量 = `qwen-image-3.0` 剩 1、`qwen-image-3.0-pro` 剩 3（到期 2026/11/03）
 
 ---
 

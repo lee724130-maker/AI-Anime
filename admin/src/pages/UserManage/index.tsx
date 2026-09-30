@@ -28,13 +28,15 @@ import { useAdminAuthStore } from '../../stores/authStore';
 
 const { Title, Text } = Typography;
 
-// H9 — permission matrix (9 entries, no server/database)
+// H9 — permission matrix (12 entries, no server/database)
 const PERMISSION_MATRIX = [
   { key: 'dashboard', label: '仪表盘', levels: ['view', 'edit'] },
   { key: 'apikeys', label: 'API 密钥', levels: ['view', 'edit'] },
   { key: 'models', label: '模型管理', levels: ['view', 'edit'] },
   { key: 'prompts', label: '提示词模板', levels: ['view', 'edit'] },
   { key: 'showcase', label: '作品展管理', levels: ['view', 'edit'] },
+  { key: 'activities', label: '活动管理', levels: ['view', 'edit'] },
+  { key: 'releases', label: '上新管理', levels: ['view', 'edit'] },
   { key: 'users', label: '用户管理', levels: ['view', 'edit', 'recharge'] },
   { key: 'access', label: '访问统计', levels: ['view', 'edit'] },
   { key: 'payments', label: '支付记录', levels: ['view', 'edit'] },

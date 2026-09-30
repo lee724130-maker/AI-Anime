@@ -258,7 +258,7 @@ to{opacity:1;transform:translateY(0)}
 @media (width<=640px){.landing-pricing{flex-direction:column!important;align-items:center!important}
 .landing-pricing>div{flex:none!important;width:100%!important;max-width:320px!important}
 }
-/* ───── LibTV 首页区块复刻（dashboard：创建卡 / 工具行 / 快捷入口宽卡 / TV Show 短剧网格 / 任务双栏） ───── */
+/* ───── LibTV 首页区块复刻（dashboard：创建卡 / 工具行 / 活动栏+上新+快捷窄条 / TV Show 短剧网格 / 作品展） ───── */
 .ltv-page{display:flex;flex-direction:column;gap:28px}
 .ltv-hero{display:flex;flex-direction:column;gap:24px}
 .ltv-section-title{display:flex;align-items:center;gap:8px;height:32px;padding-left:8px;margin-bottom:12px;font-size:16px;font-weight:500;line-height:24px;color:var(--text);letter-spacing:-.2px}
@@ -275,20 +275,64 @@ to{opacity:1;transform:translateY(0)}
 @media (width>=768px){.ltv-features{display:flex;gap:8px}
 .ltv-feature{flex:1 1 0;min-width:113px}
 }
-.ltv-row5{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
-.ltv-wide{display:flex;flex-direction:column;gap:12px;min-width:0;padding:0 0 8px;border:0;background:none;text-align:left;cursor:pointer}
-.ltv-wide-cover{position:relative;display:flex;align-items:center;justify-content:center;width:100%;aspect-ratio:16/9;border-radius:12px;box-shadow:0 0 0 1px var(--border);overflow:hidden;transition:filter .3s;background:linear-gradient(135deg,#f4f4f6,#dedee4)}
-[data-theme=dark] .ltv-wide-cover{background:linear-gradient(135deg,#26262e,#131318)}
-.ltv-wide:hover .ltv-wide-cover{filter:brightness(.92)}
-.ltv-wide-icon{font-size:44px;color:rgba(26,26,46,.58)}
-[data-theme=dark] .ltv-wide-icon{color:rgba(241,245,249,.55)}
-.ltv-wide-meta{display:flex;align-items:center;gap:6px;min-width:0;padding:0 8px}
-.ltv-wide-title{font-size:14px;line-height:22px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ltv-badge{flex-shrink:0;height:18px;padding:0 6px;border-radius:4px;background:rgba(8,182,221,.12);color:#0e9fbd;font-size:11px;font-weight:500;line-height:18px}
-[data-theme=dark] .ltv-badge{background:rgba(34,211,238,.14);color:#67e8f9}
-@media (width>=768px){.ltv-row5{grid-template-columns:repeat(5,minmax(0,1fr))}
-.ltv-wide-cover{border-radius:16px}
-}
+/* A：限时活动（单个满宽 banner）—— 封面缺省 = 灰阶+青点缀 CSS 占位 */
+.ltv-promo-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.ltv-banner{position:relative;display:block;width:100%;aspect-ratio:3/1;min-height:150px;padding:0;border:0;border-radius:16px;overflow:hidden;background:linear-gradient(135deg,#eef0f2,#dfe2e6);box-shadow:0 0 0 1px var(--border);background-size:cover;background-position:center;cursor:pointer;text-align:left;transition:filter .2s}
+.ltv-banner:hover{filter:brightness(.96)}
+[data-theme=dark] .ltv-banner{background:linear-gradient(135deg,#24242c,#141419)}
+.ltv-banner-ph{position:absolute;inset:0;background-image:radial-gradient(rgba(8,182,221,.35) 1.3px,transparent 1.3px),radial-gradient(rgba(125,125,125,.28) 1.3px,transparent 1.3px);background-size:18px 18px,18px 18px;background-position:0 0,9px 9px}
+.ltv-banner-ph::before{content:"";position:absolute;inset:0;background:radial-gradient(58% 130% at 76% 18%,rgba(8,182,221,.26),transparent 62%),radial-gradient(50% 110% at 14% 92%,rgba(124,58,237,.18),transparent 66%),linear-gradient(115deg,rgba(255,255,255,.34),transparent 46%)}
+[data-theme=dark] .ltv-banner-ph::before{background:radial-gradient(58% 130% at 76% 18%,rgba(8,182,221,.3),transparent 62%),radial-gradient(50% 110% at 14% 92%,rgba(124,58,237,.26),transparent 66%),linear-gradient(115deg,rgba(255,255,255,.05),transparent 46%)}
+.ltv-banner-ph::after{content:"";position:absolute;top:50%;left:50%;width:72px;height:72px;transform:translate(-50%,-50%) rotate(45deg);border:2px solid rgba(8,182,221,.55);border-radius:16px;box-shadow:0 0 0 10px rgba(8,182,221,.1),0 0 28px rgba(8,182,221,.28)}
+.ltv-banner-body{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column;gap:4px;padding:16px 18px;background:linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,.62));color:#fff}
+.ltv-banner-title{font-size:17px;font-weight:600;line-height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltv-banner-sub{font-size:13px;line-height:20px;color:rgba(255,255,255,.82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltv-banner-foot{display:flex;align-items:center;gap:10px;margin-top:4px}
+.ltv-countdown{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:6px;background:rgba(8,182,221,.18);color:#5ee2fb;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ltv-banner .ltv-countdown{background:rgba(255,255,255,.18);color:#fff}
+.ltv-banner-cta{display:inline-flex;align-items:center;height:30px;padding:0 16px;border-radius:999px;background:#08b6dd;color:#fff;font-size:13px;font-weight:600}
+/* A：新功能上新（NEW/BETA/HOT 角标卡 + card 型活动卡） */
+.ltv-rel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (width>=768px){.ltv-rel-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (width>=1100px){.ltv-rel-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.ltv-rel{display:flex;flex-direction:column;gap:6px;min-width:0;padding:6px 6px 10px;border:0;border-radius:16px;background:none;text-align:left;cursor:pointer;transition:background .15s}
+.ltv-rel:hover{background:var(--hover-bg)}
+.ltv-rel-cover{position:relative;display:block;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px var(--border);background:linear-gradient(135deg,#f4f4f6,#dedee4);background-size:cover;background-position:center}
+[data-theme=dark] .ltv-rel-cover{background:linear-gradient(135deg,#26262e,#131318)}
+.ltv-rel-ph{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:34px;color:rgba(26,26,46,.35);z-index:1}
+[data-theme=dark] .ltv-rel-ph{color:rgba(241,245,249,.35)}
+/* 无封面占位纹理：灰阶点阵 + 青色斜向光晕（有 cover_url 时不出该 class） */
+.ltv-rel-cover-ph::before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(8,182,221,.28) 1.1px,transparent 1.1px),radial-gradient(rgba(125,125,125,.24) 1.1px,transparent 1.1px);background-size:15px 15px,15px 15px;background-position:0 0,7px 7px}
+.ltv-rel-cover-ph::after{content:"";position:absolute;inset:0;background:radial-gradient(70% 120% at 82% 12%,rgba(8,182,221,.2),transparent 60%),linear-gradient(140deg,rgba(255,255,255,.4),transparent 55%)}
+[data-theme=dark] .ltv-rel-cover-ph::after{background:radial-gradient(70% 120% at 82% 12%,rgba(8,182,221,.24),transparent 60%),linear-gradient(140deg,rgba(255,255,255,.06),transparent 55%)}
+.ltv-rel-tag{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;background:#08b6dd;color:#fff;font-size:11px;font-weight:700;letter-spacing:.4px;z-index:2}
+.ltv-rel-tag-beta{background:#8b8fa3}
+.ltv-rel-tag-hot{background:#f59e0b}
+.ltv-rel-tag-act{background:#7c3aed}
+.ltv-rel-title{display:block;font-size:14px;line-height:22px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltv-rel-sum{display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:18px;color:var(--text-muted)}
+.ltv-rel-cta{margin-top:2px;font-size:12px;font-weight:600;color:#0e9fbd}
+[data-theme=dark] .ltv-rel-cta{color:#67e8f9}
+.ltv-rel-foot{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}
+.ltv-rel-remain{flex-shrink:0;font-size:11px;line-height:18px;color:#0e9fbd;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-theme=dark] .ltv-rel-remain{color:#67e8f9}
+/* D-A1：快捷入口窄条（图标+文字，替代原 5 宽卡） */
+.ltv-quickrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media (width>=768px){.ltv-quickrow{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.ltv-quick{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;height:48px;padding:0 10px;border:0;border-radius:14px;background:var(--hover-bg);box-shadow:inset 0 0 0 1px var(--border);cursor:pointer;transition:box-shadow .15s}
+.ltv-quick:hover{box-shadow:inset 0 0 0 1px var(--text-muted)}
+.ltv-quick-icon{display:flex;align-items:center;font-size:17px;color:var(--text-secondary)}
+.ltv-quick-text{min-width:0;font-size:14px;line-height:22px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* A：新手任务弹窗 */
+.ltv-task-progress{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;font-size:13px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.ltv-task-list{display:flex;flex-direction:column;gap:8px}
+.ltv-task{display:flex;align-items:center;gap:10px;min-width:0;padding:12px 14px;border-radius:12px;background:var(--hover-bg);box-shadow:inset 0 0 0 1px var(--border)}
+.ltv-task-dot{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:22px;height:22px;border-radius:50%;background:var(--bg-tertiary);box-shadow:inset 0 0 0 1px var(--border);color:#fff;font-size:11px}
+.ltv-task.done .ltv-task-dot{background:#08b6dd;box-shadow:none}
+.ltv-task-text{flex:1;min-width:0}
+.ltv-task-title{display:block;font-size:14px;line-height:22px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltv-task-reward{display:block;font-size:12px;line-height:18px;color:#0e9fbd;font-weight:600}
+[data-theme=dark] .ltv-task-reward{color:#67e8f9}
 .ltv-tv-head{position:sticky;top:0;z-index:10;background:var(--bg-secondary);padding-bottom:10px}
 .ltv-tv-head .ltv-section-title{margin-bottom:4px}
 .ltv-tv-bar{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
@@ -308,6 +352,7 @@ to{opacity:1;transform:translateY(0)}
 .ltv-show-cover{position:relative;display:block;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;box-shadow:0 0 0 1px var(--border)}
 .ltv-show-cover>.anticon{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
 .ltv-show-cover img{display:block;width:100%;height:100%;object-fit:cover}
+.ltv-show-cover video{display:block;width:100%;height:100%;object-fit:cover;background:#000}
 .ltv-show-info{display:flex;align-items:flex-start;gap:8px;min-height:60px;padding:0 4px}
 .ltv-show-avatar{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:26px;height:26px;margin-top:1px;border-radius:50%;background:var(--bg-tertiary);box-shadow:inset 0 0 0 1px var(--border);font-size:13px;color:var(--text-secondary)}
 .ltv-show-text{flex:1;min-width:0}

@@ -14,6 +14,8 @@ import {
   DatabaseOutlined,
   SafetyCertificateOutlined,
   PlayCircleOutlined,
+  GiftOutlined,
+  ThunderboltOutlined,
   SunOutlined,
   MoonOutlined,
   BellOutlined,
@@ -34,6 +36,8 @@ import SystemConfigPage from '../SystemConfig';
 import ModelManagePage from '../ModelManage';
 import PromptTemplatePage from '../PromptTemplate';
 import ShowcaseManagePage from '../ShowcaseManage';
+import ActivityManagePage from '../ActivityManage';
+import ReleaseManagePage from '../ReleaseManage';
 import NotificationsPage from '../Notifications';
 import PaymentsPage from '../Payments';
 import ServerPage from '../Server';
@@ -51,6 +55,8 @@ function resolveKey(pathname: string): string {
     'models',
     'prompts',
     'showcase',
+    'activities',
+    'releases',
     'users',
     'logs',
     'config',
@@ -71,6 +77,8 @@ const MENU = [
   { key: 'models', icon: <CloudServerOutlined />, label: '模型管理', permission: 'models' },
   { key: 'prompts', icon: <FormOutlined />, label: '提示词模板', permission: 'prompts' },
   { key: 'showcase', icon: <PlayCircleOutlined />, label: '作品展管理', permission: 'showcase' },
+  { key: 'activities', icon: <GiftOutlined />, label: '活动管理', permission: 'activities' },
+  { key: 'releases', icon: <ThunderboltOutlined />, label: '上新管理', permission: 'releases' },
   { key: 'users', icon: <UserOutlined />, label: '用户管理', permission: 'users' },
   { key: 'access', icon: <SafetyOutlined />, label: '访问统计', permission: 'access' },
   { key: 'payments', icon: <DollarOutlined />, label: '支付记录', permission: 'payments' },
@@ -157,6 +165,10 @@ export default function AdminLayout() {
         return <PromptTemplatePage />;
       case 'showcase':
         return <ShowcaseManagePage />;
+      case 'activities':
+        return <ActivityManagePage />;
+      case 'releases':
+        return <ReleaseManagePage />;
       case 'notifications':
         return <NotificationsPage />;
       case 'payments':
