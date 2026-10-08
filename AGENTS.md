@@ -1,5 +1,39 @@
 # 修复日志
 
+## 2026-10-08（生产部署：Part 3 A + 我的作品 + 双供应商后备 + promo 种子 —— 生产 API 14/14 + UI 10/10 全绿；git `992d40d`）
+
+> 用户拍板「都做吧」= 补回归 + 提交 git + 生产部署。**三件全做完**。
+
+### ✅ ① 回归（8 套全绿，详见上一节 [x] 项）
+foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 93，加上收尾轮 works-api 11 / shell-func 44 / fe-showcase 27 / promo-fe 40。
+
+### ✅ ② git
+- `992d40d`（docs 回归补记）；前一轮 `d3b21e5`（23 文件功能主体）+ `80fa1ba`（docs）均已推 origin/main。
+
+### ✅ ③ 生产部署（三端 + 种子 + 封面 + 验证全过）
+- **凭据**：SSH 密码由用户提供（三候选逐一试，第 1 个通过）；**含密码的临时脚本（`deploy-all.js`/`try-ssh-pw.js`）用完即删，密码不写进本文件、不进 git**。plink/pscp 在 `Temp\opencode\`，hostkey 仍 `SHA256:YMX2Ho7…`，一律 `-batch -hostkey -pw` + spawnSync 数组参数（`*` 不被 shell 展开）。
+- **构建**：backend `tsc` 0；FE `index-7lFqAzfB.js` / `index-DCbJqaBD.css`（Home chunk `Home-DS7uAMk7.js`）；admin `index-BWYuNsbJ.js`。三 zip + `deploy.sh` 打包 → pscp 上传 → `bash deploy/deploy.sh`：三端 `dist→dist_bak` + unzip 双保险 + `pm2 restart` + 冒烟 + 自清 zips。
+- **冒烟**：`api_health=401`（重启后短暂 502 → 10s 后 401）、`front_root=200`、`admin_root=200`、**`/api/workbench/works=401`、`/api/workbench/promo=401`（新端点在线）**；服务器 index.html 引用 hash 与本地一致；FE bundle grep `我的作品`=1、`生成视频同步生成封面`=1；admin bundle `活动管理`=1。
+- **生产灌种子**：⚠️ **生产 MySQL 是 `ai_anime/AnimeSecure2026!`（不是 root，root 会 1045）**；`promo-seed.sql` pscp 到 `/tmp` → `mysql -u ai_anime -p… ai_anime < /tmp/promo-seed.sql`（文件内 `SET NAMES utf8mb4` 保证中文无乱码）→ 回查：`feature_releases` id1-3（新文案 + `promo_cover_rel3/4/5`）、`activities` id1-2（`act5_v2`/`act6`）全对；`/tmp` 与 deploy zip 已清。
+- **5 张封面** pscp 传 `backend/output/`，字节与本地逐一相同（741754/1371822/676485/486169/960151），`https://…/static/promo_cover_*.png` 全 200。
+- **生产 API `prod-verify.js` 14/14**：admin skipVerification 登录 200（生产 `skipVerification_marker=1` ✓）/ promo 2 活动 + 3 上新 + 新文案 + cover_url / works 模块字典 5 键（admin 含 editor）/ admin activities·releases 列表 200 / 未授权 401。
+- **生产 UI `test-prod-promo-fe.js` 10/10**（Playwright，登录 admin → /dashboard）：`.ltv-promo`=1、banner=1、**DOM 内 5 张 promo_cover 背景图全部渲染且 `page.request` 拉取全 200 >10KB**、「生成视频同步生成封面」可见、「我的作品」=1 + 模块 tab=6、**pageerror=0、非 api 静态 4xx=0**。
+- **进程**：`ai-anime-backend` online pid 767666、uptime 4m、**error log mtime 仍 `2026-08-31`**（部署窗口的 `Cannot find module main.js` 是 mv 瞬间老噪音，零新错）。
+
+### 🎬 ④ Agnes 视频：探针打通 + 后端 e2e 等队列空档
+- **探针 `probe-agnes-video4.js` 成功**：拥堵 16 轮 503 后抢到空档，`create(200) → 轮询 completed → 下载 1,454,259B mp4` 全链路（窗口极窄，只开了约 2 分钟）。
+- **后端 t2v 首轮 `test-agnes-t2v.js` 6/10**：显式 `model=agnes-video-2.5-flash` 提交 201、日志命中 `Using requested model: agnes-video-2.5-flash`、**失败全额退款（credits 9999→9999）**、任务删除清理 ✓；但提交时窗口已关 → Agnes 创建 503 退避×3（45s 间隔，**后端退避逻辑本身验证通过**）→ 回落 auto → 通义万相（阿里云尽）→ Agnes 后备（429 免费档限流 + 503×3）→「所有视频供应商均不可用」→ **失败退款 ✓**。
+- **换策略**：`probe-then-e2e.js` 后台跑（每 100s 直连探窗口，200 即刻提交后端 t2v → 轮询终态 → 清理，150 轮 ≈4h，硬超时 4.5h，日志 `agnes-e2e.log`）→ 通过即 `E2E_PASS`。
+
+### 📋 待办（下次接续）
+- [x] 回归 + git + 生产部署 + 生产灌种子/封面 + 生产验证（本轮全做完）
+- [ ] `probe-then-e2e.js` 结果：`E2E_PASS` → 收通知后补记；`ALL_DONE` 没抢到 → 下轮继续蹲（视频限免随时可能结束）
+- [ ] 封面 e2e 15 条等 `VIDEO_E2E=1 node test-auto-cover.js`（依赖视频链可用）
+- [ ] 吉祥物新背景图（下次项目工作）
+- ⚠️ 生产部署三件套现场：`Temp\opencode\deploy\{backend,frontend,admin}.zip` + `deploy.sh`（本地留档，服务器端已自清）；下次部署需**再向用户要 SSH 密码**（惯例不落地）
+
+---
+
 ## 2026-09-30（收尾轮：dashboard「我的短剧」→「我的作品」模块入口重构 + 上新文案/封面/吉祥物清理 —— 新测试 11/11 + 44/44 + 27/27 + 40/40 全绿；**已 git 提交，生产部署留下次**）
 
 > 承接同日「供应商后备接入」节。用户拍板本轮收尾 5 件：② 上新卡改正式宣传语、③「我的短剧」→「我的作品」按模块入口切换展示各模块生成的视频、④ 吉祥物文件清理、⑤ 礼物封面定 `promo_cover_act5_v2`、① 种子同步。**功能全部完成**；按用户指示「太久就先提交 md + git，剩下的下次做」→ 本轮**只提交不部署**。
