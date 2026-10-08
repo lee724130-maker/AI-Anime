@@ -11,11 +11,12 @@
 - ⚠️ 生产与本地不同：**生产 `qwen-image-3.0` 仍有余量**（本地已耗尽），故生产日常不走后备也能出图；后备链现在是真可用而非纸面配置。
 - 含 SSH 密码的 4 个临时脚本（seed-prod-suppliers / prod-gen-smoke / prod-supplier-smoke / deploy-cover-v3）**用完即删，全库 grep `HAPPYlwx` 零残留**。
 
-### ✅ ③ 吉祥物新背景礼物封面 `promo_cover_act5_v3.png`（替代 v2，生产已上线）
+### ✅ ③ 吉祥物新背景礼物封面 `promo_cover_act5_v3.png`（替代 v2，生产上线 → **同日按用户指示回退 v2**）
 - **构成**：商汤直连出背景底图（`gen-bg.js`，1280x704、`prompt_extend:false` 防风格漂移、灰阶+紫 #7C3AED/青 #08B6DD+礼物盒+右侧留白，**不走后端**以避开 t2i 的 photorealistic style 注入）+ 吉祥物 `promo_s3_ag3.png` 正视图裁切（crop 700×1430@190,35）`colorkey` 抠像 → ffmpeg 合成 1280×720（角色高 660、右侧留 70px、底留 10px）。
 - **三档容差像素定量对比（alpha 统计）**：0.10 残膜 **35.1%** 半透明（= 肉眼看到的「灰方块」真凶）、0.18 角色像素只剩 **18.8%**（去太狠、发梢毛）、**0.14 定稿**（残膜 7.7% / 角色 23.0%，方块左边界扫描 max step **3/255** 平滑）。
 - **同步三处**：本地 DB `activities id5` → v3（`/static/` 200）；`promo-seed.sql` 行改 v3（幂等 DELETE 按 title 不受影响）；**生产 DB 按旧 v2 路径做纯 ASCII `UPDATE`**（中文标题过 plink 必乱码 → 一律不带中文进远程 SQL）+ pscp 上传（707,167B 字节一致）。v2 文件保留可回滚。
 - **验证**：`verify-cover-v3` **5/5**（promo 接口 cover_url=v3、静态 200 且字节一致、v2 仍可达、acts=2 releases=3）+ 本地 `test-promo-fe` **40/40** + 生产 `test-prod-promo-fe` **10/10**（5 张 cover 背景图全渲染、新文案可见、我的作品 6 tab、pageerror=0、静态 4xx=0）。
+- **↩️ 同日回退 v2（用户指示：不要把吉祥物展示在礼物背景里，人物未定、还没决定用哪个人物当页面吉祥物）**：本地 DB `activities id5` → `/static/promo_cover_act5_v2.png`、`promo-seed.sql`（Temp 灌种子文件）行改回 v2、**生产 DB 按 `cover_url='…act5_v3.png'` 纯 ASCII `UPDATE` 回 v2**（中文过 plink 必乱码老坑遵守；含 SSH 密码的 `revert-prod-cover.js` 用完即删）；v2 文件两端均在（本地/生产 200 且 **741,754B 字节一致**）。复验：本地 `test-promo-fe` **40/40** + 生产 `test-prod-promo-fe` **10/10**（DOM 礼物 banner 背景已 = `act5_v2`）。**`promo_cover_act5_v3.png` 文件保留在 `backend/output/` 与生产服务器，待吉祥物定稿后再启用**；⚠️ 本轮起生产 curl `--resolve` 失效（000），改用 `-H "Host: anime.leesystem.xyz"` 同效。
 
 ### ⏳ ①④ Agnes 视频 e2e + 封面 e2e（等队列窗口）
 - `probe-then-e2e.js` 后台跑（每 100s 直连探窗口，200 即刻提交后端 t2v `model=agnes-video-2.5-flash` → 轮询终态 → 清理）：截至 08:39 UTC **#51 轮全 `503 video_queue_full`**（连续 1h+ 无空档），150 轮 ≈4h、硬超时 4.5h，通过输出 `E2E_PASS` 完成即通知。
@@ -57,7 +58,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - [x] 回归 + git + 生产部署 + 生产灌种子/封面 + 生产验证（本轮全做完）
 - [ ] `probe-then-e2e.js` 结果：`E2E_PASS` → 收通知后补记；`ALL_DONE` 没抢到 → 下轮继续蹲（视频限免随时可能结束）
 - [ ] 封面 e2e 15 条等 `VIDEO_E2E=1 node test-auto-cover.js`（依赖视频链可用）
-- [x] 吉祥物新背景图 → **本轮完成**（`promo_cover_act5_v3.png` 本地+生产上线，见顶部「收尾轮」）
+- [x] 吉祥物新背景图 → 本轮完成 `promo_cover_act5_v3.png` 上线，但**同日按用户指示回退 v2 原礼物背景**（吉祥物人物未定稿，见顶部③「↩️ 同日回退」）
 - ⚠️ 生产部署三件套现场：`Temp\opencode\deploy\{backend,frontend,admin}.zip` + `deploy.sh`（本地留档，服务器端已自清）；下次部署需**再向用户要 SSH 密码**（惯例不落地）
 
 ---
