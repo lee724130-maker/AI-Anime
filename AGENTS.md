@@ -41,9 +41,9 @@
 3. `test-shell-func` 的「新建 → /drama/create」导航断言绑的是我改掉的那个按钮 → 改按钮必须同步改**样式断言（evaluate 里的精确文本匹配）+ 导航断言**两处，且定位改 scope `.ltv-tv-tools button` 防误点别处。
 
 ### 📋 状态与待办（下次接续）
-- **服务**：backend :3000（`backend-run25.log`，含 works 接口）、FE :5173、admin :5174。
+- **服务**：backend :3000（`backend-run26.log`，含 works 接口）、FE :5173、admin :5174（**2026-10-08 服务器重启后三端已重新拉起**，MySQL/Redis 在线；Agnes 视频探针 `probe-agnes-video4.js` 一并重启后台蹲队列）。
 - [x] 5 件收尾任务全部完成 + 4 套测试全绿 + **git 提交 `d3b21e5`（23 文件 +2291/-120，含 Part 3 A 全部 + 我的作品 + 双供应商 + 文案种子）**
-- [ ] **剩余回归未跑**（时间关系按用户指示跳过）：`test-fe-foundation` / `test-fe-generate` / `test-promo-smoke` / `test-promo-admin-fe` / `test-admin-fe` 等；`test-shell-func` 与 promo/showcase 已覆盖本轮改动面
+- [x] **剩余回归已补跑（2026-10-08，全绿）**：`test-fe-foundation` **23/23** / `test-fe-generate` **31/31** / `test-promo-smoke` **36/36** / `test-promo-admin-fe` **32/32** / `test-admin-fe` **93/93**；加上节内 4 套（works-api 11 / shell-func 44 / fe-showcase 27 / promo-fe 40）合计 8 套全绿；测试后 DB 干净（claims=0、admin credits=9999、种子 2 活动 + 3 上新、无 E2E 残留用户）
 - [ ] **生产部署（下次，需用户明确指示）**：三端 build → 重建部署脚本（`Temp\opencode\deploy*.js` 已不在）→ 上传 → **生产灌 `promo-seed.sql`（含新文案 + 5 处 cover_url）+ 上传 5 张 cover 图（act5_v2/act6/rel3/rel4/rel5）到生产 `backend/output/`** → 冒烟
 - [ ] Agnes 视频探针仍在后台蹲队列（`probe-agnes-video4.js`，日志 `agnes-video-probe4.log`）→ 通了跑后端 t2v e2e；封面 e2e 15 条等 `VIDEO_E2E=1`
 - [ ] 下次项目工作时用吉祥物生成新背景图替代礼物封面背景
