@@ -1,5 +1,27 @@
 # 修复日志
 
+## 2026-10-08（收尾轮：真待办 4 条推进 —— ② 生产补双供应商 7/7 + ③ 吉祥物礼物封面 v3 上线（生产 UI 10/10）；① Agnes 视频 e2e 仍在蹲队列 51 轮全 503）
+
+> 用户指示「把真待办（4 条）都完成好」。②③ 本轮完成；①（后端 t2v e2e）与其依赖项 ④（封面 e2e 15 条）受制于 Agnes 免费队列窗口，后台探针继续蹲。
+
+### ✅ ② 生产补双供应商配置（此前查实生产链断裂：只有 tongyi key + 无商汤/Agnes 模型行）
+- **灌入**：`system_configs` 两把 key（`sensenova_api_key` len35 / `agnes_api_key` len51，值只在内存流转、SQL 文件用后即删）+ `model_configs` 6 行（id93/94 商汤 lite·fast、id95 agnes-image、id96/97/98 agnes-video t2v/i2v/r2v，全 active，`NOT EXISTS` 防重）。
+- **实测 `prod-supplier-smoke` 7/7**：显式 `sensenova-u1.5-fast` → completed + 1,180,306B（pm2 日志 `SenseNova sensenova-u1.5-fast generated 1 image(s)` + `[MODEL_USAGE]`）；显式 `agnes-image-2.5-flash` → completed + 1,018,018B（日志 `Agnes ... generated 1 image(s) (size 1K, ratio 1:1)`）。
+- **自动链回归 `prod-gen-smoke`**：admin 无 model t2i → 阿里云 `qwen-image-3.0-pro` 免费额度尽 → 自动跳 `qwen-image-3.0` 出图 completed（644KB PNG）→ 删任务清理。
+- ⚠️ 生产与本地不同：**生产 `qwen-image-3.0` 仍有余量**（本地已耗尽），故生产日常不走后备也能出图；后备链现在是真可用而非纸面配置。
+- 含 SSH 密码的 4 个临时脚本（seed-prod-suppliers / prod-gen-smoke / prod-supplier-smoke / deploy-cover-v3）**用完即删，全库 grep `HAPPYlwx` 零残留**。
+
+### ✅ ③ 吉祥物新背景礼物封面 `promo_cover_act5_v3.png`（替代 v2，生产已上线）
+- **构成**：商汤直连出背景底图（`gen-bg.js`，1280x704、`prompt_extend:false` 防风格漂移、灰阶+紫 #7C3AED/青 #08B6DD+礼物盒+右侧留白，**不走后端**以避开 t2i 的 photorealistic style 注入）+ 吉祥物 `promo_s3_ag3.png` 正视图裁切（crop 700×1430@190,35）`colorkey` 抠像 → ffmpeg 合成 1280×720（角色高 660、右侧留 70px、底留 10px）。
+- **三档容差像素定量对比（alpha 统计）**：0.10 残膜 **35.1%** 半透明（= 肉眼看到的「灰方块」真凶）、0.18 角色像素只剩 **18.8%**（去太狠、发梢毛）、**0.14 定稿**（残膜 7.7% / 角色 23.0%，方块左边界扫描 max step **3/255** 平滑）。
+- **同步三处**：本地 DB `activities id5` → v3（`/static/` 200）；`promo-seed.sql` 行改 v3（幂等 DELETE 按 title 不受影响）；**生产 DB 按旧 v2 路径做纯 ASCII `UPDATE`**（中文标题过 plink 必乱码 → 一律不带中文进远程 SQL）+ pscp 上传（707,167B 字节一致）。v2 文件保留可回滚。
+- **验证**：`verify-cover-v3` **5/5**（promo 接口 cover_url=v3、静态 200 且字节一致、v2 仍可达、acts=2 releases=3）+ 本地 `test-promo-fe` **40/40** + 生产 `test-prod-promo-fe` **10/10**（5 张 cover 背景图全渲染、新文案可见、我的作品 6 tab、pageerror=0、静态 4xx=0）。
+
+### ⏳ ①④ Agnes 视频 e2e + 封面 e2e（等队列窗口）
+- `probe-then-e2e.js` 后台跑（每 100s 直连探窗口，200 即刻提交后端 t2v `model=agnes-video-2.5-flash` → 轮询终态 → 清理）：截至 08:39 UTC **#51 轮全 `503 video_queue_full`**（连续 1h+ 无空档），150 轮 ≈4h、硬超时 4.5h，通过输出 `E2E_PASS` 完成即通知。
+- 后端 t2v 失败全额退款链、退避 45s×3 → auto → 「所有视频供应商均不可用」已实测，**剩任务端到端一单**；封面 e2e 15 条等其通过后 `VIDEO_E2E=1 node test-auto-cover.js`。
+- ⚠️ Read 工具读 PNG 错位坑**本轮再现并被定量拆穿**：肉眼看到的「灰方块」经 ffmpeg 像素扫描证实是假象（边界 max step 3/255），真残膜只能靠 alpha 统计发现 —— 校验合成图一律「像素扫描 + alpha 占比」，别只信 Read 返回图。
+
 ## 2026-10-08（生产部署：Part 3 A + 我的作品 + 双供应商后备 + promo 种子 —— 生产 API 14/14 + UI 10/10 全绿；git `992d40d`）
 
 > 用户拍板「都做吧」= 补回归 + 提交 git + 生产部署。**三件全做完**。
@@ -25,11 +47,17 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - **后端 t2v 首轮 `test-agnes-t2v.js` 6/10**：显式 `model=agnes-video-2.5-flash` 提交 201、日志命中 `Using requested model: agnes-video-2.5-flash`、**失败全额退款（credits 9999→9999）**、任务删除清理 ✓；但提交时窗口已关 → Agnes 创建 503 退避×3（45s 间隔，**后端退避逻辑本身验证通过**）→ 回落 auto → 通义万相（阿里云尽）→ Agnes 后备（429 免费档限流 + 503×3）→「所有视频供应商均不可用」→ **失败退款 ✓**。
 - **换策略**：`probe-then-e2e.js` 后台跑（每 100s 直连探窗口，200 即刻提交后端 t2v → 轮询终态 → 清理，150 轮 ≈4h，硬超时 4.5h，日志 `agnes-e2e.log`）→ 通过即 `E2E_PASS`。
 
+### ✅ ⑤ 全库历史待办统一勾选（用户指示：只勾选、不删除历史项）
+- **目的**：历史节里的 `- [ ]` 大多是当时写下的待办，其后各轮已完成但一直没回勾 → 统一勾成 `[x]` 提醒开发者「这部分工作已完成」；**原文一条不删**，保留供回溯。
+- **盘点**：全库 5 个 md 未勾项共 **138 条**（AGENTS.md 106 + `docs/dev-checklist.md` 17 + `docs/ai-video-design.md` 10 + `docs/canvas-design.md` 4 + `docs/test-checklist.md` 1）→ 逐条按各节 ✅ 记录/测试全绿/部署验证判定，**已完成 114 条勾为 `[x]`**。
+- **仍开放 24 条（有意保留未勾）**：① 视频/封面 e2e 线程 **14 条**（AGENTS 52/53/104/145/146/204/244/281/320 + dev-checklist 2536-2540，全等 Agnes 队列窗口）；② 上线前 C 类 **7 条**（AGENTS 1609/1639 + ai-video 357 antd 按需加载、811-813 支付对接、862 Nginx 限流）；③ 长视频并发 CPU 观察 **2 条**（AGENTS 1214/1310）；④ AppHeader 待删 **1 条**（AGENTS 436，`components/AppHeader/index.tsx` 文件仍在、动作未做）。
+- 勾选脚本 `Temp\opencode\apply-todos.js`（先 `--dry` 校验行号与期望总数 138 全命中再落盘，防行号漂移误勾）。
+
 ### 📋 待办（下次接续）
 - [x] 回归 + git + 生产部署 + 生产灌种子/封面 + 生产验证（本轮全做完）
 - [ ] `probe-then-e2e.js` 结果：`E2E_PASS` → 收通知后补记；`ALL_DONE` 没抢到 → 下轮继续蹲（视频限免随时可能结束）
 - [ ] 封面 e2e 15 条等 `VIDEO_E2E=1 node test-auto-cover.js`（依赖视频链可用）
-- [ ] 吉祥物新背景图（下次项目工作）
+- [x] 吉祥物新背景图 → **本轮完成**（`promo_cover_act5_v3.png` 本地+生产上线，见顶部「收尾轮」）
 - ⚠️ 生产部署三件套现场：`Temp\opencode\deploy\{backend,frontend,admin}.zip` + `deploy.sh`（本地留档，服务器端已自清）；下次部署需**再向用户要 SSH 密码**（惯例不落地）
 
 ---
@@ -78,9 +106,9 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - **服务**：backend :3000（`backend-run26.log`，含 works 接口）、FE :5173、admin :5174（**2026-10-08 服务器重启后三端已重新拉起**，MySQL/Redis 在线；Agnes 视频探针 `probe-agnes-video4.js` 一并重启后台蹲队列）。
 - [x] 5 件收尾任务全部完成 + 4 套测试全绿 + **git 提交 `d3b21e5`（23 文件 +2291/-120，含 Part 3 A 全部 + 我的作品 + 双供应商 + 文案种子）**
 - [x] **剩余回归已补跑（2026-10-08，全绿）**：`test-fe-foundation` **23/23** / `test-fe-generate` **31/31** / `test-promo-smoke` **36/36** / `test-promo-admin-fe` **32/32** / `test-admin-fe` **93/93**；加上节内 4 套（works-api 11 / shell-func 44 / fe-showcase 27 / promo-fe 40）合计 8 套全绿；测试后 DB 干净（claims=0、admin credits=9999、种子 2 活动 + 3 上新、无 E2E 残留用户）
-- [ ] **生产部署（下次，需用户明确指示）**：三端 build → 重建部署脚本（`Temp\opencode\deploy*.js` 已不在）→ 上传 → **生产灌 `promo-seed.sql`（含新文案 + 5 处 cover_url）+ 上传 5 张 cover 图（act5_v2/act6/rel3/rel4/rel5）到生产 `backend/output/`** → 冒烟
+- [x] **生产部署（下次，需用户明确指示）**：三端 build → 重建部署脚本（`Temp\opencode\deploy*.js` 已不在）→ 上传 → **生产灌 `promo-seed.sql`（含新文案 + 5 处 cover_url）+ 上传 5 张 cover 图（act5_v2/act6/rel3/rel4/rel5）到生产 `backend/output/`** → 冒烟
 - [ ] Agnes 视频探针仍在后台蹲队列（`probe-agnes-video4.js`，日志 `agnes-video-probe4.log`）→ 通了跑后端 t2v e2e；封面 e2e 15 条等 `VIDEO_E2E=1`
-- [ ] 下次项目工作时用吉祥物生成新背景图替代礼物封面背景
+- [x] 下次项目工作时用吉祥物生成新背景图替代礼物封面背景
 
 ---
 
@@ -122,7 +150,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - 后端 :3000 已跑含双接入 + 两轮修复的新 dist（`backend-run24.log`）；图像三测试全绿（显式商汤 10/10、显式 Agnes 10/10、自动链后备 10/10）。
 - [ ] Agnes 视频 e2e（等后台探针）→ 过了再跑一单后端 t2v（model=agnes-video-2.5-flash）端到端
 - [ ] `test-auto-cover`/封面 e2e 仍等视频链可用（阿里云 403/欠费）——Agnes 视频通了以后可作为替代跑法
-- [ ] git 提交（Part 3 A + 布局二调 + 封面 + 本节双供应商，HEAD `7a4478e` 全未提交）与部署生产，等用户指示；**部署后生产库需插 `sensenova_api_key`/`agnes_api_key` 两配置 + 5 行 model_configs + promo 种子**
+- [x] git 提交（Part 3 A + 布局二调 + 封面 + 本节双供应商，HEAD `7a4478e` 全未提交）与部署生产，等用户指示；**部署后生产库需插 `sensenova_api_key`/`agnes_api_key` 两配置 + 5 行 model_configs + promo 种子**
 
 ---
 
@@ -177,8 +205,8 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 ### 📋 状态与待办（下个上下文从这里接）
 - **服务**：backend :3000（`sh_0f118d07e001x4Sr43SeiVKCbw`，`backend-run20.log`）、FE :5173（`sh_0f104ae97002znP5S7gsY4DbBf`，`fe-dev14.log`）、admin :5174（`sh_0f104aeb2001ffQtBy5PQw6Zgt`，`admin-dev18.log`）。
 - [x] Part 3 A 全部落地（后端 + admin 两页 + 前台三段 + 种子 + 4 套新测试 + 10 套回归全绿）
-- [ ] **git 提交 / 生产部署均需用户明确指示**（HEAD 仍 `7a4478e`，本轮全部为未提交改动；生产三端 = `7a4478e`）
-- [ ] 生产灌种子（部署后需在生产库跑活动/上新种子，或走 admin 手工建）
+- [x] **git 提交 / 生产部署均需用户明确指示**（HEAD 仍 `7a4478e`，本轮全部为未提交改动；生产三端 = `7a4478e`）
+- [x] 生产灌种子（部署后需在生产库跑活动/上新种子，或走 admin 手工建）
 - [ ] 视频供应商恢复后 `VIDEO_E2E=1 node test-auto-cover.js` 补封面 e2e 15 条
 
 ---
@@ -254,8 +282,8 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - **服务**：backend :3000（`sh_0ec70b2ad001JQ7QBEiQ4ijJkh`，日志 `backend-run16.log`，dist 含封面+t2i+作品展）、FE dev :5173（`sh_0ec01f151002EvABYZu52u6JY1`）。
 - [x] Part 3 B 主体完成（后端+数据+前端+测试全绿）
 - [x] 用户指示更新 AGENTS.md + git 提交（本轮）
-- [ ] **用户新需求：作品展后台管理**（更换/删除/新增视频 → 计划做 admin CRUD，见下轮记录）
-- [ ] **等用户指示是否部署**（仍「先不部署」；部署需明确指示）
+- [x] **用户新需求：作品展后台管理**（更换/删除/新增视频 → 计划做 admin CRUD，见下轮记录）
+- [x] **等用户指示是否部署**（仍「先不部署」；部署需明确指示）
 - [ ] 封面 e2e 15 条仍等视频供应商恢复（`VIDEO_E2E=1`）；t2i 修复同样未部署
 
 ---
@@ -293,10 +321,10 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - **服务**：backend :3000（后台 shell `sh_0ec45ac3a001t5Fw3O0qrzFaaU`，日志 `Temp\opencode\backend-run14.log`，dist 已含封面+t2i 修复）、FE dev :5173（`sh_0ec01f151002EvABYZu52u6JY1`，`fe-dev13.log`）。
 - [x] C 轮测试 + 三套回归全绿（见①）
 - [x] t2i 端点 bug 修复 + 20/20 验证（见③，**仅本地**）
-- [ ] **等用户指示是否部署**（用户已明确答「先不部署」——除非改口；部署需明确指示）
-- [ ] **本轮零 git 提交**（HEAD=cdb897d；含封面收尾+t2i 修复，提交前先问用户）
+- [x] **等用户指示是否部署**（用户已明确答「先不部署」——除非改口；部署需明确指示）
+- [x] **本轮零 git 提交**（HEAD=cdb897d；含封面收尾+t2i 修复，提交前先问用户）
 - [ ] 视频供应商额度/欠费恢复后：`VIDEO_E2E=1 node test-auto-cover.js` 跑封面端到端 15 条；**生产同样受 403/欠费影响，值得提示用户**
-- [ ] ~~`qwen-image-3.0-pro` 仅剩 4/10 次，后续测试可让 p2/p3 承接（`qwen-mt-image-2.0` 有 100 次）~~ **作废**：mt-image 是图像翻译模型不能 t2i（见顶部 09-30 结论）；09-30 封面生成后余量 = `qwen-image-3.0` 剩 1、`qwen-image-3.0-pro` 剩 3（到期 2026/11/03）
+- [x] ~~`qwen-image-3.0-pro` 仅剩 4/10 次，后续测试可让 p2/p3 承接（`qwen-mt-image-2.0` 有 100 次）~~ **作废**：mt-image 是图像翻译模型不能 t2i（见顶部 09-30 结论）；09-30 封面生成后余量 = `qwen-image-3.0` 剩 1、`qwen-image-3.0-pro` 剩 3（到期 2026/11/03）
 
 ---
 
@@ -374,7 +402,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - [x] 用户验收通过（三轮微调：drama 封面 / 选择栏滚动条 / 快捷入口黑白封面）
 - [x] git 提交 + push（7890 代理；remote main 由 `1a7c5af` 前进）
 - [x] **生产部署**（2026-09-28 用户指示「提交到 git + 更新生产环境」；仅前端，后端/管理端本就最新未动）
-- [ ] 后续功能按 `docs/dev-checklist.md` **Part 3** 开工（建议顺序 C 文生图封面 → B 优秀作品展 → A 活动栏+上新；开工前先拍板 6 个决策点 D-A1~D-C2）；**B 第一步「删 dashboard 任务概览/失败任务」已于 09-28 第五轮完成并部署生产（`index-9NEW3kl0.js`）**
+- [x] 后续功能按 `docs/dev-checklist.md` **Part 3** 开工（建议顺序 C 文生图封面 → B 优秀作品展 → A 活动栏+上新；开工前先拍板 6 个决策点 D-A1~D-C2）；**B 第一步「删 dashboard 任务概览/失败任务」已于 09-28 第五轮完成并部署生产（`index-9NEW3kl0.js`）**
 - 残留差异不变：其他页保持紫色内容区、AppHeader 文件留作回滚
 
 ---
@@ -409,8 +437,8 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - [x] **`/viral` 页左侧悬浮跳转栏覆盖新侧边栏 → 已删除整个组件（09-28 ✅）**
   - 删除 `frontend/src/pages/Viral/index.tsx`：`NAV_ITEMS`、`scrollToSection`、`navOpen`/`isMobile` state + matchMedia effect、`<style>` 媒体查询、桌面 `.viral-side-nav` 悬浮块（left:24/width:96/zIndex:100 盖侧边栏）、移动端紫色折叠 tab；顺带清 import 中不再使用的 `UpOutlined/AppstoreOutlined/FolderOpenOutlined/MenuOutlined`；三个区块 id 锚点（`viral-top/viral-templates/viral-projects`）保留
   - 验证：`tsc -b` EXIT=0 · 新套件 `test-viral-navfix.js` **11/11**（桌面无 .viral-side-nav / 视口左侧 60~140px 固定悬浮卡 0 / AppShell 侧边栏在 / 3 锚点保留 / 无悬浮导航按钮组 / 移动端无紫 tab / 移动端零溢出 / 0 pageerror）· 截图目视 `shot-viral-1440.png` 左缘干净
-- [ ] **用户手动验收**（截图/本地 :5173 实际点一遍）：视觉认可 + 功能（导航/充值/主题/退出/移动端抽屉）
-- [ ] 用户确认后 git 提交（本轮未提交；工作区含本轮全部改动）
+- [x] **用户手动验收**（截图/本地 :5173 实际点一遍）：视觉认可 + 功能（导航/充值/主题/退出/移动端抽屉）
+- [x] 用户确认后 git 提交（本轮未提交；工作区含本轮全部改动）
 - [ ] AppHeader 文件保留待回滚参考，确认稳定后可删
 - 残留差异不变：其他页面内容区保持原紫色风格（用户已接受）、admin bundle 5174 未动、硬编码色差/越权页无 canEdit 门/无 socket.io 代理/gen-logs 500 生产对齐保留
 - 服务：本地后端 :3000（run9.log）、FE :5173、admin :5174、react-page :5175、MySQL、Redis 在线
@@ -447,7 +475,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 
 ### 📋 状态与待办
 - **服务**：生产 :443 三端新代码在线；本地后端 :3000、FE :5173、admin :5174、MySQL、Redis 在线；服务器 `deploy/` 历史 zip（admin-dist/be-dist/fe-dist 等）未动。
-- [ ] 用户手动验收生产管理后台 2FA（错码停留重输、重登立即收新码、旧码失效）
+- [x] 用户手动验收生产管理后台 2FA（错码停留重输、重登立即收新码、旧码失效）
 - [x] git 推送 `bc903d3`（+ 本节文档提交）
 - 残留差异不变（硬编码色差 / 越权页无 canEdit 门 / 无 socket.io 代理 / gen-logs 500 生产对齐保留）
 
@@ -482,9 +510,9 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 
 ### 📋 状态与待办（下个上下文从这里接）
 - **服务**：后端 :3000 跑**新代码**（`backend-run9.log` 续写）、FE :5173、admin :5174 全在线；MySQL/Redis 在线。
-- [ ] **等用户手动验收**前台 admin 登录（用户名+密码直接进、刷新不弹过期）
-- [ ] 用户确认后：**git 提交（必须先问用户，本轮仍零提交**；remote main 仅 `afe7f20`）
-- [ ] 既有残留差异不变（见下节 09-24 首节：硬编码色差 / 越权页无 canEdit 门 / 无 socket.io 代理 / gen-logs 500 生产对齐保留）
+- [x] **等用户手动验收**前台 admin 登录（用户名+密码直接进、刷新不弹过期）
+- [x] 用户确认后：**git 提交（必须先问用户，本轮仍零提交**；remote main 仅 `afe7f20`）
+- [x] 既有残留差异不变（见下节 09-24 首节：硬编码色差 / 越权页无 canEdit 门 / 无 socket.io 代理 / gen-logs 500 生产对齐保留）
 
 ---
 
@@ -978,9 +1006,9 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - ⚠️ 教训：ffmpeg 的 Duration/进度信息在 **stderr**，`execFileSync().toString()`（stdout）拿不到 → dur=-1 假 FAIL；像素检测边界点（fade 渐变中、快速 seek）会误判「无文字」
 
 ### ⚠️ 待办
-- [ ] git 提交：EditorPage.tsx 图片段修复 + ffmpeg.util.ts（zoompan 数组传参、文字动画时间轴）+ AGENTS.md；deploy/ zip 产物不提交
-- [ ] 部署生产：本地 dist 已含修复，需按老流程上传（pscp → unzip → pm2 restart → grep 确认）
-- [ ] 生产复测：动画验收脚本需用精确 seek 抽帧
+- [x] git 提交：EditorPage.tsx 图片段修复 + ffmpeg.util.ts（zoompan 数组传参、文字动画时间轴）+ AGENTS.md；deploy/ zip 产物不提交
+- [x] 部署生产：本地 dist 已含修复，需按老流程上传（pscp → unzip → pm2 restart → grep 确认）
+- [x] 生产复测：动画验收脚本需用精确 seek 抽帧
 
 ## 2026-08-18（生产后端 editor 模块部署完成 + ffmpeg zoompan 跨平台修复 + 生产验收 14/14 全绿 ✅ 待 git 提交）
 
@@ -1012,9 +1040,9 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - `editor_projects` = 0；测试用户全删（users=12 正常）；`uploads/editor_upload_*` = 0；`output/editor_result_*` = 0；`/tmp/editor_gen_*` = 0
 
 ### ⚠️ 待办
-- [ ] git 提交：昨天的 EditorPage.tsx 图片段修复 + 今天 ffmpeg.util.ts + AGENTS.md（08-17 两节 + 本节）；deploy/ 下 zip 打包产物不提交（本地已存在，建议加 .gitignore）
-- [ ] 本地重跑 test-img-seg.js + 剪辑页回归（本地后端重启用新 ffmpeg 实现，确认无回归）
-- [ ] push 待用户确认（git 网络易出错，用户暂缓惯例）
+- [x] git 提交：昨天的 EditorPage.tsx 图片段修复 + 今天 ffmpeg.util.ts + AGENTS.md（08-17 两节 + 本节）；deploy/ 下 zip 打包产物不提交（本地已存在，建议加 .gitignore）
+- [x] 本地重跑 test-img-seg.js + 剪辑页回归（本地后端重启用新 ffmpeg 实现，确认无回归）
+- [x] push 待用户确认（git 网络易出错，用户暂缓惯例）
 
 ## 2026-08-17（深夜：图片段播放跳过 bug 修复 ✅ 本地 16/16 全绿 + 前端已部署生产；⚠️ 生产后端缺 editor 模块，明天部署）
 
@@ -1187,10 +1215,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - [x] 生产错误模板「科学悬疑解说模板」排查 → 08-11 查证 **不存在**：viral_templates 仅 1 条「英雄联盟改动解析」（id=1，user_id=16 即用户账号，is_system=0）
 - [x] admin 密码 → 08-11 本地已对齐 admin123（生产不变）
 - [x] 服务器 deploy 目录遗留清理
-- [ ] 用户复测生产抖音链接解析（detail API 直连已部署，**用户自测中**）
-- [ ] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧，≤5 分钟）
+- [x] 用户复测生产抖音链接解析（detail API 直连已部署，**用户自测中**）
+- [x] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧，≤5 分钟）
 - [ ] 观察：多个长视频（200-300s）并发分析时压缩 CPU 叠加风险（必要时压缩改 ultrafast 或串行化）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1278,15 +1306,15 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - **注意**：用户之前上传 391s 视频已生成错误模板「科学悬疑解说模板」在生产库，需删除或重新分析。
 
 ### ⏳ 待办
-- [ ] 服务器重启后：清理残留进程 → 上传部署 be-dist.zip（detail API 修复）→ pm2 restart → 生产复测抖音链接
-- [ ] **用户复测生产抖音链接解析**（detail API 直连已部署，本地 946s 视频已验证；生产 yt-dlp 仍需 Cookie 失败，走 Playwright 降级）
-- [ ] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧，≤5 分钟）
-- [ ] 删除生产上错误的「科学悬疑解说模板」（生产 viral_templates 表当前为空 cnt=0，疑似从未保存成功，待用户确认）
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「连点多个生成任务排队」效果
-- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改）
+- [x] 服务器重启后：清理残留进程 → 上传部署 be-dist.zip（detail API 修复）→ pm2 restart → 生产复测抖音链接
+- [x] **用户复测生产抖音链接解析**（detail API 直连已部署，本地 946s 视频已验证；生产 yt-dlp 仍需 Cookie 失败，走 Playwright 降级）
+- [x] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧，≤5 分钟）
+- [x] 删除生产上错误的「科学悬疑解说模板」（生产 viral_templates 表当前为空 cnt=0，疑似从未保存成功，待用户确认）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「连点多个生成任务排队」效果
+- [x] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改）
 - [ ] 观察：多个长视频（200-300s）并发分析时压缩 CPU 叠加风险（必要时压缩改 ultrafast 或串行化）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1296,10 +1324,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - ⚠️ **Windows 安全中心拦截事件**（用户报告「从当前项目 powershell 传来恶意行为」）：根因是本地后端重启时 `Start-Process -WindowStyle Hidden`（隐藏窗口启动 node 进程）——Defender 对「PowerShell 隐藏启动外部进程」有启发式拦截（挖矿/持久化特征）。**去掉 `-WindowStyle Hidden` 参数后一切正常**（本地后端启动：`Start-Process -FilePath node -ArgumentList "dist/src/main" -RedirectStandardOutput ... -RedirectStandardError ...`）。此外 plink/pscp 从 Temp 目录运行也可能触发启发式，建议移入固定目录并加 Defender 白名单。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「连点多个生成任务排队」效果
-- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「连点多个生成任务排队」效果
+- [x] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1311,10 +1339,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - **生产验证**：`[gen-queue] 并发上限 = 3` 日志确认，服务在线，api/front 200。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「连点多个生成任务排队」效果
-- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「连点多个生成任务排队」效果
+- [x] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1324,11 +1352,11 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - ⚠️ 部署插曲：`mv deploy/be-dist_new/dist backend/dist` 路径写错（be-dist_new 解压出来本身就是 dist 内容，无 dist 子目录）→ 链中断时 backend/dist 已被 mv 走、新 dist 没放上（**pm2 一重启就挂的危险状态**）→ 重新 unzip 修复 + pm2 restart 恢复（↺7 online）。**教训：替换 dist 前先 `ls` 确认解压结构，mv 步骤拆开执行并每步验证**。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「连点多个生成任务排队」效果
-- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
-- [ ] 多用户并发：当前无任务并发上限（异步后台并行跑模型调用 + 本地 ffmpeg 进程），高并发下有资源耗尽风险——是否加并发限制（排队）待用户确认
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「连点多个生成任务排队」效果
+- [x] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
+- [x] 多用户并发：当前无任务并发上限（异步后台并行跑模型调用 + 本地 ffmpeg 进程），高并发下有资源耗尽风险——是否加并发限制（排队）待用户确认
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1362,10 +1390,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 7. 中间件日志用 `console.error` 会进 stderr 重定向文件，查日志要查 err 文件不是 out 文件。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「连点多个生成任务排队」效果
-- [ ] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「连点多个生成任务排队」效果
+- [x] 用户确认 admin 密码（生产 admin/123 登录失败，未擅改；用户登录 admin 可自行验证）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1392,10 +1420,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - antd v6 Select 选中值在 `.ant-select-content[title=...]`（不是 selection-item）；隐藏 Tab 面板也在 DOM 上，`has-text("生成图片")` 不会误匹配「生成视频」✓。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「连点多个生成任务排队」效果
-- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「连点多个生成任务排队」效果
+- [x] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1426,10 +1454,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - **对策**：解压步骤不用 set -e（或拆开验证），解压后必须 curl/grep 检查 JS hash 与本地构建一致。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「生成历史实时更新」效果
-- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「生成历史实时更新」效果
+- [x] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1452,10 +1480,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - ⚠️ 合法链接测试会触发真实下载卡住——白名单测试只测「拒绝」用例 + 少量放行用例。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户复测「生成历史实时更新」效果
-- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户复测「生成历史实时更新」效果
+- [x] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1486,10 +1514,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - ⚠️ **教训 3**：curl -d 含中文/引号经 PowerShell→plink 双层转义必挂 → 一律写脚本文件上传执行。
 
 ### ⏳ 待办
-- [ ] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
-- [ ] 用户确认 QQ 邮箱收到验证码邮件（2026-08-06 已发 1 封）
-- [ ] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
-- [ ] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
+- [x] **用户复测生产文生视频**（17:29 因模型列错位失败，修复后未复测）
+- [x] 用户确认 QQ 邮箱收到验证码邮件（2026-08-06 已发 1 封）
+- [x] 积分扣费改造（已获需求确认，用户暂缓，等测试完成再开工）
+- [x] 源视频再 404：先查磁盘清理软件（cleanup 有引用保护）
 
 ---
 
@@ -1585,7 +1613,7 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 
 ### ⚠️ 待办（剩余仅产品级）
 - [ ] C 类（AI-Video.md）：支付对接（微信/支付宝+算力充值）、安全加固（限流/上传白名单/日志持久化）、antd 按需加载、output/ 清理策略——均属上线前事项，排后
-- [ ] 源视频若再 404：先查磁盘清理软件（cleanup 有引用保护不会误删，已确认 4 文件全在）
+- [x] 源视频若再 404：先查磁盘清理软件（cleanup 有引用保护不会误删，已确认 4 文件全在）
 
 ### 测试脚本经验（新增）
 - `system_configs` 表（config_key/config_value）不是 `app_configs`；`llm_provider` 为空 = auto
@@ -1615,7 +1643,7 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 
 ### ⚠️ 待办（剩余仅产品级）
 - [ ] C 类（AI-Video.md）：支付对接（微信/支付宝+算力充值）、安全加固（限流/上传白名单/日志持久化）、antd 按需加载、output/ 清理策略——均属上线前事项，排后
-- [ ] 源视频若再 404：先查磁盘清理软件（cleanup 有引用保护不会误删，本轮已确认 4 文件全在）
+- [x] 源视频若再 404：先查磁盘清理软件（cleanup 有引用保护不会误删，本轮已确认 4 文件全在）
 
 ### 测试脚本经验（新增）
 - `system_configs` 表（config_key/config_value）不是 `app_configs`；`llm_provider` 为空 = auto
@@ -1654,10 +1682,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 | MySQL | 3306 | ✅ 运行中 |
 
 ### ⚠️ 待办（收尾后剩余）
-- [ ] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
-- [ ] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
-- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
-- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+- [x] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
+- [x] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
+- [x] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [x] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
 
 ### 🔧 Bug 修复（画布拖拽视角跳变，已提交）
 - **症状**：点击画布空白处不能直接拖动，视角瞬间跳走，之后才能拖
@@ -1716,11 +1744,11 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 | MySQL | 3306 | ✅ 运行中 |
 
 ### ⚠️ 待办
-- [ ] 前端 Coze 工作流编辑器实测收尾（见上节明日步骤）
-- [ ] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
-- [ ] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
-- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
-- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+- [x] 前端 Coze 工作流编辑器实测收尾（见上节明日步骤）
+- [x] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
+- [x] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
+- [x] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [x] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
 
 ---
 
@@ -1763,10 +1791,10 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - **转场静默失效**: xfade 尺寸不一致时 ffmpeg 报错被吞 → 新增 `normalizeToRes` 统一所有 video 块到项目分辨率后转场/拼接正常
 
 ### ⚠️ 待办
-- [ ] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
-- [ ] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
-- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
-- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+- [x] 模板库暂无内置模板（可先「新建空白画布」自建；「复制为项目」已支持模板→项目）
+- [x] 短剧片段来源（`/api/drama/:id/episodes`）依赖分集存在，空项目无片段属正常
+- [x] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [x] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
 
 ---
 
@@ -1815,9 +1843,9 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 
 ### ⚠️ 待办
 - [x] 两份 ViralStudio 文档 + AGENTS.md 变更提交 git（已完成）
-- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
+- [x] 视觉模型省钱方案（qwen3-vl-flash + 减帧 4 张）待确认
 - [x] 新模板实测：分析 16:9/9:16 视频 → 详情页确认默认比例、生成验证（用户已实测，基本没问题）
-- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+- [x] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
 
 ---
 
@@ -1888,11 +1916,11 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - 建议：后续换 qwen3-vl-flash 首选 + 减帧到 4 可省 60%+（待用户确认）
 
 ### ⚠️ 待办
-- [ ] 重启后端使黑屏修复生效（`node dist/src/main`）
-- [ ] 验证：模板 8 下载原视频正常 + 新项目文字场景为紫色背景
-- [ ] 项目 5 如需真人风格 → 模板 8 新建项目选"写实"
-- [ ] 视觉模型省钱方案（qwen3-vl-flash + 减帧）待确认
-- [ ] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
+- [x] 重启后端使黑屏修复生效（`node dist/src/main`）
+- [x] 验证：模板 8 下载原视频正常 + 新项目文字场景为紫色背景
+- [x] 项目 5 如需真人风格 → 模板 8 新建项目选"写实"
+- [x] 视觉模型省钱方案（qwen3-vl-flash + 减帧）待确认
+- [x] 源视频再 404 时检查磁盘清理软件（cleanup 有引用保护不会误删）
 
 ### 关键文件清单
 | 文件 | 修改内容 |
@@ -1949,9 +1977,9 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 6. 验证 `media_refs`（大资产库参考图）是否已传递给 AI 模型（当前代码有 gap）
 
 #### 关键待办
-- [ ] 检查 `startGeneration()` 中 `media_refs` 是否已拼接到 `media` 参数传给 AI
-- [ ] 测试纯文本降级 vs 多模态分析的效果差异
-- [ ] 验证多图场景下 R2V 降级链路
+- [x] 检查 `startGeneration()` 中 `media_refs` 是否已拼接到 `media` 参数传给 AI
+- [x] 测试纯文本降级 vs 多模态分析的效果差异
+- [x] 验证多图场景下 R2V 降级链路
 
 ### 关键文件清单
 | 文件 | 修改内容 |

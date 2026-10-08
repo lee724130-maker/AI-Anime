@@ -2302,8 +2302,8 @@ AI 生成的视频经常"翻车"：**手变成六根指头、脸糊成一团、�
 - [x] 阿里云百炼 CosyVoice 免费额度、模型 ID → **2026-08-12 已确认**（7 个模型各 10,000 次，见上表）
 - [x] 智谱 glm-speech TTS → **废弃**（智谱无法使用，配音全走 CosyVoice）
 - [x] qwen-vl 400 报错根因 → **已修复**（2026-08-05 本地实测通过，质检用 qwen3-vl-flash）
-- [ ] `video_tasks` 表加字段的迁移方式（本地 SQLite 直接加列即可，若用 MySQL 走 synchronize）
-- [ ] 生产部署前：百炼控制台复核 CosyVoice/GLM 最新额度（免费额度会随时间消耗）
+- [x] `video_tasks` 表加字段的迁移方式（本地 SQLite 直接加列即可，若用 MySQL 走 synchronize）
+- [x] 生产部署前：百炼控制台复核 CosyVoice/GLM 最新额度（免费额度会随时间消耗）
 
 > 本文档基于 2026-08-12 项目现状编写，未修改任何项目文件。
 
@@ -2343,7 +2343,7 @@ AI 生成的视频经常"翻车"：**手变成六根指头、脸糊成一团、�
 - [x] 候选生成并发：N=3 时同段 3 个候选串行生成（非并发），受队列约束，无额外加锁
 - [x] 质检结果仅供参考不自动删除废片（避免误删），人工终审决定采纳
 - [x] 清理服务引用保护已补 `drama_segment_candidates`（否则未采纳候选视频 30 天后会被误删）
-- [ ] 生产部署：后端 dist + 前端 dist + 生产 system_configs 种键（quality_check_enabled/quality_check_strictness）
+- [x] 生产部署：后端 dist + 前端 dist + 生产 system_configs 种键（quality_check_enabled/quality_check_strictness）
 
 
 ---
@@ -2447,11 +2447,11 @@ monochrome grayscale palette with a single cyan accent (#08B6DD), clean minimal 
 - 前端：Home 新 section（`.ltv-promo` banner 轮播 antd Carousel + `.ltv-releases` 卡片行 + 倒计时 dayjs）
 
 ### A.7 验收标准
-- [ ] 活动后台可配：新建 → 上架 → 过期自动隐藏；banner 点击跳 link_url
-- [ ] 上新卡 NEW 角标、点击跳转；无活动时整块隐藏（不留空洞）
-- [ ] 原 5 快捷入口功能仍全部可达
-- [ ] 深浅色 + 375/1440 双视口零横向溢出、0 pageerror
-- [ ] `test-shell-func.js` 扩展断言（banner 数 / 上新数 / 跳转）
+- [x] 活动后台可配：新建 → 上架 → 过期自动隐藏；banner 点击跳 link_url
+- [x] 上新卡 NEW 角标、点击跳转；无活动时整块隐藏（不留空洞）
+- [x] 原 5 快捷入口功能仍全部可达
+- [x] 深浅色 + 375/1440 双视口零横向溢出、0 pageerror
+- [x] `test-shell-func.js` 扩展断言（banner 数 / 上新数 / 跳转）
 
 ---
 
@@ -2478,10 +2478,10 @@ monochrome grayscale palette with a single cyan accent (#08B6DD), clean minimal 
 - 作品卡封面优先取 `cover_url`（C 自动产出），保证「展示出内容且美观」；无封面回退 tint 占位。
 
 ### B.5 验收标准
-- [ ] dashboard 不再出现任务概览/失败任务卡；`/tasks?status=processing|pending` 回归通过
-- [ ] 5 个 tab 正确过滤、每类样例数据 ≥1、点击播放正常、空态正确
-- [ ] 深浅色/移动端（tab 行不得引入滚动条——复用 09-28 选择栏修复经验：不加 overflow-x）0 pageerror
-- [ ] `test-shell-func.js` 断言替换（删队列断言、加作品展断言）
+- [x] dashboard 不再出现任务概览/失败任务卡；`/tasks?status=processing|pending` 回归通过
+- [x] 5 个 tab 正确过滤、每类样例数据 ≥1、点击播放正常、空态正确
+- [x] 深浅色/移动端（tab 行不得引入滚动条——复用 09-28 选择栏修复经验：不加 overflow-x）0 pageerror
+- [x] `test-shell-func.js` 断言替换（删队列断言、加作品展断言）
 
 ---
 
