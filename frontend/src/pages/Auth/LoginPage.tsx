@@ -22,10 +22,12 @@ export default function LoginPage() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  /** 申请发送超级管理员验证码（登录切换到验证步骤时自动调用 / 重发按钮调用） */
-  const sendCode = async (auto: boolean) => {
+  /** 申请发送超级管理员验证码（登录切换到验证步骤时自动调用 / 重发按钮调用）
+   *  token 必须显式传入登录响应里的 tempToken —— 自动调用发生在 setState 同一事件里，
+   *  闭包里的 state 还是旧值（首登为空串 → 后端 400「无效的验证令牌或令牌已过期」）。 */
+  const sendCode = async (auto: boolean, token?: string) => {
     try {
-      await api.post('/api/auth/send-admin-code', { tempToken });
+      await api.post('/api/auth/send-admin-code', { tempToken: token || tempToken });
       setCountdown(60);
       if (auto) message.info('验证码已发送至绑定邮箱');
       else message.success('验证码已重新发送');
@@ -45,7 +47,7 @@ export default function LoginPage() {
             setTempToken(data.tempToken);
             setMaskedEmail(data.user?.email || '***@qq.com');
             setStep('verify');
-            void sendCode(true);
+            void sendCode(true, data.tempToken);
             return;
           }
           if (!data.access_token) {
