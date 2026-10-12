@@ -35,18 +35,42 @@
 - ⚠️ **git 历史里仍有 `admin123`**（每一份历史版本的 AGENTS.md）——和旧 SSH/MySQL 密码一样，**当前文件抹掉 ≠ 历史抹掉**。根治三选一：仓库转 private / `git filter-repo` 重写历史 / 轮换该口令。用户既已选 2FA，密码单独泄露已不足以进后台，**风险降为低**；是否转 private 用户仍未拍板。
 
 ### ✅ ⑤ 生产验证脚本同步改写（部署时必用）
-- `prod-verify.js` 14 条 → **16 条**：新增 2 条 `SECURITY` 断言（skip 被忽略 → 仍要求 2FA；skip 不直接发 token）；**取 token 改走真 2FA**（`SSH_PW` 环境变量 → plink 往生产 Redis `db5` 注入一次性验证码 → `verify-admin` 拿 token → 再跑 promo/works/admin 断言，收尾 del 键）；不给 `SSH_PW` 时安全断言照跑、需要 token 的 12 条标 SKIP。
+- `prod-verify.js` 14 条 → **18 条**（⚠️ 勘误：本节初稿误记「16 条」，按 10-12 实跑 PASS+FAIL 总数 = 18）：新增 2 条 `SECURITY` 断言（skip 被忽略 → 仍要求 2FA；skip 不直接发 token）；**取 token 改走真 2FA**（`ssh -i` 免密 → 生产 Redis `db5` 注入一次性验证码 → `verify-admin` 拿 token → 再跑 promo/works/admin 断言，收尾 del 键）；无 SSH 时安全断言照跑、需要 token 的 12 条标 SKIP。（原 `SSH_PW`/plink 路径已随 ⑦ 免密化删除）
 - ⚠️ 老坑遵守：plink 一律 `-batch -hostkey` + `spawnSync` 数组参数（`*` 不被 shell 展开）；生产 Redis 是 **db5**（08-06 记录，`REDIS_DB=5`），本地是 db0。
 
+### ✅ ⑥ 用户验收发现首登 400 bug（自动发码闭包陈旧 state）——已修复并随本轮部署上线
+- **现象**：5173 全新首次登录 admin 进验证步 → 控制台 `POST /api/auth/send-admin-code 400 无效的验证令牌或令牌已过期`；第二次登录或点「重新发送」却正常。
+- **根因**：`LoginPage.tsx` 登录成功同一事件内 `setTempToken(data.tempToken)` 只是排队 state 更新，紧接着 `void sendCode(true)` 的闭包里 `tempToken` 还是旧值（首登 = `''`）→ 后端 `jwt.verify('')` → 400。第二次登录闭包残留上一次 token（5min 内、同邮箱）侥幸成功；重发按钮是渲染后的新闭包所以正常。连带症状：首登实际**没发出邮件**、60s 重发倒计时也没启动（400 后没走到 `setCountdown`）。
+- **修复**：`sendCode(auto, token?)` 显式传 `data.tempToken`（body `{ tempToken: token || tempToken }`）。
+- **测试盲区补上**：`test-fe-admin-2fa` 的 route mock 原先对任何 body 都回 200（只断言「调了」）→ 改为**忠实复刻后端校验**（tempToken 缺失/空 → 400 同款文案）+ 新增 2 断言（send body.tempToken === login 响应 tempToken；无「无效的验证令牌」报错）→ **28/28**（26+2）。
+- **反向验证防假绿**：临时改回 `sendCode(true)` → 新断言精准 FAIL（`body={"tempToken":""}` vs 真 token）+ 倒计时断言连带 FAIL；恢复后 28/28。`test-fe-foundation` 23/23 回归绿，双端 tsc 0。
+- ⚠️ 教训：**「测到接口被调用」≠「请求体正确」**——state/闭包时效相关请求，mock 必须按真实服务端校验回包，并断言 body 与上一响应字段的关联。
+- **用户 10-12 验收通过**：5173 全流程（首登自动发码无报错、错码停留清空、返回登录、正确码进 dashboard、刷新无过期弹窗）全部无误。
+
+### ✅ ⑦ SSH 免密装配 + 桌面凭据留档（用户改口）
+- **免密**：`ssh-keygen -t ed25519` 私钥 `C:\Users\Administrator\.ssh\id_ed25519_ai_anime`（仓库外、非 Temp 防清理）；公钥经 plink 幂等追加 `/root/.ssh/authorized_keys`（现 3 把 = 原有 2 + 本机 1，chmod 700/600）；`ssh -i -o BatchMode=yes` 实测 `KEY_AUTH_OK`。**plink/pscp 不认 OpenSSH 私钥 → 免密操作一律用系统 `ssh/scp.exe`**。
+- **hostkey pin**：服务器三算法指纹与历史 pin 核对一致（ED25519 `SHA256:YMX2Ho7…`），ed25519 行已进 known_hosts；`prod-verify.js` SSH 分支带 `StrictHostKeyChecking` pin 校验。
+- **密码留档（用户明确改口）**：实例密码最初要求「不落任何文件」→ 用户后改口「桌面建文件夹记 IP/hostkey/root/实例密码（电脑故障丢过宝塔账号要留档）」→ 已建 `C:\Users\Administrator\Desktop\服务器资料\重要凭据记录.txt`（仓库外；含登录指引与勿入仓库/网盘警告；**密码只在该文件，本 md/git 零残留**）。
+- **`prod-verify.js` 已免密**：`runRemote()` = `ssh -i -o BatchMode=yes -o StrictHostKeyChecking=yes`，`SSH_PW` 依赖删除；部署前实跑 **16 PASS + 2 FAIL + 0 SKIP**（0 SKIP = 私钥独立完成注入取 token；2 FAIL = SECURITY 两条即部署前的活体漏洞现场）。
+
+### 🚀 ⑧ 生产部署（10-12 三端全量，全程免密零密码）
+- **构建**：backend tsc 0 / FE `index-B2TXraMY.js` + `index-DCbJqaBD.css` / admin `index-BWYuNsbJ.js`（CSS、admin 与线上同 hash = 字节未变；FE bundle `skipVerification` 0 命中）；代码保底提交 `14be249`（LoginPage 修复）已 push。
+- **上传执行**：新打三 zip + deploy.sh → **`scp -i`（免密）** → `bash deploy/deploy.sh`（exit 0）：三端 dist→dist_bak + unzip 双保险 + pm2 restart + 冒烟 + 自清（unzip backslash warning 照旧出现、文件实际解压成功）。
+- **核验**：生产 `allowSkip`×3 + 门控行 132 ✓、线上 index.html=`index-B2TXraMY.js` 与本地一致 ✓、`pm2 env 2` NODE_ENV=production ✓、Nest 17:57 正常起、error log mtime 仍 8-31（零新错）、冒烟 api=401 / front=200 / admin=200。
+- **生产验证 `prod-verify.js` 18/18 PASS、0 SKIP**：部署前 2 条 SECURITY FAIL 全翻绿（`skipVerification` 被忽略→仍要 2FA、skip 不直接发 token）——**活体漏洞闭环**。
+- 回滚路径：服务器 `backend|frontend|admin/dist_bak`（= 10-08 版）。
+
 ### 📋 状态与待办（下次接续）
-- **服务**：backend :3000（`backend-run27.log`，跑新 2FA 代码）、FE :5173（`fe-dev15.log`）、admin :5174（`admin-dev19.log`，2FA 未变）。
+- **本地服务**：backend :3000（`backend-run27.log`，跑新 2FA 代码）、FE :5173、admin :5174（2FA 未变）；**生产三端已跑本轮新代码（10-12 17:57 部署）**。
 - [x] 后端环境门控 + 前台 2FA 步 + 三套专项测试全绿 + md 凭据清理（本轮）
 - [x] 11 套全量回归全绿（见 ③；清了残留任务 #69、admin-fe 复跑过）
-- [ ] **等用户本地手动验收**：5173 用 admin + 弱口令登录 → 应进「邮箱验证」步（用户可真实收到邮件，或我按 Redis 注入法给码）；输错停留、返回登录、正确码进 dashboard
-- [ ] 用户验收后 → **git 提交 + 部署生产**（需向用户**索取新 SSH 密码**）→ 生产复测 `SSH_PW=… node prod-verify.js` 应 16/16；生产 UI 手测超管登录必须验证码
-- [ ] 顺手可做：生产 MySQL 密码轮换（闭环历史泄露，仍需 SSH 密码）
+- [x] 用户本地验收通过；期间发现首登 400 bug → 修复 + 测试盲区 + 反向验证（见 ⑥）
+- [x] SSH 免密装配 + 桌面凭据留档（见 ⑦，密码不再需要索取）
+- [x] **生产部署 + 复测 18/18 全绿**（见 ⑧，git `14be249` 已 push）
+- [ ] **用户生产 UI 手测**：`https://anime.leesystem.xyz` 登录 admin → 必须进「邮箱验证」步（真实收邮件）；5174 管理后台 2FA 照常不受影响
+- [ ] 顺手可做：生产 MySQL 密码轮换（闭环历史泄露）
 - [ ] 仓库是否转 private —— 等用户拍板
-- [ ] Agnes t2v e2e 循环重启（服务器重启时被杀）+ 封面 e2e 15 条（等 ①）
+- [ ] Agnes t2v e2e 循环（`agnes-e2e2.log`，判据 `E2E_PASS`）→ 封面 e2e 15 条（等 e2e）
 
 ---
 
