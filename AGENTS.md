@@ -1,5 +1,55 @@
 # 修复日志
 
+## 2026-10-12（生产 admin 弱口令活体漏洞修复：前台登录超管也强制邮箱 2FA + md 凭据清理 —— 本地测试全绿，**等用户本地验收后再部署生产**）
+
+> 背景：仓库是 **public**，SSH 密码/生产 MySQL 密码已轮换/抹除，但**生产超管 `admin` + 弱口令 + `skipVerification:true` 公网直发超管 token** 的活体漏洞仍在（可刷积分/改权限/读 API key/只读 SQL）。用户否掉「换 16 位强密码」（记不住），拍板改为「**前台 admin 登录也加邮箱验证，仅限超管**」。
+
+### ✅ ① 后端：把「客户端可控的免验开关」改成「生产强制 2FA」（`auth.service.ts` + `login.dto.ts`）
+- **根因**：`login()` 里 `if (user.is_super_admin && !dto.skipVerification)` —— `skipVerification` 由请求体传入 = 任何人都能绕过 2FA。
+- **修复**：`const allowSkip = process.env.NODE_ENV !== 'production' && dto.skipVerification === true;` → `if (user.is_super_admin && !allowSkip)` 走 2FA。**生产（NODE_ENV=production）无条件走 2FA**，客户端传什么都没用；本地/开发保留该便利开关是为了**不动那 35 个历史测试脚本**（它们靠 API 直登拿 admin token），且 `allowSkip` 命中时后端会打 warn 日志（`2FA 被跳过（仅非生产环境允许）: user=admin`）。
+- DTO 的 `skipVerification?: boolean` **保留**（校验语义仍在：非布尔 400），但注释已改成「仅非生产环境的测试便利开关」。
+- 生产 `NODE_ENV=production` 已实锤（09-24 起 `pm2 restart --update-env` 带 ENV=production，jlist 复核过）。
+
+### ✅ ② 前台登录页加第 2 步（`frontend/src/pages/Auth/LoginPage.tsx` 整页重写）
+- 提交后若响应 `requiresVerification` → **不再直跳 dashboard**，切到「邮箱验证」步：`Alert`（`验证码已发送至 xxx`）+ 6 位验证码输入框（自动聚焦、字距 8 居中）+「验证并登录」+「重新发送验证码」（60s 倒计时禁用）+「返回登录」。
+- 进入验证步时**自动调用** `POST /api/auth/send-admin-code {tempToken}`；复用管理后台 2FA 的既有端点与 5 分钟 tempToken。
+- **输错验证码停留验证步**（沿用 09-24 管理后台同款修复）：`message.error` + `formVerify.resetFields(['code'])` 清空重输，不退回账号密码步。
+- 前端 `services/api.ts` 拦截器对 `/api/auth/*` 有豁免（`isAuthRequest`），错码 401 不会误触发 `auth:expired` 弹窗。
+- **前端已彻底不再发送 `skipVerification`** —— 意味着**无论后端跑什么环境，真实 UI 登录超管都必须过验证码**；后端的环境门控只服务历史 API 测试脚本。
+
+### ✅ ③ 测试（全绿，零发信）
+- **新 `test-fe-admin-2fa.js` 26/26**（替代已删的旧 `test-fe-admin-login.js`）：登录后进验证步且未跳 dashboard / login 请求体不含 `skipVerification` / 自动调 send-admin-code / 提示文案 / 标题「邮箱验证」/ 重发按钮倒计时禁用 / 错码 toast + 停留 + 输入框清空 / 返回登录可用 / 二次登录再进验证步 / **Redis 注入验证码 →「验证通过」toast → /dashboard** / token 是真 JWT / 登录后+刷新后零「登录已过期」弹窗、`/api` 零 401 / AppShell 渲染、AppHeader 已移除 / 0 pageerror。`send-admin-code` 走 `page.route` mock（**零真实发信**），验证码用 `email_code:admin:<超管邮箱>` = `code|毫秒时间戳` EX 300 注入 db0。
+- **`test-login-fix.js` 11/11**（未改）：本地非生产模式下 skip 仍能直发 token → 证明 35 个历史脚本不受影响；plain login 仍 `requiresVerification`。
+- **新 `test-prod-2fa-gate.js` 8/8**（**生产模式门控实测**）：以 `NODE_ENV=production PORT=3001` 起临时后端实例 → 漏洞原样重放（`admin + 弱口令 + skipVerification:true`）→ **仍 `requiresVerification=true`、不发 token、返回 tempToken**；plain login 同样要 2FA；错密码 + skip 仍 401；假 tempToken 被拒；探完立即 kill，无残留进程。
+- **11 套全量回归全绿**（串行后台跑，`run-regression.ps1` → `regression-2fa.txt`；round2 `regression-2fa-round2.txt` 补抓摘要）：login-fix **11/11** / fe-admin-2fa **26/26** / fe-foundation **23/23** / shell-func **44/44** / fe-generate **31/31**（重跑）/ fe-showcase **27/27** / promo-fe **40/40** / works-api **11/11** / promo-smoke **36/36** / promo-admin-fe **32/32** / admin-fe **93/93**（重跑）。
+  - ⚠️ `fe-generate` 首轮挂 = **残留脏数据不是代码问题**：`generation_tasks` #69（10-08 的 Agnes t2v e2e 试探，后端重启把 void 异步丢了）永远卡 `processing` → 侧栏历史 3 条（预期 2）→ 点第一项开的不是预览弹窗 → `.ant-modal-close` 超时 exit=2。**DELETE #69 后 31/31**（credits 9999 未变）。
+  - ⚠️ `admin-fe` 首轮 exit=1 = 已知时序 flake（09-24 起记录的 logout 下拉类），复跑 93/93。
+  - ⚠️ 回归结果抓行坑：`promo-smoke`/`works-api`/`admin-fe` 的摘要格式是 `=== N PASS / M FAIL ===`、`RESULT: N PASS / M FAIL`、`==== RESULT: N pass, M fail ====`（大小写/斜杠各不同），按 `\d+/\d+ PASS` 抓必漏 → **这 5 套以 `process.exit(fail?1:0)` 的退出码为准**（exit=0 即 0 FAIL）。
+- ⚠️ 该临时实例会用本地全量 DB 跑启动期 cleanup（引用保护齐全，只删真孤儿），**不能用空库起**（空库 = 引用集合为空 → 会把 `output/` 下超 30 天的成片/封面全删，是 08-05 事故同款）。
+
+### ✅ ④ md 凭据清理（用户要求「顺带检查 md 有没有要删除的风险记录」）
+- **扫法**：`git ls-files` 全量 + 三类正则（`admin123` / `sk-|AKID|ghp_|BEGIN KEY` / 中文「密码|口令|密钥|授权码|凭据」逐行过 13 个 md）。
+- **已抹（`AGENTS.md` 5 处）**：`admin/admin123` ×4（09-23 约束、09-22 迁移结果、08-11 密码对齐、待办行）→ 全部改成「值只在 `backend/.env` 的 `TEST_ADMIN_PASSWORD`，不写文档」；商汤/Agnes key 前缀 `sk-7fAUg...`/`sk-ec3b...` → `sk-****`；旧本地密码 `123456` 一并抹掉。
+- **新增唯一落点**：`backend/.env` 追加 `TEST_ADMIN_PASSWORD=...`（该文件 gitignore，`git check-ignore` 复核 ✓）——本地与生产是同一弱口令，**不改密码**（用户选 2FA 而非换密码），所以文档只指向 .env。
+- **复核**：`git grep admin123`（tracked）= **0 命中**；SSH/生产 MySQL 密码上一轮已全是占位符 `【…不落地】`，本轮复扫确认无残留；`docs/deploy.md` 只剩服务器 IP + hostkey（运维必需，非凭据）。
+- ⚠️ **git 历史里仍有 `admin123`**（每一份历史版本的 AGENTS.md）——和旧 SSH/MySQL 密码一样，**当前文件抹掉 ≠ 历史抹掉**。根治三选一：仓库转 private / `git filter-repo` 重写历史 / 轮换该口令。用户既已选 2FA，密码单独泄露已不足以进后台，**风险降为低**；是否转 private 用户仍未拍板。
+
+### ✅ ⑤ 生产验证脚本同步改写（部署时必用）
+- `prod-verify.js` 14 条 → **16 条**：新增 2 条 `SECURITY` 断言（skip 被忽略 → 仍要求 2FA；skip 不直接发 token）；**取 token 改走真 2FA**（`SSH_PW` 环境变量 → plink 往生产 Redis `db5` 注入一次性验证码 → `verify-admin` 拿 token → 再跑 promo/works/admin 断言，收尾 del 键）；不给 `SSH_PW` 时安全断言照跑、需要 token 的 12 条标 SKIP。
+- ⚠️ 老坑遵守：plink 一律 `-batch -hostkey` + `spawnSync` 数组参数（`*` 不被 shell 展开）；生产 Redis 是 **db5**（08-06 记录，`REDIS_DB=5`），本地是 db0。
+
+### 📋 状态与待办（下次接续）
+- **服务**：backend :3000（`backend-run27.log`，跑新 2FA 代码）、FE :5173（`fe-dev15.log`）、admin :5174（`admin-dev19.log`，2FA 未变）。
+- [x] 后端环境门控 + 前台 2FA 步 + 三套专项测试全绿 + md 凭据清理（本轮）
+- [x] 11 套全量回归全绿（见 ③；清了残留任务 #69、admin-fe 复跑过）
+- [ ] **等用户本地手动验收**：5173 用 admin + 弱口令登录 → 应进「邮箱验证」步（用户可真实收到邮件，或我按 Redis 注入法给码）；输错停留、返回登录、正确码进 dashboard
+- [ ] 用户验收后 → **git 提交 + 部署生产**（需向用户**索取新 SSH 密码**）→ 生产复测 `SSH_PW=… node prod-verify.js` 应 16/16；生产 UI 手测超管登录必须验证码
+- [ ] 顺手可做：生产 MySQL 密码轮换（闭环历史泄露，仍需 SSH 密码）
+- [ ] 仓库是否转 private —— 等用户拍板
+- [ ] Agnes t2v e2e 循环重启（服务器重启时被杀）+ 封面 e2e 15 条（等 ①）
+
+---
+
 ## 2026-10-08（收尾轮：真待办 4 条推进 —— ② 生产补双供应商 7/7 + ③ 吉祥物礼物封面 v3 上线（生产 UI 10/10）；① Agnes 视频 e2e 仍在蹲队列 51 轮全 503）
 
 > 用户指示「把真待办（4 条）都完成好」。②③ 本轮完成；①（后端 t2v e2e）与其依赖项 ④（封面 e2e 15 条）受制于 Agnes 免费队列窗口，后台探针继续蹲。
@@ -115,7 +165,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 
 ## 2026-09-30（供应商后备接入：商汤 SenseNova + Agnes AI —— 图像三测试 10/10×3 全绿（含自动链后备 + 修「用完即停」硬编码兜底 bug）；视频限免但队列拥堵待 e2e；已随 `d3b21e5` 提交）
 
-> 背景：阿里云「用完即停」，用户给两把新 key 做后备。商汤 key `sk-7fAUg...`（system_configs `sensenova_api_key`）、Agnes key `sk-ec3b...`（`agnes_api_key`）。⚠️ 两 key 不进 git/不进日志，只落 system_configs。
+> 背景：阿里云「用完即停」，用户给两把新 key 做后备。商汤 key `sk-****`（system_configs `sensenova_api_key`）、Agnes key `sk-****`（`agnes_api_key`）。⚠️ 两 key 不进 git/不进日志，只落 system_configs，明文不写进任何 md。
 
 ### ✅ ① 商汤 SenseNova（`sensenova_api_key`，已接入 + 实测 10/10）
 - **探针**（`probe-sensenova.js`）：`POST https://token.sensenova.cn/v1/images/generations` ×2 全 200——`sensenova-u1.5-lite` 15s / `sensenova-u1.5-fast` 4s，URL 格式 PNG 1.1MB，usage 单张 ≈4.4k~4.6k tokens（公测免费 1,500 次/5h/模型 + 滚动积分池）。
@@ -586,7 +636,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 
 ### ⚠️ 明天别忘的关键约束
 - 生产服务器**只读**（不重启不清理）；无 SMTP 同意不发信（2FA/验证码一律 Redis 注入：`email_code:admin:1012453931@qq.com` = `123456|毫秒时间戳` EX 300，db 0；**send-admin-code 必须 route mock**）
-- admin URL `http://localhost:5174/admin/`、登录 `/admin/login`；本地 admin/admin123（super，2FA），Lee-1 id16 密码未知（权限过滤用注入假 admin_user 测）
+- admin URL `http://localhost:5174/admin/`、登录 `/admin/login`；本地 admin/<超管密码，值只在 `backend/.env` 的 `TEST_ADMIN_PASSWORD`，不写文档>（super，2FA），Lee-1 id16 密码未知（权限过滤用注入假 admin_user 测）
 - antd v6 坑：两字按钮正则 /确\s*认/ /取\s*消/ /执\s*行/ /充\s*值/ /权\s*限/ /全\s*选/；关闭的 modal 留 DOM；hidden Tabs pane 留 th；toast ~3s 必须 poll 不能固定等；Space 用 orientation
 - 编译 PATH 前置 `C:\Program Files\nodejs`；`npm.cmd`；写脚本文件禁内联 node -e；`glob` 工具坏用 shell；PowerShell 无 `<` 重定向
 
@@ -646,7 +696,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 ### ✅ ② 生产数据迁移（SSH 22 被防火墙拦截 → 走 admin 只读 SQL API）
 - 生产 SSH :22 超时、MySQL :3306 关闭 → 改用解码生产 admin 前端 bundle 挖出的真实端点：`/api/auth/send-admin-code` → `/api/auth/verify-admin`（邮箱验证码，用户授权发到 1012453931@qq.com，code 996165）→ `/api/admin/db/tables` + `/api/admin/db/query`（**只读 SELECT/SHOW/DESCRIBE/EXPLAIN**）
 - `prod-dump.js` 分页导出 25 表 268 行 → `prod-import.js` 用 backend 的 mysql2 参数化导入（`FOREIGN_KEY_CHECKS=0` + 列交集过滤 + datetime 转换）
-- **迁移结果**：users=7（含 admin/admin123 哈希）、**model_configs=69**、**system_configs=32**、orders=23、prompt_templates=6、drama/canvas/editor/viral 项目全量、admin_logs=107
+- **迁移结果**：users=7（含 admin 超管弱口令哈希，与生产一致）、**model_configs=69**、**system_configs=32**、orders=23、prompt_templates=6、drama/canvas/editor/viral 项目全量、admin_logs=107
 - **🔑 关键收获：生产 API key 迁移回来了**——`tongyi_api_key`（35 位，尾 aeec）、`zai_api_key`（49 位，尾 3uAQ）+ 全部积分/扣费价格配置（credit_cost_480p=5/720p=10/1080p=20、viral/drama 全套成本）都在 `system_configs` 里，本地可直接生成
 
 ### ✅ ③ 补齐生产新代码的 3 列（schema-diff 全量对比得出）
@@ -1206,7 +1256,7 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
   - `Generate/index.tsx` 大改：结果区改**轮播**（左/右圆形箭头 + `x / N` 页码 + 右上关闭移除 + 页脚信息条：类型/状态/视角 tag + prompt 摘要 + 参数摘要 + 保存/全屏/重试/删除）；completed 多图任务按张**逐张展开成多页**；pending/processing/failed/completed 各状态页；进度条（Progress 组件）；轮播背景 `#fafafa` 浅色（用户反馈 #141414 深色下文字不可读）；自绘 Tab 标签行（替代 antd Tabs，key 强制卸载重建表单）；历史区 8 条 + 「查看更多」跳转历史页。
 - **Bug 修复**：① 关闭当前页后 currentIdx 越界崩溃 → `closeCurrent` 用 `Math.min(i, resultPages.length - 2)` 回退 + 渲染防御 `resultPages[currentIdx] ? render : null`；② HistoryTable 无自动刷新导致与轮播状态不同步 → active 3s 静默轮询。
 - **生产部署**：前端新构建 hash `index-Uq4NQMyM.js`（本地=生产核对一致）+ HistoryTable-DDBcjjYE.js；pm2 online；生产验证 **16/16 全绿 + 0 JS 错误**（tasks 接口筛选×3 / 轮播空态→提交→进度条→完成显示图片→页码 / 历史页筛选后全为图片类型）；测试用户/任务/图片/zip 全清。
-- **admin 密码对齐**：本地库 admin 密码 123456 → **admin123**（与生产一致；生产 `/api/auth/login` admin/admin123 实测 200；坑：PowerShell→node -e 传递 `\$2b\$` 哈希会被转义破坏致 compare false → 用 bcryptjs 重新生成哈希写库 + 文件方式读哈希验证）。
+- **admin 密码对齐**：本地库 admin 弱口令改为与生产一致（**明文不落文档，见 `backend/.env` 的 `TEST_ADMIN_PASSWORD`**；生产 `/api/auth/login` admin 登录实测 200；坑：PowerShell→node -e 传递 `\$2b\$` 哈希会被转义破坏致 compare false → 用 bcryptjs 重新生成哈希写库 + 文件方式读哈希验证）。
 - **服务器清理**：deploy 目录历史遗留全清（admin-dist.zip/admin.zip/dist-{frontend,backend,admin}.zip ×5、test-prod-*.sh/js ×3、cleanup-orphans.sh、query-admin.sh、package-backend.json、old-backend-dist 2.6M——dist_bak 备份机制保留无损）。
 - **git push**：本地领先 origin 47 提交全量推送 GitHub（lee724130-maker/AI-Anime）。
 
@@ -1214,7 +1264,7 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 - [x] 用户复测生产文生视频（模型列错位修复后）→ **用户 08-11 确认测试无误**
 - [x] 用户复测「连点多个生成任务排队」→ **用户 08-11 确认测试无误**
 - [x] 生产错误模板「科学悬疑解说模板」排查 → 08-11 查证 **不存在**：viral_templates 仅 1 条「英雄联盟改动解析」（id=1，user_id=16 即用户账号，is_system=0）
-- [x] admin 密码 → 08-11 本地已对齐 admin123（生产不变）
+- [x] admin 密码 → 08-11 本地已对齐生产口令（值见 `backend/.env`，不写文档；生产不变）
 - [x] 服务器 deploy 目录遗留清理
 - [x] 用户复测生产抖音链接解析（detail API 直连已部署，**用户自测中**）
 - [x] 用户重新上传视频验证解析结果与内容一致（长视频 6-8 帧，≤5 分钟）

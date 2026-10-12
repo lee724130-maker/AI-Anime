@@ -8,8 +8,9 @@ export class LoginDto {
   password: string;
 
   /**
-   * 前台站点登录跳过超级管理员邮箱二次验证（仅用户名+密码即可登录）。
-   * 管理后台登录不传该字段，保持与生产一致的 2FA 流程。
+   * 仅限**非生产环境**的测试便利开关：跳过超级管理员邮箱二次验证。
+   * 生产（NODE_ENV=production）一律忽略该字段——超管必须走 2FA，
+   * 客户端无法再通过传 skipVerification 绕过（2026-10 漏洞修复）。
    */
   @IsOptional()
   @IsBoolean()

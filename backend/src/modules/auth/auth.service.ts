@@ -89,8 +89,11 @@ export class AuthService {
     if (!valid) throw new UnauthorizedException('用户名或密码错误');
     if (user.status === 0) throw new ForbiddenException('账号已被封禁，无法登录');
     // 超级管理员登录需二次验证：返回 5 分钟有效的临时令牌，不直接发正式 token。
-    // 前台站点登录带 skipVerification=true 跳过验证（仅用户名+密码）；管理后台不传，保持 2FA。
-    if (user.is_super_admin && !dto.skipVerification) {
+    // skipVerification 只在**非生产环境**（本地测试）生效；生产 NODE_ENV=production 一律走 2FA，
+    // 客户端无法再靠该字段绕过（2026-10 修复：此前它是客户端可控的免验开关）。
+    const allowSkip = process.env.NODE_ENV !== 'production' && dto.skipVerification === true;
+    if (allowSkip) this.logger.warn(`2FA 被跳过（仅非生产环境允许）: user=${user.username}`);
+    if (user.is_super_admin && !allowSkip) {
       // 新一次登录开始：作废该邮箱残留的旧验证码（Redis+内存双份）并清除 60s 限频，
       // 保证上一次登录用过的验证码不能跨会话复用，且可立即重新发送新码
       const codeKey = `admin:${SUPER_ADMIN_EMAIL}`;
