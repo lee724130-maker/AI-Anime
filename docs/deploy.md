@@ -15,7 +15,7 @@
 | 认证方式 | **密码认证**（无私钥文件；hostkey 指纹防中间人） |
 | 服务器地址 | `47.121.137.131` |
 | 登录账号 | `root` |
-| 密码 | `HAPPYlwx000000*`（注意结尾有 `*`） |
+| 密码 | `【SSH密码不落地】`（部署时向用户索取，勿写入本文档） |
 | hostkey 指纹 | `SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A` |
 | 站点域名 | `https://anime.leesystem.xyz`（vhost 域名，见下方 curl 坑） |
 | 部署目录 | `/home/www/ai-anime/` |
@@ -41,7 +41,7 @@ C:\Users\Administrator\AppData\Local\Temp\opencode\pscp.exe    （推送/拉取�
 
 ```powershell
 $env:PLINK = "C:\Users\Administrator\AppData\Local\Temp\opencode"
-$SSH_ARGS = @('-ssh', '-pw', 'HAPPYlwx000000*', '-batch', '-hostkey', 'SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A', 'root@47.121.137.131')
+$SSH_ARGS = @('-ssh', '-pw', '【SSH密码不落地】', '-batch', '-hostkey', 'SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A', 'root@47.121.137.131')
 ```
 
 ---
@@ -52,26 +52,26 @@ $SSH_ARGS = @('-ssh', '-pw', 'HAPPYlwx000000*', '-batch', '-hostkey', 'SHA256:YM
 
 ```powershell
 # 单条命令
-& "$env:PLINK\plink.exe" -ssh -pw "HAPPYlwx000000*" -batch -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131 "pm2 status"
+& "$env:PLINK\plink.exe" -ssh -pw "【SSH密码不落地】" -batch -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131 "pm2 status"
 
 # 多条命令（用 ; 或 && 连接）
-& "$env:PLINK\plink.exe" -ssh -pw "HAPPYlwx000000*" -batch -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131 "cd /home/www/ai-anime && ls backend/dist/src/main.js && pm2 restart ai-anime-backend --update-env"
+& "$env:PLINK\plink.exe" -ssh -pw "【SSH密码不落地】" -batch -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131 "cd /home/www/ai-anime && ls backend/dist/src/main.js && pm2 restart ai-anime-backend --update-env"
 ```
 
 ### 2. 推送本地文件到服务器（pscp）
 
 ```powershell
 # 单文件上传到指定目录
-& "$env:PLINK\pscp.exe" -pw "HAPPYlwx000000*" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" "本地路径\file.zip" root@47.121.137.131:/home/www/ai-anime/deploy/
+& "$env:PLINK\pscp.exe" -pw "【SSH密码不落地】" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" "本地路径\file.zip" root@47.121.137.131:/home/www/ai-anime/deploy/
 
 # 多文件一次上传
-& "$env:PLINK\pscp.exe" -pw "HAPPYlwx000000*" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" "a.zip" "b.zip" root@47.121.137.131:/home/www/ai-anime/deploy/
+& "$env:PLINK\pscp.exe" -pw "【SSH密码不落地】" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" "a.zip" "b.zip" root@47.121.137.131:/home/www/ai-anime/deploy/
 ```
 
 ### 3. 从服务器拉取文件（pscp）
 
 ```powershell
-& "$env:PLINK\pscp.exe" -pw "HAPPYlwx000000*" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131:/home/www/ai-anime/backend/logs/out.log "本地保存路径\"
+& "$env:PLINK\pscp.exe" -pw "【SSH密码不落地】" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131:/home/www/ai-anime/backend/logs/out.log "本地保存路径\"
 ```
 
 > ⚠️ **pscp.exe 路径注意**：pscp 也在 Temp\opencode 目录，与 plink 相同（上面直接用 `$env:PLINK\pscp.exe`）。
@@ -107,7 +107,7 @@ Compress-Archive -Path "C:\Users\Administrator\Desktop\AI-Anime\frontend\dist\*"
 ### 第 3 步：上传
 
 ```powershell
-& "$env:PLINK\pscp.exe" -pw "HAPPYlwx000000*" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" `
+& "$env:PLINK\pscp.exe" -pw "【SSH密码不落地】" -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" `
   "C:\Users\Administrator\AppData\Local\Temp\opencode\deploy\backend.zip" `
   "C:\Users\Administrator\AppData\Local\Temp\opencode\deploy\frontend.zip" `
   "C:\Users\Administrator\AppData\Local\Temp\opencode\部署脚本.sh" `
@@ -145,7 +145,7 @@ rm -rf deploy/backend.zip deploy/frontend.zip
 
 执行：
 ```powershell
-& "$env:PLINK\plink.exe" -ssh -pw "HAPPYlwx000000*" -batch -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131 "cd /home/www/ai-anime/deploy && chmod +x 部署脚本.sh && bash 部署脚本.sh"
+& "$env:PLINK\plink.exe" -ssh -pw "【SSH密码不落地】" -batch -hostkey "SHA256:YMX2Ho7DAFSl8UHClUltF8gOWe/cm3IPAlotP8Ghc5A" root@47.121.137.131 "cd /home/www/ai-anime/deploy && chmod +x 部署脚本.sh && bash 部署脚本.sh"
 ```
 
 ### 第 5 步：验证（三查）
@@ -169,7 +169,7 @@ rm -rf deploy/backend.zip deploy/frontend.zip
 
 ```bash
 # 应用库用户（root 在生产被拒）
-mysql -uai_anime -pAnimeSecure2026! ai_anime -e "SELECT COUNT(*) FROM users;"
+mysql -uai_anime -p【生产MySQL密码不落地】 ai_anime -e "SELECT COUNT(*) FROM users;"
 
 # Redis（业务库是 db 5，验证码注入测试用）
 redis-cli -n 5 SET "email_code:test@test.com" "778899|$(($(date +%s%3N)+300000))" EX 300

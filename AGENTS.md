@@ -9,7 +9,7 @@
 - **实测 `prod-supplier-smoke` 7/7**：显式 `sensenova-u1.5-fast` → completed + 1,180,306B（pm2 日志 `SenseNova sensenova-u1.5-fast generated 1 image(s)` + `[MODEL_USAGE]`）；显式 `agnes-image-2.5-flash` → completed + 1,018,018B（日志 `Agnes ... generated 1 image(s) (size 1K, ratio 1:1)`）。
 - **自动链回归 `prod-gen-smoke`**：admin 无 model t2i → 阿里云 `qwen-image-3.0-pro` 免费额度尽 → 自动跳 `qwen-image-3.0` 出图 completed（644KB PNG）→ 删任务清理。
 - ⚠️ 生产与本地不同：**生产 `qwen-image-3.0` 仍有余量**（本地已耗尽），故生产日常不走后备也能出图；后备链现在是真可用而非纸面配置。
-- 含 SSH 密码的 4 个临时脚本（seed-prod-suppliers / prod-gen-smoke / prod-supplier-smoke / deploy-cover-v3）**用完即删，全库 grep `HAPPYlwx` 零残留**。
+- 含 SSH 密码的 4 个临时脚本（seed-prod-suppliers / prod-gen-smoke / prod-supplier-smoke / deploy-cover-v3）**用完即删，全库 grep 密码串 零残留**。
 
 ### ✅ ③ 吉祥物新背景礼物封面 `promo_cover_act5_v3.png`（替代 v2，生产上线 → **同日按用户指示回退 v2**）
 - **构成**：商汤直连出背景底图（`gen-bg.js`，1280x704、`prompt_extend:false` 防风格漂移、灰阶+紫 #7C3AED/青 #08B6DD+礼物盒+右侧留白，**不走后端**以避开 t2i 的 photorealistic style 注入）+ 吉祥物 `promo_s3_ag3.png` 正视图裁切（crop 700×1430@190,35）`colorkey` 抠像 → ffmpeg 合成 1280×720（角色高 660、右侧留 70px、底留 10px）。
@@ -37,7 +37,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 - **凭据**：SSH 密码由用户提供（三候选逐一试，第 1 个通过）；**含密码的临时脚本（`deploy-all.js`/`try-ssh-pw.js`）用完即删，密码不写进本文件、不进 git**。plink/pscp 在 `Temp\opencode\`，hostkey 仍 `SHA256:YMX2Ho7…`，一律 `-batch -hostkey -pw` + spawnSync 数组参数（`*` 不被 shell 展开）。
 - **构建**：backend `tsc` 0；FE `index-7lFqAzfB.js` / `index-DCbJqaBD.css`（Home chunk `Home-DS7uAMk7.js`）；admin `index-BWYuNsbJ.js`。三 zip + `deploy.sh` 打包 → pscp 上传 → `bash deploy/deploy.sh`：三端 `dist→dist_bak` + unzip 双保险 + `pm2 restart` + 冒烟 + 自清 zips。
 - **冒烟**：`api_health=401`（重启后短暂 502 → 10s 后 401）、`front_root=200`、`admin_root=200`、**`/api/workbench/works=401`、`/api/workbench/promo=401`（新端点在线）**；服务器 index.html 引用 hash 与本地一致；FE bundle grep `我的作品`=1、`生成视频同步生成封面`=1；admin bundle `活动管理`=1。
-- **生产灌种子**：⚠️ **生产 MySQL 是 `ai_anime/AnimeSecure2026!`（不是 root，root 会 1045）**；`promo-seed.sql` pscp 到 `/tmp` → `mysql -u ai_anime -p… ai_anime < /tmp/promo-seed.sql`（文件内 `SET NAMES utf8mb4` 保证中文无乱码）→ 回查：`feature_releases` id1-3（新文案 + `promo_cover_rel3/4/5`）、`activities` id1-2（`act5_v2`/`act6`）全对；`/tmp` 与 deploy zip 已清。
+- **生产灌种子**：⚠️ **生产 MySQL 是 `ai_anime/【生产MySQL密码不落地】`（不是 root，root 会 1045）**；`promo-seed.sql` pscp 到 `/tmp` → `mysql -u ai_anime -p… ai_anime < /tmp/promo-seed.sql`（文件内 `SET NAMES utf8mb4` 保证中文无乱码）→ 回查：`feature_releases` id1-3（新文案 + `promo_cover_rel3/4/5`）、`activities` id1-2（`act5_v2`/`act6`）全对；`/tmp` 与 deploy zip 已清。
 - **5 张封面** pscp 传 `backend/output/`，字节与本地逐一相同（741754/1371822/676485/486169/960151），`https://…/static/promo_cover_*.png` 全 200。
 - **生产 API `prod-verify.js` 14/14**：admin skipVerification 登录 200（生产 `skipVerification_marker=1` ✓）/ promo 2 活动 + 3 上新 + 新文案 + cover_url / works 模块字典 5 键（admin 含 editor）/ admin activities·releases 列表 200 / 未授权 401。
 - **生产 UI `test-prod-promo-fe.js` 10/10**（Playwright，登录 admin → /dashboard）：`.ltv-promo`=1、banner=1、**DOM 内 5 张 promo_cover 背景图全部渲染且 `page.request` 拉取全 200 >10KB**、「生成视频同步生成封面」可见、「我的作品」=1 + 模块 tab=6、**pageerror=0、非 api 静态 4xx=0**。
@@ -638,7 +638,7 @@ foundation 23 / fe-generate 31 / promo-smoke 36 / promo-admin-fe 32 / admin-fe 9
 
 ### ✅ ① 环境搭建（从零）
 - Git 2.55.0.5 + Node.js 22.23.2 LTS；backend/frontend/admin 三端 npm install 全部完成
-- **MySQL 8.4.11 LTS ZIP 安装为系统服务**（`C:\mysql`，root/`AnimeLocal2026!`，库 `ai_anime` utf8mb4；⚠️ my.ini 不能带 `default-authentication-plugin`，MySQL 8.4 已移除该参数会启动失败）；**Redis 5.0.14.1 MSI 服务**；TypeORM `synchronize:true` 自动建 25 张表
+- **MySQL 8.4.11 LTS ZIP 安装为系统服务**（`C:\mysql`，root/`【本地MySQL密码见 backend/.env（gitignore，不进库）】`，库 `ai_anime` utf8mb4；⚠️ my.ini 不能带 `default-authentication-plugin`，MySQL 8.4 已移除该参数会启动失败）；**Redis 5.0.14.1 MSI 服务**；TypeORM `synchronize:true` 自动建 25 张表
 - ffmpeg 9.0.2 装入 `backend/tools/ffmpeg/`（drawtext/xfade/zoompan 齐全）；`backend/.env` 配 DB_PASSWORD
 - 应用 `backend/seed-prompt-templates.sql` → 6 个提示词模板（id 1,2,3,4,6,7）
 - 三服务在线：后端 `node dist\src\main.js` :3000、前端 Vite :5173、admin Vite :5174（⚠️ vite 监听 **IPv6 `::1`**，脚本用 `localhost` 别用 `127.0.0.1`，否则 ECONNREFUSED 假象）
@@ -1033,7 +1033,7 @@ admin 登录（本地代码无二次验证，直接返回 access_token）/ workb
 1. **测试版说明 Modal 遮挡点击**：新注册用户登录必弹，`.ant-modal-wrap` 遮罩盖住播放按钮 → click 30s 超时（diag 用 `elementFromPoint` 拿到 topElement=DIV.ant-modal-wrap 实锤）；且弹窗加载慢，固定循环会空跑——**关闭逻辑必须「先等 wrap visible 再点确认，循环直到 wrap 消失」**
 2. **antd 两字按钮空格坑重申**：「确认」渲染为「确 认」→ `button:has-text("确认")` 永远匹配不到 → **必须 `getByRole('button', { name: /确\s*认/ })`**（JS 正则不经 CSS 解析器）
 3. **about:blank 上 evaluate 抛 SecurityError**：diag 脚本在导航前直接 `page.evaluate(localStorage.setItem)` → 崩溃且 log 只输出前面 2 行（误导以为卡在 goto）——**必须先 goto 目标域名页面（/login）再注入 localStorage**
-4. **生产 MySQL 账号不是 root/123456**：是 `ai_anime/AnimeSecure2026!`（读服务器 backend/.env）——测试脚本清理 SQL 一直 `2>/dev/null` 吞错误**静默失败**，测试用户 uid≥46 一直残留到今天才清（users=12）；**测试脚本 SQL 别吞 stderr，或清理后验证行数**
+4. **生产 MySQL 账号不是 root/123456**：是 `ai_anime/【生产MySQL密码不落地】`（读服务器 backend/.env）——测试脚本清理 SQL 一直 `2>/dev/null` 吞错误**静默失败**，测试用户 uid≥46 一直残留到今天才清（users=12）；**测试脚本 SQL 别吞 stderr，或清理后验证行数**
 5. node stdout 经 PowerShell `Select-String` 管道丢行（老坑）→ diag 一律写文件再读
 6. **生产播放时序实测**：生产加载比本地慢（点击播放后 src 生效要 1-2s），**固定 wait 的边界检查点（如段尾 5s 处查 img）必须改轮询**，本地公式不能照搬
 
