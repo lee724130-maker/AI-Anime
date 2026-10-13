@@ -165,7 +165,8 @@ export class AdminService {
 
   private getRedisClient() {
     if (!this.redisClient) {
-      this.redisClient = createClient({ url: `redis://127.0.0.1:6379/${process.env.REDIS_DB || 0}` });
+      const pw = process.env.REDIS_PASSWORD ? `:${encodeURIComponent(process.env.REDIS_PASSWORD)}@` : '';
+      this.redisClient = createClient({ url: `redis://${pw}127.0.0.1:6379/${process.env.REDIS_DB || 0}` });
       this.redisClient.connect().catch(() => { });
       this.redisClient.on('error', () => { });
     }
