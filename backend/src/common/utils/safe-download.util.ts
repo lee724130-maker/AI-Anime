@@ -80,37 +80,62 @@ export async function assertSafeRemoteUrl(rawUrl: string): Promise<void> {
 /**
  * Stream a remote file to disk with SSRF guard + size cap.
  * Never buffers the whole body in memory.
+ * M4：禁用 axios 自动重定向，手动逐跳跟随（每跳重新过 assertSafeRemoteUrl），
+ * 防止「首跳公网 → 302 跳内网」绕过 SSRF 检查。
  */
 export async function downloadToFile(
   url: string,
   destPath: string,
-  opts?: { maxBytes?: number; timeoutMs?: number },
+  opts?: { maxBytes?: number; timeoutMs?: number; maxRedirects?: number },
 ): Promise<void> {
   const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
-  await assertSafeRemoteUrl(url);
-  const resp = await axios.get(url, {
-    responseType: 'stream',
-    timeout: opts?.timeoutMs ?? 60000,
-    maxRedirects: 2,
-  });
-  const stream: NodeJS.ReadableStream = resp.data;
-  const file = fs.createWriteStream(destPath);
-  let received = 0;
-  let rejected = false;
-  await new Promise<void>((resolve, reject) => {
-    stream.on('data', (chunk: Buffer) => {
-      received += chunk.length;
-      if (received > maxBytes && !rejected) {
-        rejected = true;
-        reject(new Error(`下载文件超过大小上限 ${Math.round(maxBytes / 1024 / 1024)}MB`));
-        try { file.destroy(); } catch { /* ignore */ }
-        try { (stream as any).destroy(); } catch { /* ignore */ }
-      }
+  const maxRedirects = opts?.maxRedirects ?? 5;
+  let current = url;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    await assertSafeRemoteUrl(current);
+    let resp;
+    try {
+      resp = await axios.get(current, {
+        responseType: 'stream',
+        timeout: opts?.timeoutMs ?? 60000,
+        maxRedirects: 0,
+        validateStatus: (s) => s >= 200 && s < 400,
+      });
+    } catch (err: any) {
+      // 3xx 且未启用自动跟随时 axios 会把响应当正常返回；真正网络错误在此抛出
+      throw err;
+    }
+    const status = resp.status;
+    if (status >= 300 && status < 400) {
+      const loc = resp.headers?.location;
+      try { (resp.data as any)?.destroy?.(); } catch { /* ignore */ }
+      if (!loc) throw new Error('重定向缺少 Location 头');
+      if (hop === maxRedirects) throw new Error('重定向次数超过上限');
+      current = new URL(loc, current).toString();
+      continue;
+    }
+    // 2xx：流式落盘
+    const stream: NodeJS.ReadableStream = resp.data;
+    const file = fs.createWriteStream(destPath);
+    let received = 0;
+    let rejected = false;
+    await new Promise<void>((resolve, reject) => {
+      stream.on('data', (chunk: Buffer) => {
+        received += chunk.length;
+        if (received > maxBytes && !rejected) {
+          rejected = true;
+          reject(new Error(`下载文件超过大小上限 ${Math.round(maxBytes / 1024 / 1024)}MB`));
+          try { file.destroy(); } catch { /* ignore */ }
+          try { (stream as any).destroy(); } catch { /* ignore */ }
+        }
+      });
+      stream.on('error', (err) => reject(err));
+      file.on('error', (err) => reject(err));
+      file.on('finish', () => resolve());
+      stream.pipe(file);
     });
-    stream.on('error', (err) => reject(err));
-    file.on('error', (err) => reject(err));
-    file.on('finish', () => resolve());
-    stream.pipe(file);
-  });
-  if (rejected) throw new Error('下载文件超过大小上限');
+    if (rejected) throw new Error('下载文件超过大小上限');
+    return;
+  }
+  throw new Error('重定向次数超过上限');
 }

@@ -119,6 +119,8 @@ export class CleanupService implements OnModuleDestroy {
       UNION SELECT cover_url FROM generation_tasks WHERE cover_url LIKE '%/static/%'
       UNION SELECT video_url FROM showcase_works WHERE video_url LIKE '%/static/%'
       UNION SELECT cover_url FROM showcase_works WHERE cover_url LIKE '%/static/%'
+      UNION SELECT cover_url FROM activities WHERE cover_url LIKE '%/static/%'
+      UNION SELECT cover_url FROM feature_releases WHERE cover_url LIKE '%/static/%'
       UNION SELECT avatar_url FROM characters WHERE avatar_url LIKE '%/static/%'
       UNION SELECT reference_image_anime FROM characters WHERE reference_image_anime LIKE '%/static/%'
       UNION SELECT reference_image_realistic FROM characters WHERE reference_image_realistic LIKE '%/static/%'

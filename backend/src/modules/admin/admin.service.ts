@@ -951,7 +951,8 @@ export class AdminService {
     if (!allowed.includes(firstWord)) {
       throw new BadRequestException('仅允许 SELECT / SHOW / DESCRIBE / EXPLAIN 查询');
     }
-    if (sql.includes(';') || sql.includes('--') || sql.includes('/*')) {
+    if (sql.includes(';') || sql.includes('--') || sql.includes('/*') || sql.includes('#')) {
+      // L4：`#` 是 MySQL 行注释起始（可拼在只读语句尾部绕过关键字黑名单），一并拦截
       throw new BadRequestException('查询禁止包含分号、注释或多语句');
     }
     const blocked = /\b(UNION|JOIN|SUBQUERY|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|GRANT|EXEC|INTO|LOAD|FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b/i;

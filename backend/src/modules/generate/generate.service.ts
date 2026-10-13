@@ -581,14 +581,31 @@ export class GenerateService {
     const task = await this.taskRepo.findOne({ where: { id: taskId, user_id: userId } });
     if (!task) throw new BadRequestException('任务不存在');
     if (task.status !== 'failed') throw new BadRequestException('只能重试失败的任务');
+    // M5 连带：类型校验必须前置 —— 否则非法 type 会先扣费再抛错（钱扣着 + 卡 processing）
+    if (task.type !== 'image' && task.type !== 'video') {
+      throw new BadRequestException('不支持的任务类型');
+    }
+    const input = JSON.parse(task.input_data || '{}');
     const user = await this.userRepo.findOne({ where: { id: task.user_id } });
     if (!user || user.credits < (task.credit_cost || 0)) {
       throw new BadRequestException('积分不足，无法重试');
     }
 
-    // 复用原任务行直接重新执行：不创建新任务、不重复扣费
-    //（失败时已退款且 credits_charged=true，runXxx 成功不再扣、失败不再退）
-    const input = JSON.parse(task.input_data || '{}');
+    // 复用原任务行直接重新执行：不创建新任务
+    // generate 语义：credits_charged=true = 已结清（成功不退 / 失败已退款）。
+    // M5-generate：重试前恢复扣费状态 ——
+    // - true（上次失败已退款）→ 补扣 + 置 false（回到「扣着未结清」）+ 清退款去重 key
+    //   （否则本次失败时 refund 会被 refundedKeys 去重挡住 → 用户白扣钱）；
+    // - false（crash-resume，钱仍扣着）→ 不重复扣。
+    if ((task.credit_cost || 0) > 0 && task.credits_charged) {
+      const refundKey = `gen_${task.type === 'image' ? 't2i' : (input.image_url ? 'i2v' : 't2v')}_${task.id}`;
+      const ok = await this.creditsService.charge(task.user_id, task.credit_cost);
+      if (!ok) {
+        throw new BadRequestException('积分不足，无法重试');
+      }
+      task.credits_charged = false;
+      this.creditsService.clearRefundKey(refundKey);
+    }
     task.status = 'processing';
     task.error_msg = '';
     task.progress = 0;
@@ -1061,6 +1078,17 @@ ${roleRule}
   async deleteTask(userId: number, taskId: number) {
     const task = await this.taskRepo.findOne({ where: { id: taskId, user_id: userId } });
     if (!task) throw new BadRequestException('任务不存在');
+
+    // H1 连带（generate 语义）：charged=false = 用户当前被扣着这笔钱。
+    // 删除未结清任务（多为 pending/processing）必须退款，否则删任务即丢积分；
+    // completed/failed 均为 charged=true（已结清），不会误退。
+    // refund key 与失败路径/重试路径同款，防与在跑 processor 的并发双退（refundedKeys 去重）。
+    if ((task.credit_cost || 0) > 0 && !task.credits_charged) {
+      const input = JSON.parse(task.input_data || '{}');
+      const refundKey = `gen_${task.type === 'image' ? 't2i' : (input.image_url ? 'i2v' : 't2v')}_${task.id}`;
+      await this.creditsService.refund(task.user_id, task.credit_cost, refundKey);
+      this.logger.log(`删除未结清任务 #${task.id}，已退回 ${task.credit_cost} 积分`);
+    }
 
     const outputDir = path.resolve(process.cwd(), 'output');
 

@@ -9,12 +9,14 @@ import { Character } from '../character/character.entity';
 import { VideoService } from './video.service';
 import { VideoController } from './video.controller';
 import { UtilsModule } from '../../utils/utils.module';
+import { CreditsModule } from '../credits/credits.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([VideoTask, User, SystemConfig, Script, Character]),
     BullModule.registerQueue({ name: 'video' }),
     UtilsModule,
+    CreditsModule,
   ],
   controllers: [VideoController],
   providers: [VideoService],

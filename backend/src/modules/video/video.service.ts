@@ -1,6 +1,6 @@
 ﻿import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository, DataSource } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { Queue } from 'bull';
 import { VideoTask } from './video.entity';
@@ -10,6 +10,7 @@ import { Script } from '../script/script.entity';
 import { Character } from '../character/character.entity';
 import { AIServiceUtil } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
+import { CreditsService } from '../credits/credits.service';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -33,9 +34,9 @@ export class VideoService {
     private readonly characterRepo: Repository<Character>,
     @InjectQueue('video')
     private readonly videoQueue: Queue | null,
-    private readonly dataSource: DataSource,
     private readonly aiService: AIServiceUtil,
     private readonly ffmpeg: FFmpegUtil,
+    private readonly creditsService: CreditsService,
   ) {}
 
   /** Download remote URL to local output/ and return web-served path */
@@ -147,22 +148,36 @@ export class VideoService {
       sceneIndex: dto.settings?.scene_index,
     };
 
-    const saved = await this.videoRepo.save({
-      user_id: userId,
-      script_id: dto.script_id ?? undefined,
-      task_id: taskId,
-      status: 'pending',
-      resolution,
-      ratio,
-      duration,
-      style,
-      model_name: dto.model || null,
-      credit_cost: creditCost,
-      progress: 0,
-      reference_image: referenceImage || null,
-      prompt: dto.prompt || null,
-      job_data: JSON.stringify(jobData),
-    } as any);
+    // H1 预扣：先原子扣费再落库/入队（credits_charged=true = 用户当前被扣着这笔钱）
+    const charged = await this.creditsService.charge(userId, creditCost);
+    if (!charged) {
+      throw new BadRequestException(`算力不足，本次预计需要 ${creditCost} 算力`);
+    }
+
+    let saved: any;
+    try {
+      saved = await this.videoRepo.save({
+        user_id: userId,
+        script_id: dto.script_id ?? undefined,
+        task_id: taskId,
+        status: 'pending',
+        resolution,
+        ratio,
+        duration,
+        style,
+        model_name: dto.model || null,
+        credit_cost: creditCost,
+        credits_charged: true,
+        progress: 0,
+        reference_image: referenceImage || null,
+        prompt: dto.prompt || null,
+        job_data: JSON.stringify(jobData),
+      } as any);
+    } catch (saveErr: any) {
+      // 行没落库 → 立即退款，杜绝「钱扣了任务不存在」
+      await this.creditsService.refund(userId, creditCost, `video_pre_${taskId}`);
+      throw saveErr;
+    }
 
     // Try to push job to Bull queue (non-blocking, with timeout)
     if (this.videoQueue) {
@@ -308,7 +323,17 @@ export class VideoService {
 
     const created: any[] = [];
 
-    for (let i = 0; i < scenes.length; i++) {
+    // H1 批量预扣：一次性扣总额，随后每行落库带 credits_charged=true；
+    // 中途任何保存失败 → 按「未创建场景数 × 单价」部分退款
+    const chargedTotal = await this.creditsService.charge(userId, totalCost);
+    if (!chargedTotal) {
+      throw new BadRequestException(
+        `积分不足，批量生成共需 ${totalCost} 算力（${scenes.length} 场景 × ${creditCost}）`,
+      );
+    }
+
+    try {
+      for (let i = 0; i < scenes.length; i++) {
       const scenePrompt = `[场景 ${i + 1}/${scenes.length}] ${scenes[i]}`;
       const taskId = `vid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
@@ -323,6 +348,7 @@ export class VideoService {
         style,
         model_name: dto.model || null,
         credit_cost: creditCost,
+        credits_charged: true,
         progress: 0,
         reference_image: referenceImage || null,
       } as any);
@@ -354,6 +380,16 @@ export class VideoService {
           this.logger.warn(`Batch queue push failed for scene ${i + 1}: ${err.message}`);
         }
       }
+      }
+    } catch (saveErr: any) {
+      // H1：中途保存失败 → 按「未创建场景数 × 单价」部分退款；已创建行保持扣费（任务真实存在）
+      const notCreated = scenes.length - created.length;
+      if (notCreated > 0) {
+        const partial = creditCost * notCreated;
+        this.logger.warn(`批量创建中断：${created.length}/${scenes.length} 行落库，退回未创建 ${notCreated} 场景 × ${creditCost} = ${partial} 算力`);
+        await this.creditsService.refund(userId, partial, `video_batch_${dto.script_id}_${Date.now()}`);
+      }
+      throw saveErr;
     }
 
     return { total: created.length, scenes: scenes.length, creditCost, totalCost, tasks: created, referenceImage: referenceImage || undefined };
@@ -468,6 +504,20 @@ export class VideoService {
     task.progress = 0;
     task.retry_count = 0;
     task.completed_at = null;
+
+    // M5-video：失败终态时 processor 已退款（credits_charged=false）→ 重试须重新预扣。
+    // 仅当此前确实没扣（cost>0 且 credits_charged=false）才补扣；credits_charged=true
+    // 说明这笔钱仍扣在用户账上（上轮退款异常未退），不重复扣、也不清退款去重 key。
+    if ((task.credit_cost || 0) > 0 && !task.credits_charged) {
+      const ok = await this.creditsService.charge(userId, task.credit_cost);
+      if (!ok) {
+        throw new BadRequestException(`算力不足，重试该任务需要 ${task.credit_cost} 算力`);
+      }
+      task.credits_charged = true;
+      // 清除上一轮失败的退款去重标记，保证本轮失败能正常退款
+      this.creditsService.clearRefundKey(`video_${task.id}`);
+    }
+
     await this.videoRepo.save(task);
 
     // Re-push to queue
@@ -552,6 +602,14 @@ export class VideoService {
   /** Delete a video task */
   async remove(id: number, userId: number) {
     const task = await this.findOne(id, userId);
+    // H1 连带：预扣语义（charged=true = 用户当前被扣这笔钱）下，
+    // 删除「未交付」任务必须退款，否则用户删任务即丢算力。
+    // - completed = 已交付产物，删除不退；
+    // - failed 任务 processor 已退款（charged=false），此处幂等不会重复退；
+    // - 与在跑 processor 的竞态由 refundedKeys 幂等 Set 兜底。
+    if (task.status !== 'completed' && task.credits_charged && (task.credit_cost || 0) > 0) {
+      await this.refundIfCharged(task.id);
+    }
     return this.videoRepo.remove(task as any);
   }
 
@@ -589,38 +647,44 @@ export class VideoService {
     };
   }
 
+  /**
+   * 完成时结算（H1 后语义）：
+   * - 新任务在提交时已预扣（credits_charged=true）→ 直接早退（不重复扣）；
+   * - 仅处理部署前遗留的未扣费行（credits_charged=false）：用原子条件扣费
+   *   （creditsService.charge = UPDATE ... WHERE credits >= ?，affectedRows=0 即余额不足），
+   *   消除原「读-改-写」并发负余额/丢更新竞态（M6）。
+   * 扣费失败抛 BadRequestException，由 processor 标 failed 且不交付产物。
+   */
   async chargeForCompletedTask(id: number) {
     const task = await this.videoRepo.findOne({ where: { id } });
     if (!task) throw new NotFoundException('任务不存在');
-    if (task.credits_charged || task.status !== 'completed') return task;
+    // 预扣即持有：已完成/进行中的新任务无需再结算
+    if (task.credits_charged) return task;
 
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      const user = await queryRunner.manager.findOne(User, { where: { id: task.user_id } });
-      if (!user) throw new NotFoundException('用户不存在');
-
-      if ((user.credits || 0) < (task.credit_cost || 0)) {
+    if ((task.credit_cost || 0) > 0) {
+      const ok = await this.creditsService.charge(task.user_id, task.credit_cost);
+      if (!ok) {
         throw new BadRequestException(
-          `用户算力不足，需要 ${task.credit_cost}，当前 ${user.credits || 0}。任务 #${id} 无法完成扣费`,
+          `用户算力不足，需要 ${task.credit_cost}。任务 #${id} 无法完成扣费`,
         );
       }
-
-      user.credits = (user.credits || 0) - (task.credit_cost || 0);
-      task.credits_charged = true;
-
-      await queryRunner.manager.save(user);
-      await queryRunner.manager.save(task);
-      await queryRunner.commitTransaction();
-      return task;
-    } catch (err) {
-      try { await queryRunner.rollbackTransaction(); } catch {}
-      throw err;
-    } finally {
-      await queryRunner.release();
     }
+    await this.videoRepo.update({ id: task.id }, { credits_charged: true } as any);
+    return { ...task, credits_charged: true };
+  }
+
+  /**
+   * H1：任务终态失败退款 —— 仅当这笔钱当前还扣在用户账上（credits_charged=true 且 cost>0）。
+   * refundKey=video_${id} 幂等去重（防 processor 重试/手动 retry 双退）；退完置
+   * credits_charged=false（钱已回用户账，语义保持「true = 用户当前被扣这笔钱」）。
+   */
+  async refundIfCharged(id: number): Promise<boolean> {
+    const task = await this.videoRepo.findOne({ where: { id } });
+    if (!task || !task.credits_charged || (task.credit_cost || 0) <= 0) return false;
+    await this.creditsService.refund(task.user_id, task.credit_cost, `video_${id}`);
+    await this.videoRepo.update({ id: task.id }, { credits_charged: false } as any);
+    this.logger.log(`任务 #${task.id} 失败退款 ${task.credit_cost} 算力`);
+    return true;
   }
 
   /** Stitch multiple completed videos into one merged video.

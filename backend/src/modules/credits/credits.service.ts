@@ -27,6 +27,14 @@ export class CreditsService {
     }
   }
 
+  /**
+   * 清除退款去重标记（M5）：任务重试重新预扣后，必须允许本次失败退款生效。
+   * refundedKeys 是进程内 Set，会挡住同一 key 的第二次退款。
+   */
+  clearRefundKey(refundKey: string): void {
+    this.refundedKeys.delete(refundKey);
+  }
+
   /** 原子预扣积分，余额不足返回 false（不扣） */
   async charge(userId: number, cost: number): Promise<boolean> {
     if (cost <= 0) return true;

@@ -7,12 +7,20 @@ import {
 import { Server, Socket } from 'socket.io';
 import * as jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'ai-anime-jwt-secret-key';
-const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(',');
+// H3：惰性读取 —— 模块 import 期早于 ConfigModule 的 dotenv 加载，顶层 const 会拿到
+// fallback 弱密钥（潜在 latent bug：验签一直用错密钥）。改为连接时读取，缺失即拒绝连接。
+function jwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET 未配置');
+  return secret;
+}
+function corsOrigins(): string[] {
+  return (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174').split(',');
+}
 
 @WebSocketGateway({
   namespace: '/admin',
-  cors: { origin: CORS_ORIGINS, credentials: true },
+  cors: { origin: corsOrigins(), credentials: true },
 })
 export class AdminNotificationGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
@@ -22,7 +30,7 @@ export class AdminNotificationGateway implements OnGatewayConnection, OnGatewayD
     try {
       const token = client.handshake.auth?.token || client.handshake.query?.token;
       if (!token) { client.disconnect(); return; }
-      const decoded = jwt.verify(token as string, JWT_SECRET) as any;
+      const decoded = jwt.verify(token as string, jwtSecret()) as any;
       if (decoded.role !== 'admin') { client.disconnect(); return; }
       client.data.user = decoded;
     } catch {

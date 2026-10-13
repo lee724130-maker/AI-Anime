@@ -336,32 +336,29 @@ export class VideoProcessor {
         coverWebUrl = videoWebUrl; // fallback
       }
 
-      // Charge credits first (before marking completed, so if charge fails we can mark failed)
+      // H1：预扣即持有 —— 新任务在 create/batchCreate 已扣（credits_charged=true），
+      // 此处仅处理遗留未扣费行的原子补扣（M6）。补扣失败 = 用户余额不足，
+      // 不再「照常交付视频」：标 failed、不写 video_url/cover_url（不交付产物）。
       try {
         await this.videoService.chargeForCompletedTask(taskId);
       } catch (chargeErr: any) {
-        this.logger.warn(`Credit charge failed for task #${taskId}: ${chargeErr.message}. Video will still be available.`);
+        this.logger.error(`Credit charge failed for task #${taskId}: ${chargeErr.message}. Marking failed, video NOT delivered.`);
+        // best-effort 清理已生成的成片（不交付则不留孤儿产物；失败不影响终态标记）
+        try {
+          if (finalOutput && fs.existsSync(finalOutput) && finalOutput.includes('output')) {
+            fs.unlinkSync(finalOutput);
+          }
+          if (coverImagePath && fs.existsSync(coverImagePath)) {
+            fs.unlinkSync(coverImagePath);
+          }
+        } catch (_) { /* ignore */ }
         await this.videoService.updateStatus(taskId, {
-          status: 'completed',
-          video_url: videoWebUrl,
-          cover_url: coverWebUrl,
+          status: 'failed',
+          error_msg: `算力扣费失败：${chargeErr.message}`,
           completed_at: new Date(),
           progress: 100,
-          error_msg: `视频生成成功，但算力扣费失败：${chargeErr.message}`,
         });
-        // Update script scene if applicable
-        if (sceneIndex !== undefined && scriptId) {
-          try {
-            const s = await this.scriptRepo.findOne({ where: { id: scriptId, user_id: userId } });
-            if (s && s.scenes && Array.isArray(s.scenes) && s.scenes[sceneIndex]) {
-              s.scenes[sceneIndex].status = 'completed';
-              s.scenes[sceneIndex].video_url = videoWebUrl;
-              s.scenes[sceneIndex].cover_url = coverWebUrl;
-              await this.scriptRepo.save(s);
-            }
-          } catch (_) { this.logger.warn(`场景 ${sceneIndex} 状态更新失败（任务 ${taskId} 已完成）`); }
-        }
-        return { success: true, videoUrl: finalOutput, coverUrl: imageUrl, chargeFailed: true };
+        return { success: false, error: chargeErr.message };
       }
 
       await this.videoService.updateStatus(taskId, {
@@ -401,9 +398,12 @@ export class VideoProcessor {
         this.logger.log(`Video task #${taskId} will retry (attempt ${job.attemptsMade + 1}/${attemptsTotal})`);
         throw error;
       } else {
-        // 最后一次尝试也失败：终态 failed + 回写场景
+        // 最后一次尝试也失败：终态 failed + 回写场景 + H1 退款（仅当钱仍扣着）
         await this.videoService.updateStatus(taskId, { status: 'failed', error_msg: error.message, completed_at: new Date(), progress: 100 });
         this.logger.error(`Task #${taskId} failed after ${attemptsTotal} attempts`);
+        try { await this.videoService.refundIfCharged(taskId); } catch (rfErr: any) {
+          this.logger.warn(`Task #${taskId} refund failed: ${rfErr.message}`);
+        }
         // Update script scene if applicable
         if (sceneIndex !== undefined && scriptId) {
           try {

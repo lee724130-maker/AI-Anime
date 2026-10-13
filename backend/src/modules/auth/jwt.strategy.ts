@@ -11,9 +11,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
   ) {
+    // H3：构造期（DI，晚于 ConfigModule 的 dotenv 加载）读取，缺失即拒绝启动
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET 未配置，无法启动 JWT 校验');
+    }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: process.env.JWT_SECRET || 'dev_secret',
+      secretOrKey: secret,
     });
   }
 

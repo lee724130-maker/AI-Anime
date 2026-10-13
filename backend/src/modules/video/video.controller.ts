@@ -93,8 +93,8 @@ export class VideoController {
     const outputDir = path.resolve(process.cwd(), 'output');
     const filePath = path.join(outputDir, filename);
 
-    // Security: prevent directory traversal
-    if (!filePath.startsWith(outputDir)) {
+    // Security: prevent directory traversal（L1：加 path.sep，防 `../outputEvil` 兄弟目录前缀穿透）
+    if (!filePath.startsWith(outputDir + path.sep)) {
       throw new NotFoundException('文件不存在');
     }
 

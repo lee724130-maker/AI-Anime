@@ -151,10 +151,18 @@ export class AdminController {
   }
 
   // ── Model Configs ──
-  // capability 分支供普通用户 Video 页选择模型（公开只读）；无参全量列表仅管理员
+  // capability 分支供普通用户 Video 页选择模型（公开只读）；无参全量列表仅管理员。
+  // M10：capability 白名单校验（防任意值进查询/异常路径）；model_configs 无 key 列，
+  // 返回字段为模型元数据（model_id/provider/priority/分辨率档位等），无密钥信息面。
+  private static readonly MODEL_CAPABILITIES = new Set(['image', 'video', 'audio']);
   @Get('models')
   getModels(@Req() req: any, @Query('capability') capability: string) {
-    if (capability) return this.modelConfigService.findActive(capability);
+    if (capability) {
+      if (!AdminController.MODEL_CAPABILITIES.has(capability)) {
+        throw new ForbiddenException('capability 仅支持 image/video/audio');
+      }
+      return this.modelConfigService.findActive(capability);
+    }
     if (!req.user || req.user.role !== 'admin') throw new ForbiddenException('无权限访问');
     return this.modelConfigService.list(1, 100);
   }

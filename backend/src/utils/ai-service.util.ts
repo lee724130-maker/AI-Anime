@@ -2757,12 +2757,27 @@ ${strictRules[strictness]}
       }
       
       // 处理远程 URL（SSRF 防护：拒绝非 http/https 与内网地址）
-      await assertSafeRemoteUrl(imagePath);
-      const response = await axios.get(imagePath, { 
-        responseType: 'arraybuffer',
-        timeout: 15000,
-        maxRedirects: 5,
-      });
+      // M4：禁用自动重定向，手动逐跳跟随（每跳重新过 SSRF 检查），防 302 跳内网绕过
+      let currentUrl = imagePath;
+      let response: any = null;
+      for (let hop = 0; hop <= 5; hop++) {
+        await assertSafeRemoteUrl(currentUrl);
+        response = await axios.get(currentUrl, {
+          responseType: 'arraybuffer',
+          timeout: 15000,
+          maxRedirects: 0,
+          validateStatus: (s) => s >= 200 && s < 400,
+        });
+        if (response.status >= 300 && response.status < 400) {
+          const loc = response.headers?.location;
+          if (!loc) throw new Error('重定向缺少 Location 头');
+          if (hop === 5) throw new Error('重定向次数超过上限');
+          currentUrl = new URL(loc, currentUrl).toString();
+          continue;
+        }
+        break;
+      }
+      if (!response || response.status >= 300) throw new Error('下载失败');
       
       if (response.data.length < 100) {
         throw new Error(`下载文件太小 (${response.data.length} bytes)，可能无效`);

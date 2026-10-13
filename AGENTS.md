@@ -1,5 +1,61 @@
 # 修复日志
 
+## 2026-10-13（安全修复批次 A：代码类 14 项 + 连带修复全部落码 —— 专项 48/48 PASS + 回归全绿；B 服务器 / C 决策待执行）
+
+> 承接同日安全审查。用户拍板**三批次全做**；本节为批次 A（代码类）完成记录。完整报告（含各项漏洞细节与利用面）在仓库外：`C:\Users\Administrator\Desktop\服务器资料\安全审查报告-2026-10-12.md`，此处只记修复概要。
+
+### ✅ 批次 A 修复清单（14 项 + 连带，全部编译进 dist 已验证）
+- **H1 扣费模型（video 模块补上 generate 同款预扣制）**：`video.service.ts create()` 提交即预扣（原子 UPDATE，不足 400）；`batchCreate()` 逐任务预扣；`chargeForCompletedTask` 重写（charged 早退防双扣 + 原子 charge 失败抛 BadRequest 不交付）；**`refundIfCharged(id)`**（key=`video_${id}`，退后置 false，对已删行容错返回 false）；`video.processor.ts` charge 失败不交付 + 终态失败退款；`video.module.ts` import CreditsModule。⚠️ **`credits_charged` 两模块语义相反**：video = true 当前持有用户钱；generate = true 已结清 / false 扣着（防混用）。
+- **H1 连带（删任务不丢算力）**：`video.service.ts remove()` 删非 completed 且 charged 且 cost>0 的任务 → refundIfCharged；`generate.service.ts deleteTask()` cost>0 且未结清（`!credits_charged`）→ refund（key 同失败/重试路径 `gen_${t2i|t2v|i2v}_${id}` 防并发双退）。
+- **M5 retry 补扣**：`video.service.ts retry()` 先补扣再重推队列（`clearRefundKey` 防退款去重 Set 挡新退款）；`generate.service.ts retryTask()` type 校验（仅 image|video）**前置到扣费之前**（防「扣了钱再抛 400」）+ 未结清任务补扣。
+- **H3 JWT_SECRET 硬失败**：`auth.module.ts` useFactory 缺 `JWT_SECRET` 抛错拒启动；`jwt.strategy.ts` 构造期校验；`admin-notification.gateway.ts` 改惰性 `jwtSecret()`/`corsOrigins()`（原来顶层 fallback `'change-me'` = 生产弱密钥也能起服务）。dist grep 三处 `'JWT_SECRET 未配置'` 在位。
+- **M4 SSRF 重定向跟随**：`safe-download.util.ts downloadToFile` + `ai-service.util.ts imageToBase64` 手动跟重定向 ≤5 跳、每跳 `assertSafeRemoteUrl`（原来 axios 默认跟跳可绕内网拦截）。
+- **M9+L3 验证码**：`auth.service.ts` 惰性 `superAdminEmail()`（删顶层硬编码邮箱）+ `crypto.randomSixDigit()`（替 `Math.random`）。
+- **M10 capability 白名单**：`admin.controller.ts getModels` capability 仅 `image|video|audio`（防任意值进查询）；无参全量列表仍 admin-only（普通用户 Video 页 `?capability='video'` 唯一外部调用不受影响）。
+- **L1 路径穿越**：`video.controller.ts serveFile` 加 `startsWith(outputDir + path.sep)`（原来 `..%2F` 解码后可逃 output 目录；兄弟目录 `outputEvil` 前缀绕过也一并堵死）。
+- **L2 contact 注入**：contact DTO（name/contact/description 长度 + contactType 白名单）+ 邮件正文 `escapeHtml`（原来任意 HTML 直进通知邮件）。
+- **L4 SQL 注释**：`admin.service.ts executeQuery` 拦 `#`（原拦 `;` `--` `/*` 漏了 `#`，MySQL 行注释可拼只读语句尾部绕关键字黑名单）。
+- **L5 cleanup 引用保护**：`cleanup.service.ts` 补 `UNION SELECT cover_url FROM activities` + `feature_releases`（防 30 天孤儿清理误删在用封面）。
+
+### ✅ 测试（全绿）
+- **新 `test-batch-a.js` 48/48 PASS**（零发信、供应商成本零；积分账户走 admin 实测收尾复原）：M10 五断言（bogus 403 / video 200 数组 / 未登录 401 / 无参全量 200）/ L1 穿越两路 404 + 合法文件 200 对照 / L4 `#` 拦截 + 合法查询过 / L2 三条校验失败 400（限流跳过计 warn 不发信）/ **H1 video 实测**：720p/5s 创建 201 + charged=true + 提交即扣费 + 删除 200 积分复原 + 行 404 / **H1 gen 种子**：processing 未结清删退 +7、completed 已结清删不退 / **M5 video/gen retry**：算力不足 400 行不变 + 正常补扣 7 + charged 翻转 + 删任务退款复原（gen 用 `input_data='{}'` 无 prompt → 执行器 TypeError 不打供应商）/ 静态 dist 特征九项（H3×3 + M4×2 + M9 + L4 + L5 + L1）。
+- **回归**：`test-fe-generate` **31/31**、`test-works-api` **11/11**（FE/admin dev 掉线重启后跑，npm 在 PS 下须 `npm.cmd` 否则执行策略拦截）。
+- 首轮 50/51（唯一 FAIL = 测试自身断言 bug：`POST /api/admin/db/query` 是 Nest 默认 201，「别只认 200」老坑），修正后复跑全绿。
+
+### 📋 状态与待办（下次接续）
+- [x] 批次 A 代码 14 项 + 连带修复（本轮）+ 专项 48/48 + 回归全绿
+- [ ] **批次 B 服务器加固**（用户已批准，待执行）：chmod 600 .env、Redis/MySQL 加固、nginx 限流+安全头、fail2ban、PermitRootLogin 收紧、ufw 清陈旧规则、生产 .env 加 `SUPER_ADMIN_EMAIL`
+- [ ] **批次 C 决策项**（用户已批准）：生产 MySQL 密码轮换、仓库转 private、历史 DeepSeek key 确认轮换
+- [ ] 批次 A/B/C 全部完成后统一部署生产 + `prod-verify.js` 复测（部署需用户明确指示）
+- [ ] 封面 e2e 15 条：`VIDEO_E2E=1 node test-auto-cover.js`（视频链已通）
+
+---
+
+## 2026-10-13（Agnes 后端 t2v e2e E2E_PASS 补记 + 全项目安全审查四路完成 —— 风险报告落盘桌面，修复范围待拍板）
+
+> 承接 10-12 2FA 生产部署收官。本轮两件事：① Agnes 视频后端 e2e 打通；② 用户要求的全项目安全审查（四路并行、生产全程只读）完成。
+
+### ✅ ① Agnes 后端 t2v e2e：`E2E_PASS`（10-12）
+- `backend-t2v-loop.js` 后台循环（每 100s 探队列空档 → 提交后端 t2v `model=agnes-video-2.5-flash` → 轮询终态 → 清理）**第 18 轮命中**：taskId=87 completed，产物 `/static/vid_87_1791801961045.mp4` 1,580,332B → 日志输出 `E2E_PASS`。日志 `agnes-e2e2.log`。
+- 期间 #14 也 completed 但被 tally bug 误标 FAIL；其余 16 轮撞「所有视频供应商均不可用」（Agnes 免费队列 503 满仍是常态，窗口窄）。
+- 残留清理：tasks 70-87 全部不在库（循环脚本自清 + 清理脚本删 87），output 零残留成片；DELETE 返回 400 = `任务不存在`（findOne 按 id+user_id 未命中）非异常。
+- **④ 封面 e2e 15 条已解锁**：`VIDEO_E2E=1 node test-auto-cover.js`。
+
+### ✅ ② 全项目安全审查（四路并行只读）完成
+- 分路：后端鉴权/注入（explore）、密钥与数据泄露（explore）、前端/管理端（explore）、生产基础设施（SSH 只读命令）。
+- 结论：**无公网可直接利用的新增 Critical**；公网暴露面收敛（仅 22/80/443/35823 通，`.env`/`.git`/deploy/文档路径全 404 或 SPA 回退，nginx root=frontend/dist）。
+- 风险清单（按严重度）：**Critical 2**（生产 MySQL 密码未轮换且仍生效；public 仓库历史聚合泄露）/ **High 6** / **Medium 10** / **Low 17**。修复分三批次：A 代码类 / B 服务器配置类 / C 决策类（MySQL 轮换、仓库转 private、历史 DeepSeek key 确认）。
+- 已确认安全：API key 暴露面正确（未登录/普通用户拿不到、admin 末 4 位打码、仅超管 SQL 可拿明文=预期）；.env 三端 gitignore 且历史零提交；tracked 无凭据本体；无 XSS sink；CSRF 免疫；IDOR/SQL 注入主体收口；TLS 至 2027-01-03。
+- **完整报告刻意不进本仓库**（public 仓库 md 记载未修复漏洞利用细节 = 信息泄露）：`C:\Users\Administrator\Desktop\服务器资料\安全审查报告-2026-10-12.md`。
+
+### 📋 状态与待办（下次接续）
+- [x] Agnes 后端 t2v e2e `E2E_PASS` + 测试残留清理
+- [x] 四路安全审查完成 + 风险报告落盘（桌面，仓库外）
+- [x] 安全修复三批次 —— A 代码类已完成（见顶部新节）；B 服务器 / C 决策待执行
+- [ ] 封面 e2e 15 条：`VIDEO_E2E=1 node test-auto-cover.js`（视频链已通）
+
+---
+
 ## 2026-10-12（生产 admin 弱口令活体漏洞修复：前台登录超管也强制邮箱 2FA + md 凭据清理 —— 本地测试全绿，**等用户本地验收后再部署生产**）
 
 > 背景：仓库是 **public**，SSH 密码/生产 MySQL 密码已轮换/抹除，但**生产超管 `admin` + 弱口令 + `skipVerification:true` 公网直发超管 token** 的活体漏洞仍在（可刷积分/改权限/读 API key/只读 SQL）。用户否掉「换 16 位强密码」（记不住），拍板改为「**前台 admin 登录也加邮箱验证，仅限超管**」。

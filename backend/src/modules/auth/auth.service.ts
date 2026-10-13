@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as nodemailer from 'nodemailer';
 import { createClient } from 'redis';
+import * as crypto from 'crypto';
 import { User } from '../user/user.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -13,7 +14,15 @@ const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const RESEND_INTERVAL_MS = 60 * 1000; // 60s between sends
 const DAILY_LIMIT = 10;
 // 超级管理员二次验证固定发到该绑定邮箱（与生产一致）
-const SUPER_ADMIN_EMAIL = '1012453931@qq.com';
+// M9：惰性读取 —— 模块 import 期早于 dotenv 加载，顶层 const 读不到 .env 值；
+// 生产 .env 配置 SUPER_ADMIN_EMAIL 后无需改代码即可切换。
+function superAdminEmail(): string {
+  return process.env.SUPER_ADMIN_EMAIL || '1012453931@qq.com';
+}
+// L3：6 位验证码用密码学随机（Math.random 可预测，勿用于安全场景）
+function randomSixDigit(): string {
+  return String(crypto.randomInt(100000, 1000000));
+}
 
 @Injectable()
 export class AuthService {
@@ -96,11 +105,11 @@ export class AuthService {
     if (user.is_super_admin && !allowSkip) {
       // 新一次登录开始：作废该邮箱残留的旧验证码（Redis+内存双份）并清除 60s 限频，
       // 保证上一次登录用过的验证码不能跨会话复用，且可立即重新发送新码
-      const codeKey = `admin:${SUPER_ADMIN_EMAIL}`;
+      const codeKey = `admin:${superAdminEmail()}`;
       await this.removeCode(codeKey);
       this.codeStore.sentAt.delete(codeKey);
       const tempToken = this.jwtService.sign({ sub: user.id, type: 'super_admin_verify' }, { expiresIn: '5m' });
-      return { requiresVerification: true, tempToken, user: { id: user.id, username: user.username, email: SUPER_ADMIN_EMAIL, is_super_admin: true } };
+      return { requiresVerification: true, tempToken, user: { id: user.id, username: user.username, email: superAdminEmail(), is_super_admin: true } };
     }
     return this.buildToken(user);
   }
@@ -109,13 +118,13 @@ export class AuthService {
   async sendSuperAdminVerifyCode(userId: number) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user || !user.is_super_admin) throw new BadRequestException('无权操作');
-    const email = SUPER_ADMIN_EMAIL;
+    const email = superAdminEmail();
     const now = Date.now();
     const lastSent = this.codeStore.sentAt.get(`admin:${email}`) || 0;
     if (now - lastSent < RESEND_INTERVAL_MS) {
       throw new BadRequestException('发送太频繁，请 60 秒后再试');
     }
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = randomSixDigit();
     const expiresAt = now + CODE_TTL_MS;
     await this.persistCode(`admin:${email}`, code, expiresAt);
     try {
@@ -142,7 +151,7 @@ export class AuthService {
     }
     const user = await this.userRepo.findOne({ where: { id: payload.sub } });
     if (!user || !user.is_super_admin) throw new UnauthorizedException('账号异常');
-    const email = SUPER_ADMIN_EMAIL;
+    const email = superAdminEmail();
     const valid = await this.verifyCode(`admin:${email}`, code);
     if (!valid) throw new UnauthorizedException('验证码错误或已过期');
     this.logger.log(`超级管理员 ${user.username} 二次验证通过`);
@@ -161,7 +170,7 @@ export class AuthService {
       throw new BadRequestException('今日发送次数已达上限，请明天再试');
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = randomSixDigit();
     const expiresAt = now + CODE_TTL_MS;
     await this.persistCode(email, code, expiresAt);
 
