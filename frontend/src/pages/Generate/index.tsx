@@ -134,7 +134,8 @@ export default function GeneratePage() {
   const [voiceList, setVoiceList] = useState<any[]>([]);
 
   const voiceOptions = voiceList.map((v: any) => ({
-    label: `${v.name}（${v.gender === 'female' ? '女' : '男'}·${v.style}）`,
+    // 星予（qwen-audio TTS）为推荐默认音色（2026-10-21 拍板）
+    label: v.id === 'xingyu' ? '星予（推荐）' : `${v.name}（${v.gender === 'female' ? '女' : '男'}·${v.style}）`,
     value: v.id,
   }));
 
@@ -156,11 +157,16 @@ export default function GeneratePage() {
 
   // 预计扣费：文生图按张数、文生视频按时长×分辨率（需积分规则）
   const numImagesWatch = Form.useWatch('num_images', formTextToImage) || 1;
+  const imageSizeWatch = Form.useWatch('image_size', formTextToImage) || '1K';
   const resolutionWatch = Form.useWatch('resolution', formTextToVideo) || '720p';
   const durationWatch = Form.useWatch('duration', formTextToVideo) || 5;
   const estimateCost = (mode: string): number | null => {
     if (!creditRules) return null;
-    if (mode === 'text-to-image') return creditRules.image_per_image * numImagesWatch;
+    if (mode === 'text-to-image') {
+      // Agnes 档位阶梯（1K=基础 / 2K=×2 / 3K=×4 / 4K=×8，读 credit-rules 实时值）
+      const tierMult = creditRules.image_size_multipliers?.[imageSizeWatch] ?? 1;
+      return creditRules.image_per_image * tierMult * numImagesWatch;
+    }
     const rateKey = resolutionWatch === '1080p' ? 'video_1080p_per_5s'
       : resolutionWatch === '480p' ? 'video_480p_per_5s' : 'video_720p_per_5s';
     const rate = creditRules[rateKey] || creditRules.video_720p_per_5s || 20;
@@ -310,7 +316,16 @@ export default function GeneratePage() {
       if (data?.taskId) {
         setResultIds(prev => [data.taskId, ...prev.filter(id => id !== data.taskId)].slice(0, 10));
       }
+      // 重置表单但保留提示词与配音设置：失败/继续生成时无需重打（2026-10-21 拍板）
+      const keptPrompt = body?.prompt || '';
+      const keptVoiceover = {
+        voiceover: body?.voiceover,
+        voiceover_type: body?.voiceover_type,
+        tts_voice: body?.tts_voice,
+        voiceover_text: body?.voiceover_text,
+      };
       form.resetFields();
+      form.setFieldsValue({ prompt: keptPrompt, ...keptVoiceover });
       setUploadFileList([]);
       setSelectedLibraryAssets([]);
       fetchHistory();
@@ -387,9 +402,10 @@ export default function GeneratePage() {
     });
   };
 
-  const videoResolutions = ['480p', '720p', '1080p'];
+  // Agnes Video 2.5 Flash（2026-10-21）：仅支持 720P；seconds 4~12 → 可选 5/10/12 秒
+  const videoResolutions = ['720p'];
   const videoRatios = ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'];
-  const videoDurations: number[] = [5, 10, 15];
+  const videoDurations: number[] = [5, 10, 12];
 
   const uploadProps = {
     name: 'file',
@@ -460,11 +476,20 @@ export default function GeneratePage() {
               <Form.Item name="num_images" label="数量" initialValue={1} style={{ flex: '1 1 90px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
               </Form.Item>
+              <Form.Item name="image_size" label="强度" initialValue="1K" style={{ flex: '1 1 120px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[
+                  { label: '1K（推荐）', value: '1K' },
+                  { label: '2K', value: '2K' },
+                  { label: '3K', value: '3K' },
+                  { label: '4K', value: '4K' },
+                ]} />
+              </Form.Item>
               <Text style={{ color: 'var(--text-secondary)', fontSize: 12, lineHeight: '32px', flex: '1 1 260px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>自动分配模型</Tag>
+              <Tag color="blue" style={{ marginLeft: 8 }}>agnes-image-2.5-flash</Tag>
+              <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
               {estimateCost('text-to-image') !== null && (
                 <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
                   预计扣费 {estimateCost('text-to-image')} 积分
@@ -516,7 +541,7 @@ export default function GeneratePage() {
                       <Radio.Button value="narration">📢 旁白解说</Radio.Button>
                     </Radio.Group>
                   </Form.Item>
-                  <Form.Item name="tts_voice" label="音色" initialValue="longxiaochun" style={{ maxWidth: 360 }}>
+                  <Form.Item name="tts_voice" label="音色" initialValue="xingyu" style={{ maxWidth: 360 }}>
                     <Select style={{ width: '100%' }} options={voiceOptions} placeholder="选择音色" />
                   </Form.Item>
                   <Form.Item name="voiceover_text" label="配音内容（可留空）">
@@ -527,7 +552,8 @@ export default function GeneratePage() {
             </Form.Item>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>自动分配T2V模型</Tag>
+              <Tag color="blue" style={{ marginLeft: 8 }}>agnes-video-2.5-flash</Tag>
+              <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
               {estimateCost('text-to-video') !== null && (
                 <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
                   预计扣费 {estimateCost('text-to-video')} 积分
@@ -708,14 +734,26 @@ export default function GeneratePage() {
             </Form.Item>
             <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
               {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
-                <Form.Item name="voiceover_text" label="配音内容（可留空，默认朗读提示词）">
-                  <TextArea rows={2} placeholder="例如：这是关于角色的一段故事..." />
-                </Form.Item>
+                <>
+                  <Form.Item name="voiceover_type" label="配音类型" initialValue="character">
+                    <Radio.Group>
+                      <Radio.Button value="character">🎭 角色台词</Radio.Button>
+                      <Radio.Button value="narration">📢 旁白解说</Radio.Button>
+                    </Radio.Group>
+                  </Form.Item>
+                  <Form.Item name="tts_voice" label="音色" initialValue="xingyu" style={{ maxWidth: 360 }}>
+                    <Select style={{ width: '100%' }} options={voiceOptions} placeholder="选择音色" />
+                  </Form.Item>
+                  <Form.Item name="voiceover_text" label="配音内容（可留空）">
+                    <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
+                  </Form.Item>
+                </>
               )}
             </Form.Item>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>自动分配{selectedLibraryAssets.length > 1 ? 'R2V' : 'I2V'}模型</Tag>
+              <Tag color="blue" style={{ marginLeft: 8 }}>agnes-video-2.5-flash</Tag>
+              <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
             </Form.Item>
           </Form>
         );
@@ -814,9 +852,22 @@ export default function GeneratePage() {
     if (task.status === 'failed') {
       return (
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
-          <Alert type="error" showIcon message="生成失败" description={task.error_msg || '未知错误'} style={{ marginBottom: 12 }} />
+          <Alert
+            type="error"
+            showIcon
+            message="模型生成失败"
+            description={
+              <>
+                <div>积分已退还，可以重新生成</div>
+                {task.error_msg && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)', wordBreak: 'break-all' }}>{task.error_msg}</div>
+                )}
+              </>
+            }
+            style={{ marginBottom: 12 }}
+          />
           <Space size={8}>
-            <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(task.id)}>重试</Button>
+            <Button size="small" type="primary" icon={<ReloadOutlined />} onClick={() => handleRetry(task.id)}>重新生成</Button>
             <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(task.id)}>删除</Button>
           </Space>
         </div>
@@ -913,15 +964,15 @@ export default function GeneratePage() {
               message={<span style={{ color: 'var(--text)', fontSize: 13 }}>积分扣费规则</span>}
               description={
                 <Space orientation="vertical" size={4}>
-                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>📝 文字生图片：{creditRules.image_per_image} 积分 / 张</Text>
-                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🎬 文字生视频 / 🖼 图片生视频：480p = {creditRules.video_480p_per_5s} 积分、720p = {creditRules.video_720p_per_5s} 积分、1080p = {creditRules.video_1080p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
+                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>📝 文字生图片：{creditRules.image_per_image} 积分 / 张（1K 强度；2K=×2、3K=×4、4K=×8）</Text>
+                  <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🎬 文字生视频 / 🖼 图片生视频：720P = {creditRules.video_720p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
                   <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣费</Text>
                   <div style={{ marginTop: 4, padding: '8px 10px', background: 'rgba(250,173,20,0.08)', borderRadius: 6, border: '1px solid rgba(250,173,20,0.2)' }}>
                     <Text style={{ color: 'var(--warning, #d48806)', fontSize: 12, fontWeight: 600 }}>⚠️ 生成限制说明</Text>
                     <ul style={{ margin: '4px 0 0 0', paddingLeft: 16, color: 'var(--text-secondary)', fontSize: 11, lineHeight: 1.8 }}>
-                      <li><b>时长</b>：可选 5/10/15 秒，但受模型限制——部分模型仅支持 5 秒，系统会自动选择最合适的模型；若支持长秒数的模型不可用（如免费额度用完），可能降级为 5 秒生成</li>
-                      <li><b>宽高比</b>：可选 9:16（竖屏）/ 16:9（横屏）等，但受模型限制——部分模型不支持所有比例，系统会优先匹配支持所选比例的模型；若无匹配模型，可能使用默认比例生成</li>
-                      <li><b>免费额度</b>：AI 模型有免费调用额度，额度用完后需等待刷新或充值，期间可能使用备选模型（能力和参数可能有差异）</li>
+                      <li><b>时长</b>：可选 5/10/12 秒（Agnes Video 2.5 Flash 支持 4~12 秒），超出范围会被自动收敛</li>
+                      <li><b>宽高比</b>：可选 9:16（竖屏）/ 16:9（横屏）等，由 Agnes Video 2.5 Flash 支持的比例范围内生成</li>
+                      <li><b>免费额度</b>：当前图像/视频模型为限免，若遇队列拥堵或限流会自动重试或降级到备选模型</li>
                     </ul>
                   </div>
                 </Space>
@@ -1171,7 +1222,7 @@ export default function GeneratePage() {
                   )}
                 </div>
               ) : (
-                <video src={src} controls playsInline preload="auto" autoPlay muted
+                <video src={src} controls playsInline preload="auto" autoPlay
                   style={{ width: '100%', borderRadius: 8, background: '#000' }} />
               )}
               <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 8 }}>

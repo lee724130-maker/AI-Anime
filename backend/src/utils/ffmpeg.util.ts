@@ -292,8 +292,10 @@ export class FFmpegUtil {
       this.logger.log(`composite: subtitlePath="${subtitlePath}", exists=${!!subtitlePath && fs.existsSync(subtitlePath)}`);
       if (subtitlePath && fs.existsSync(subtitlePath)) {
         const subForward = subtitlePath.replace(/\\/g, '/');
-        // FFmpeg filter syntax: escape colons with \\: so drive letter C: doesn't become an option separator
-        const subEscaped = subForward.replace(/:/g, '\\:');
+        // FFmpeg 双层转义（10-23 实测定案）：filtergraph 外层解析吃掉一层 `\\` → 字面 `\`，
+        // subtitles 滤镜内层才收到 `\:` 保护盘符冒号。单层 `\:` 会被内层当作 original_size 分隔符
+        // （Unable to parse "original_size" → composite 抛错降级无声）。Linux 无冒号路径不受影响。
+        const subEscaped = subForward.replace(/:/g, '\\\\:');
         const subFilter = `subtitles=${subEscaped}`;
         this.logger.log(`Subtitle filter: ${subFilter}`);
         filters.push(subFilter);
@@ -396,7 +398,7 @@ export class FFmpegUtil {
 
       if (hasSubtitles) {
         const subForward = subtitlePath.replace(/\\/g, '/');
-        const subEscaped = subForward.replace(/:/g, '\\:');
+        const subEscaped = subForward.replace(/:/g, '\\\\:');
         const subFilter = `subtitles=${subEscaped}`;
         this.logger.log(`Subtitle filter: ${subFilter}`);
         args.push('-vf', subFilter);
@@ -507,7 +509,7 @@ export class FFmpegUtil {
       const hasSubtitles = options?.subtitlePath && fs.existsSync(options.subtitlePath!);
       if (hasSubtitles) {
         const subForward = options!.subtitlePath!.replace(/\\/g, '/');
-        const subEscaped = subForward.replace(/:/g, '\\:');
+        const subEscaped = subForward.replace(/:/g, '\\\\:');
         args.push('-vf', `subtitles=${subEscaped}`);
         args.push('-c:v', 'libx264', '-preset', 'fast', '-crf', '23');
       } else {

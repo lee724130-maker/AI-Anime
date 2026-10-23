@@ -1,5 +1,192 @@
 # 修复日志
 
+## 2026-10-23（生产 PHP 8.2.35 编译收官 [ALL_DONE3] + 复验 6/6；本地 Agnes key 修复实锤全通；晚间 t2v 拥堵 10 次重试保底 9/9；深夜 generate 配音+字幕全链跑通 e2e #118 —— 四件全关 + 今日上线生产）
+
+> 承接 10-22 两开口（PHP 断点续编中 / 视频 401 明天修）。今日两件全部完成；晚间用户提 t2v 拥堵失败新需求并当日收尾（见④）。
+
+### ✅ ① 生产 PHP 8.2.35：第三波真因定案 + 收官
+- **第二波（补 4G swap）仍 OOM 的真因**：`vm.swappiness = 0` —— 内核几乎不往 swap 换页，RAM（1.6G）耗尽直接 OOM 杀 cc1（dmesg 实锤：两次 global_oom 杀 cc1 anon-rss≈540MB，而 swap 4G 全空只用 46M）。**低内存机补 swap 前必查 swappiness，=0 时补多大都白补**。
+- **第三波（10-23 15:02）一把过**：`sysctl -w vm.swappiness=30` → 删残缺 `Zend/zend_execute.lo/.o/.dep` → **单独独占编 `make Zend/zend_execute.lo`**（15:01 过关）→ `php-resume3.sh` setsid 断点续编（已编文件全跳过）→ **15:05:26 [ALL_DONE3]**（2 分半收尾）→ 自动 `make install` + `systemctl restart php-fpm-82`。
+- **复验 6/6**：`PHP 8.2.35 (cli) built Oct 23 15:04` / fpm active / front 200 / admin 200 / api 401 / pm2 `ai-anime-backend`+extract-api+worker 三进程 online。⚠️ **面板端口 = 35823**（BT-Panel 监听 ss 实证，ufw 保留口）——旧文档里 8888 是改端口前的旧口，探 8888 得 000 属误报，别再被带偏。
+- 监控 monitor-php3 命中 [ALL_DONE3] 自动退出通知；/tmp 日志与脚本留服务器待重启自清。
+- ⚠️ 教训复现：**PowerShell→Windows OpenSSH 嵌套双引号吃引号**（`grep -E "A|B|\[FAIL\]"` 模式散架 → bash 把 `[FAIL]` 当命令 + 60s 超时）——远端 grep 一律改 **`grep -e A -e B`** 无引号形式，或按老规矩写 .sh scp。
+
+### ✅ ② 本地 Agnes key 修复实锤（10-21 拍板的「明天修」）
+- **修复**：`UPDATE system_configs SET config_value=<中国区key> WHERE config_key='agnes_api_key'`（值取 `.opencode-ext/agnes-cn-key.txt`，不进文档）→ 重启本地后端 → 空 body POST 图像端点 **400（非 401）= auth OK**。
+- **真单双断言（10-21 要求的 provider 行 + success=true，全拿到）**：
+  - t2i：15:41:57 `Using requested image model: agnes-image-2.5-flash` → 15:42:06 `Agnes ... generated 1 image(s) (size 1K, ratio 9:16)` + **`[MODEL_USAGE] model=agnes-image-2.5-flash success=true`**；
+  - t2v：15:42:08 `Agnes video task created task_Opbixd... mode=text 5s 9:16` → 15:50:08 **completed in 480s**（cos-platform-outputs 出片）+ **`[MODEL_USAGE] model=agnes-video-2.5-flash success=true`**（DB #106 completed cost=10）；15:50:20 自动封面图链也 agnes success=true。
+- **#104「所有视频供应商均不可用」= 10-22 18:36 旧单**（修 key 前的 401 降级链失败，即 AGENTS 10-22 记录那单），非新问题；DB 现 21 条任务 MAX=106 干净。
+- 修复前的失败认知纠正：**此前 t2i「completed」多为商汤后备接住、t2v 全挂**——旧 key（DB 里的 Agnes key ≠ CN 区 key 文件）在 api.agnes-ai.cn 必 401。现在 CN key 已入 DB，直通链（agnes-image 前缀直通 line296 / agnes- 前缀直通 line905）实测过。
+
+### ✅ ③ 冒烟收尾时揪出并修复真 bug：执行期间删除的任务会被 `save()` 复活（防复活回归 17/17）
+- **发现**：冒烟删掉 processing 的 t2v 任务 #106 后，远端 480s 完成 → 下载落盘 → **终态 `taskRepo.save(task)` 对已删行 upsert，把行写回 completed 复活**（TypeORM save = UPDATE affected=0 → INSERT 同 id）。用户视角 = 删掉的任务在历史里诈尸；异步自动封面还跟着给已删任务出图。
+- **修复（`generate.service.ts`）**：新增 `finalizeTask(task)`——终态写入一律改 **UPDATE**（对不存在行 affected=0、绝不重建），affected=0 时顺手 `mediaRepo.delete({task_id})` 清执行期间新建的悬挂 media_files 行（其文件无引用走 30 天孤儿清理）并打日志「已在执行期间被删除，跳过终态写入」。替换 **6 处终态 save**（t2i/t2v/i2v × completed/failed）；封面写入 `taskRepo.update(taskId,{cover_url})` 同款防复活（affected=0 丢弃封面文件）。retry 的 save（行刚 findOne 校验过）与建任务 INSERT 不动。
+- **资金面确认**：复活本身不动钱（扣费在提交、退款在删除、completion 只标结清；二次退款有 `gen_*_${id}` 去重 key 挡）——纯数据复活，但必须堵。
+- **回归 `test-delete-midrun.js` 17/17**（Temp，测后已删）：A 组正常完成路径无回归（completed 落库/扣费 -5/删除不退）；B 组提交→等日志 `Using requested image model`（证明 run 已过 findOne 进生成）→DELETE→**行未复活 + finalize 跳过日志 + 悬挂 media 清零 + 删除退款后无二次扣退**，测试数据零残留。
+- **video 模块无此病**：`video.service.updateStatus` 是 findOne→不存在抛 NotFound，不复活（核查过）。
+- 冒烟测试数据收尾：#105/#106 行 + media + 产物文件全清（id≥104 仅剩 #104 旧失败单留档）；admin credits 9954（测试币）。
+
+### ✅ ④ t2v 撞 Agnes 免费队列拥堵必失败 → 10 次创建重试「成功即停」保底（晚间新需求，当日实现+实测）
+- **背景实锤**：用户失败单 #109 页面逻辑无问题——真因 = Agnes 免费视频队列波动性 503「该视频任务队列已满」（一次只放 1 个 create）+ 本地唯一后备通义万相 403 免费额度尽 → 全链失败退款；三单并发成功率探针（`probe-t2v-rate.js`）仅 1/3（并发同秒创建互踩 429：16:09 满 / 16:16 开隙 / 16:17 又满，窗口分钟级波动）。
+- **方案（用户拍板）**：**单视频模式——一次点击最多 10 次创建尝试、成功即停**（否决多视频批量方案）；10 次全败 → 现有降级链 → 失败退款；UI/计费零改动（出 1 个视频只收成功那单 10 积分）。重试次数硬编码常量不做配置（失败创建零成本）。
+- **实现（`ai-service.util.ts` 4 处，tsc EXIT=0，dist 8 特征全中）**：
+  1. 创建循环 `MAX_CREATE_ATTEMPTS = 10`（原 4），间隔 **45~65s（45s 基准 + 0~20s 随机抖动）**——抖动专防多任务同秒互撞 429（45s 固定间隔单任务从不撞）；日志带 `attempt N/10`；耗尽文案「10 次尝试用尽」；重试期 `onProgress(1→4)` 给前端可见进度（创建成功后 5 起步）。总重试窗口 ≈7~10 分钟。
+  2. **防双预算闸**：显式 `agnes-` 模型失败后会 delete model 落 auto 再打一遍 Agnes（旧实测 4+4=8 次、4.7 分钟失败）→ catch 里 `agnesExplicitTried=true` → auto 链 line 963 跳过 Agnes 并打日志「跳过 Agnes 直接尝试后备链」——否则改 10 后最坏 10×2=20 次 ≈16.6 分钟。
+- **实测 `probe-t2v-retry.js` 9/9 PASS（2 单并发：A 显式 model + B 无 model 模拟 generate 页面）**：**2/2 completed**——拥堵波段下重试 8 行（最深 `attempt 7/10`）后两单先后创建成功即停出片（B 提交后 9.0min / A 13.5min）；`attempt N/10` 格式零超限；`MODEL_USAGE success=true`×2 对账 completed×2；净积分 9944→9924 = -10×2（本轮无失败单，失败全退前轮已验）；清理零残留。⚠️ 跳过闸「失败分支」本轮未实测（A 单成功未走二跳，skip=0 期望值 PASS），该分支仅源码+dist 特征级验证。
+- **已知边界**：① 占并发槽（上限 3）时长 = 重试窗口 + 渲染，最坏单任务 ~18 分钟，第 4 个提交会 pending 排队；② 失败反馈最坏 ~10 分钟（原 2.3 分钟）——换成功率的代价；③ 创建成功后渲染失败仍走现有失败退款、不占 10 次额度（罕见分支语义，助手定的，用户未提异议）。
+- 测试数据：#113/#114 已清（deleteTask 连带 media/产物）；admin credits 9924（测试币）。
+
+### ✅ ⑤ 深夜追加：generate 页配音+配文全链跑通（TTS 合音 + 字幕烧录「两个都要」）—— 五处修复 + subtitles 双层转义实测定案 + e2e 真单 #118 全绿
+- **用户需求**：配音配文跑通（拍板「两个都要」= TTS 合音 + 烧录字幕）；generate 页按 `agnes-video-2.5-flash` 官方参数收敛；今日跑通并上线生产。⚠️ 人物口型同步做不到（Agnes 视频无声源），方案 = TTS 合音叠加，已向用户说明。
+- **五处修复落码**（前端 3 + 后端 2，双端 tsc 全绿）：
+  1. 预览弹窗去 `muted`（Generate :1225——历史/弹窗播放器全排查 generate:1225 / HistoryTable:303 / Home:637 三处弹窗均无 muted ✓）；
+  2. `doGenerate` 保配音字段（原被白名单剥离 → `voiceover_text/tts_voice/voiceover_type` 三字段直传）；
+  3. i2v 表单补齐 voiceover 字段（原只有 t2v 有）；
+  4. Agnes 轮询上限 10→**20min**（三处——实测 5s 视频 Agnes 渲染 375s，10min 撞拥堵必超时）；
+  5. 后端 `buildVoiceSubtitles`（voiceover_text 按中文标点断句 → SRT，逐句均分音频时长）+ t2v/i2v composite 传第 5 参 `subtitlePath`。
+- **⚠️ 真根因实锤：subtitles 滤镜 Windows 冒号路径转义（五写法定案）**——e2e 首单 #117 两 FAIL（voiced url / 配音完成）真因 = `composite` 抛错降级无声：单层 `D\:` 过 ffmpeg 外层 filtergraph 被吃掉一层 → subtitles 滤镜内层把 `:` 当 `original_size` 分隔符（日志 `Unable to parse "original_size" option value "/AI-Anime-main/..."`）。`probe-subtitles-escape.js` 五写法实测：单层 FAIL / 引号 FAIL / **双反斜杠 `D\\:` PASS**（引号+转义虽单测 PASS 但经 `ff()` 的 splitArgs 会吃引号退化，不可选）。**修法 = 源码写 `'\\\\:'`**（值 = `\\:`），`ffmpeg.util.ts` 三处统一（:298/:401/:512）+ 注释实测定案；`fontfile` :60 本就双反斜杠（文本渲染一直正常）佐证同款；`splitArgs` 只认引号/空格**不动反斜杠** → 原样直达 ffmpeg；**Linux 生产无冒号路径天然免疫**（但 Windows 本地 + 未来 Windows 部署都靠它）；video.processor 字幕链共用同三处一并受益。字幕失败仅 warn 跳过不影响配音主链（既有语义）。
+- **e2e 真单 #118 全链 PASS**（run37.log，Agnes 渲染 375s + TTS + composite ≈6.5min）：`Agnes video task_124... completed in 375s` + **`[MODEL_USAGE] model=agnes-video-2.5-flash success=true`** + 星予 TTS（`qwen-audio-3.1-tts-flash voice=loongstella_v3.1`，97051 bytes）+ `字幕已生成：3 句 / 音频 4.8s` + **`Subtitle filter: subtitles=D\\:/...`（双反斜杠下发）** + `Video+audio composite complete` + **`任务 118 文生视频配音完成 + 字幕烧录`** + 出片 `vid_118_voiced_*.mp4` 2,056,486B 含 aac + **抽帧像素字幕实锤**（t=0.8s 底部 420px 亮像素 >240 = 10985 vs 无声原片基线 16）+ input_data 三配音字段持久化 + 积分 -10 不退。⚠️ 脚本内 6 条日志断言 FAIL = 脚本写死旧日志 `run36.log`（后端已切 run37）+ 窗口切片起点问题，非真失败——已用 recheck 脚本逐条补验翻绿。
+- **页面参数现状**：`videoResolutions=['720p']` ✓ / ratios 6 档全对 ✓ / durations `[5,10,12]`（官方文档全档 4~12，是否放开待用户）；smart-plan 规划后回填 `voiceover_text` ✓。
+- **任务保留**：#115（用户指示不删）/ #117（首单，无声降级现场）/ #118（联调成功证据单）均不删。
+- **本轮血泪**：① e2e 脚本硬编码日志路径——后端换新日志文件后旧脚本全假 FAIL，断言前先核对 LOG 路径；② **生产 MySQL 探测 socket/TCP grant 不匹配**：`mysql -u ai_anime` 无 `-h` 默认走 socket → `user@localhost` 必 1045（`.env` DB_HOST=127.0.0.1 → grant 在 `user@127.0.0.1`），一律 `-h127.0.0.1`；③ 复杂引号 SSH 远程命令老坑（PS→OpenSSH 吃引号）再踩——.sh scp 铁律。
+- **生产部署准备（已探明）**：部署包重打 ✓（backend.zip 770572B 含转义修复；frontend/admin 同步）；**生产库两缺口**：`agnes_api_key` 仍是旧国际区 `sk-ec3****2KTD`（len51，CN 域必 401）+ image/video active 非 Agnes 行 8 条未收敛（74/75/76/77/93/94 image + 72/73 video）→ `make-prod-seed.js` 部署时生成 SQL（UPDATE key 从仓库外文件读不打印 + 收敛 `UPDATE status='inactive'`保守可回滚，active 集合与本地对齐 = 仅 95/96/97/98）。
+
+### 📋 状态与待办（接续）
+- [x] PHP 8.2.35 编译 + 复验 6/6（本节①）
+- [x] 视频 401 修 key + 双断言真单验证（本节②）
+- [x] 防复活 bug 修复 + 回归 17/17（本节③，随主工程代码待部署）
+- [x] t2v 拥堵 10 次创建重试「成功即停」+ 显式/auto 双预算闸 + 探针 9/9（本节④，随主工程代码待部署）
+- [x] generate 配音+字幕全链（五处修复 + subtitles 双层转义 + e2e #118 全绿，本节⑤，随主工程代码待部署）
+- [ ] **生产部署（用户已明示今日上线，等 git 保底拍板后执行）**：`make-prod-seed.js` 生成 prod-seed.sql（UPDATE agnes_api_key=CN key + 收敛 active 非 Agnes 行 → inactive）→ scp 三 zip + deploy.sh + prod-seed.sql → `bash deploy/deploy.sh` → 执行 seed SQL → 删 SQL 文件 → `prod-verify.js` 18 条复测 → 生产配音冒烟一单（t2v + voiceover 断言 voiced 出片）
+- [ ] generate 页用户交互验收收尾（部署后）
+- [ ] 阿里云主机安全「手动复扫」提醒用户；8888 端口兜底拍板（注意：面板实际在 35823，8888 已不监听——兜底项等用户重新拍板）
+- [ ] VoiceStudio 暂停中（等用户）；《体面》E2-E6 等用户；**git 提交等用户拍板**（工作区 = 当日前 8 文件 + 晚间前端 3 处/后端 2 处 + ffmpeg.util 转义 3 处 + AGENTS.md；`.gates.jsonl`、`docs/agnes-models.md` 未跟踪勿提交）
+- **本地三端在跑**：backend :3000（run35.log，dist 含 key 修复 + 防复活修复 + t2v 10 次重试）+ FE :5173（fe-dev17）+ admin :5174（admin-dev21）
+
+---
+
+## 2026-10-22（问题总结日：① 服务器 PHP 8.2.35 升级三波三折 → OOM 实锤、补 swap 断点续编中；② 本地视频生成失败根因实锤 = DB 存旧 Agnes key 全线 401，用户拍板不紧急明天修 —— 本轮零 git 提交）
+
+> 用户指示：服务器问题今天解决不了就明天继续，但**今天必须把问题总结清楚**；模型问题不紧急可延后。本节即当日问题总结与接续预案。
+
+### ✅ 问题一：生产 PHP 升级（CVE-2026-109618/109619 → 8.2.35，处置=升级不卸载）
+- **背景**：面板 10-21 21:43 已下源码 `src.tar.gz`（=php-8.2.35）、10-22 16:23 configure 跑完后 **make 阶段把机器假死**（用户重启恢复）→ 改我 SSH 直驱低速编译。
+- **三波三折实录**：
+  1. 17:48 启动 `make -j1 + nice/ionice`（脚本 `/tmp/php-build-8235.sh`、日志 `/tmp/php8235-build.log`）正常推进；
+  2. 18:00~18:45 编译**胖文件触发 thrash**：SSH/HTTPS/8888 间歇全无响应（属颠簸窗口，≠死透）；
+  3. 18:30:46 **make 失败（`[MAKE_FAIL]`，Zend/zend_execute.lo Error 1）**——dmesg 实锤 **OOM killer 杀 cc1**（该文件编译峰值 ~535MB，1.6G RAM + 2G swap 吃穿）；18:46 机器自行恢复。
+- **当晚处置（18:54 已续编）**：`/tmp/php-resume.sh` = **补 `/www/swap3` 2G（swap 总 4G）→ 删残缺产物 `Zend/zend_execute.lo` → 不 make clean 断点续编** → 成功则自动 `make install` → `systemctl restart php-fpm-82` → 写 `[ALL_DONE]`。已确认 swap3 激活 + make 从 zend_execute.c 原地重试；续编脚本带守卫（swap 加不上立即 `[FAIL]` 退出不白烧）。
+- **监控**：本地后台 `monitor-php2.ps1`（shell sh_1633f681a001…）每 5 分钟探 `[ALL_DONE]/[MAKE_FAIL2]/[INSTALL_FAIL]/[FAIL]`，命中即退出通知；`lines` 在涨=在推进。
+- **明早/后续分支预案**：
+  - `[ALL_DONE]` → 复验 `php -v`=8.2.35 / fpm active / 站点 200 / pm2 online / api 冒烟；
+  - `[MAKE_FAIL2]` 或 `[INSTALL_FAIL]` → 查日志错误行（大概率还是胖文件 OOM）→ 处理后**同法再续**（swap3 已在）；
+  - 机器又假死且 **>30min 零恢复窗口** → 控制台重启 → 再跑 `/tmp/php-resume.sh`（增量续编；若链接报坏 .o 才 `make clean` 全量重来，预计 1h+ thrash）。
+- **⚠️ 长期结论（已告知用户）**：1.6G 内存机编译不动 PHP——**以后面板「源码编译」类升级全会这样**；PHP 小版本补丁可由我 SSH 加 swap 低速扛；根治 = 升配 / 面板编译类操作全交我做（升级完后讨论）。
+- **⚠️ 新教训**：① **PowerShell→Windows OpenSSH 远程命令嵌套双引号会被吃掉**（grep 断言失效/command not found）→ 复杂引号一律**本地写 .sh → scp → 执行**；② make 被 OOM 杀后**必须删残缺 .lo/.o 再 make**（否则时间戳新于源文件被跳过 → 链接期才爆）；③ 编译期「日志变慢 + 机器间歇无响应」= OOM 前兆 → 先补 swap 再续；④ 假死窗口 8888 连握手都不收属正常，判死透 = 连续 30min+ 零恢复窗口。
+- 前序侦察/操作细节（用户面板登不进=同机整体停摆、探针 000 属预期等）见当轮对话，关键点已收进本节。
+
+### ✅ 问题二：本地 generate 页视频生成失败（用户问「是不是模型要排队」→ **不是排队，根因实锤**）
+- **链路（backend-run32.log 实测）**：Agnes 视频 create **`401 无效的令牌`**（**还没进队列**，排队假说排除）→ 自动降级通义万相 **`403 Free quota exhausted`**（免费额度尽）→「所有视频供应商均不可用」→ 任务 failed + **全额退积分**（失败提醒/退款/重新生成按钮 = 用户实测链路正常工作）。
+- **根因**：`system_configs.agnes_api_key` 与仓库外中国区 key 文件（`agnes-cn-key.txt`）**不是同一把 key**（长度同 51 但前缀/尾缀不同）→ 10-21 只切了端点到 `api.agnes-ai.cn`，**中国区 key 从没写进 DB** → CN 域验 DB 里的旧 key 必 401。**图像同样 401**（run31 19:16 三档 agnes-image 全 401），只是被商汤后备接住，所以图片看起来正常。
+- **⚠️ 测试教训**：10-21 冒烟 13/13 的「真实 t2i completed」**不是 Agnes 出的图**（商汤后备出的）——冒烟只断言 completed+出图、**没断言供应商**，fallback 把坏 key 掩盖成全绿；**以后断链验证必须断言日志 provider 行 + `[MODEL_USAGE] model=agnes-* success=true`**。
+- **修复方案（明天做，一句话的事）**：
+  1. `UPDATE system_configs SET config_value='<中国区 key>' WHERE config_key='agnes_api_key'`（值取仓库外 key 文件，**不进文档**）→ 重启本地后端；
+  2. 零成本验 auth：空 body POST 图像端点应 400（参数错）而非 401 → auth OK；
+  3. t2i + t2v 各跑一单，断言 provider 行 + `success=true`；
+  4. **修好 key 前，本地/生产视频链都不可用**（生产部署时同要更新该 key，已并入部署待办「确认 agnes/tongyi key」）。
+
+### 📋 状态与待办（接续）
+- [ ] **PHP 8.2.35 等 `monitor-php2` 通知** → 按三分支预案复验/续排（当晚大概率收尾；本条为服务器唯一开口）。⚠️ **若用户当晚关了本地电脑，监控进程随之中断、不会有通知** → 恢复会话后第一件事直接探 `/tmp/php8235-build.log` 的终态标记（`[ALL_DONE]/[MAKE_FAIL2]/[INSTALL_FAIL]/[FAIL]`），编译在服务器上 setsid 分离运行、不依赖本地机器
+- [ ] **视频 401 修 key**（明天，见问题二三步）
+- [ ] generate 页用户交互验收收尾（失败提醒/档位/音色已实测走到）→ 等部署指示（主工程 + 安全批次 A/B + Redis requirepass 合并部署；部署后 `prod-verify.js` 18 条 + 生产库模型行/key 收敛）
+- [ ] 阿里云主机安全「手动复扫」提醒用户；888 端口兜底（关 vs 限 IP）等用户拍板
+- [ ] 本轮零 git 提交（含本节）
+- **本地三端在跑**：backend :3000（`backend-run32.log`，dist 含 Agnes 切换）+ FE :5173（fe-dev16）+ admin :5174（admin-dev20）
+
+---
+
+## 2026-10-21（主工程：全站生图/生视频切 Agnes 2.5 Flash + 配音接入星予 qwen-audio TTS + generate 页档位下拉/失败提醒 —— 编码全部完成、双端 tsc 全绿、本地 DB 已收敛；服务未起、测试未跑，明日接续）
+
+> 用户需求：全站生图模型换 `agnes-image-2.5-flash`、生视频换 `agnes-video-2.5-flash`；配音接入 qwen-audio TTS（星予）；generate 页加模型/强度切换下拉（1K 加「（推荐）」后缀）；生成失败要有页面提醒（报错提示栏 + 「模型生成失败，积分已退还，可以重新生成」+ 重新生成按钮 + 提示词保留在输入框）。完成后先在 generate 页做用户交互测试（所有页面都要换模型）。**七项拍板全部收齐**（见 10-21 前文记录：档位四档全开/视频仅免费 Flash 720P/DB 非 Agnes 图像视频行全删/音色加星予/文档 md+外链零凭据/阶梯扣费 1K=1·2K=2·3K=4·4K=8/星予设默认音色）。
+
+### ✅ 后端（6 文件，tsc EXIT=0，dist 已是最新）
+- **`ai-service.util.ts`（本日主体）**：① `ImageGenerationOptions` 加 `imageSize`；② Agnes 端点 `apihub.agnes-ai.com` → **`api.agnes-ai.cn`**（图像生成/视频创建/轮询/注释 ×4，中国区 key 在国际域 401）；③ `pickAgnesImageSize` 支持 `forcedSize` 直传 `1K/2K/3K/4K` 档位（白名单+mp 上限校验，3K 档 mp≤9.6）+ RATIOS 补 3:2/2:3；④ **图像 auto 链 Agnes 提首位**（primary，商汤降后备）；⑤ **视频 auto 链 Agnes 提首位**（保留 `activeVideoModels.some(provider==='agnes')` 守卫，通义万相第二跳）；⑥ **TTS 三件**：`cosyvoiceVoiceCatalog` 首位加星予 `{ id:'xingyu', name:'星予', style:'推荐', model:'qwen-audio-3.1-tts-flash', voiceId:'loongstella_v3.1' }`；新方法 `generateTTSWithQwenAudio`（DashScope `POST /api/v1/services/audio/tts/SpeechSynthesizer`、flash 系 `input.text`、format mp3、sample_rate 24000、响应 `output.audio.url` 下载落盘）；`generateTTS` 分支 = 显式选 xingyu 或**未指定音色** → 星予（失败降级 CosyVoice→OpenAI）；`mapCosyVoiceVoice` 对 qwen-audio 条目回退同性别默认声（防 loongstella 塞 CosyVoice 报 400）。
+- **`generate.service.ts`**：`textToImage`/`runTextToImage` dto 加 `image_size`（白名单 1K/2K/3K/4K，toUpper）+ 透传 `estimateCreditCost` 与 `generateImage({imageSize})`；`imageTierMultipliers = {1K:1,2K:2,3K:4,4K:8}` 接进图像扣费；`getCreditRules` 返回 `image_size_multipliers`；默认音色中文 `'nova'`→`'xingyu'` ×2（t2v/i2v 配音）；`getTTSVoices` map catalog（星予天然置顶带出）。
+- **`generate.controller.ts`**：t2i inline body 加 `image_size?: string`（retry 走 input_data 重解析，image_size 天然随 input_data 保留）。
+- **中文默认音色切星予**：`drama.service.ts` voiceMap `{zh:'xingyu'}`；`viral.service.ts` 中文分支 ×2；`video.processor.ts` 中文分支（`/[\u4e00-\u9fa5]/.test(ttsText) ? 'xingyu' : 'alloy'`）。
+
+### ✅ 前端（`Generate/index.tsx` 13 处，`tsc -b` EXIT=0）
+- **强度档位**：t2i 表单加「强度」Select（`1K（推荐）/2K/3K/4K`，initialValue 1K）；`imageSizeWatch = Form.useWatch('image_size')` → `estimateCost` image 分支 × `creditRules.image_size_multipliers` 实时估算。
+- **模型 Tag + 文档外链**：t2i `agnes-image-2.5-flash` + 链 `…/docs/agnes-image-25-flash`；t2v/i2v `agnes-video-2.5-flash` + 链 `…/docs/agnes-video-25-flash`（均 target=_blank，零凭据）。
+- **视频参数收敛**：`videoResolutions=['720p']`、`videoDurations=[5,10,12]`（Flash 仅 720P、seconds 4~12 防被夹多扣费）。
+- **音色**：`voiceOptions` 星予显示「星予（推荐）」、t2v 表单 `tts_voice` initialValue `'longxiaochun'`→`'xingyu'`。
+- **失败提醒**：failed 卡 Alert 改「模型生成失败 / 积分已退还，可以重新生成」+ error_msg 细字 + 按钮「重试」→**「重新生成」**（primary）+ 删除。
+- **提示词保留**：`doGenerate` 提交成功后 `resetFields` + `form.setFieldsValue({prompt: keptPrompt})`（失败/连发无需重打）。
+- **扣费规则文案**：图 1K 基础价 + 档位 ×2/×4/×8；视频仅 720P 行；限制说明改 5/10/12 秒 + Agnes 限免/拥堵自动重试降级。
+
+### ✅ 文档 + DB
+- **新建 `docs/agnes-models.md`**（零凭据）：两官方文档链接（用户要求放进项目）、图像端点/档位/比例/实测分辨率（1K=864×1152…4K=3456×4608）、视频 mode 必填/仅 720P/4~12s/images≤5、TTS 契约（flash 系 text 字段、loongstella_v3.1）、扣费阶梯、后端接入点速查。
+- **本地 DB 收敛**：`model_configs` 删 active 非 Agnes 行 image 76/77/93/94、video 72/73 → active 仅剩 `95 agnes-image-2.5-flash` + `96/97/98 agnes-video-2.5-flash`(t2v/i2v/r2v)，audio（openai-tts id17）未动，inactive 历史行保留。
+
+### 📋 状态与待办（下次接续）
+- [x] 后端 6 文件 + 前端 13 处编码 + docs/agnes-models.md + 本地 DB 清理（10-21，双端 tsc 全绿）
+- [x] **三端起服务 + API 冒烟 13/13 全绿**（run31.log）：credit-rules 阶梯 `{1K:1,2K:2,3K:4,4K:8}` / tts-voices 星予置顶 / 非法档位 8K→400 / **真实 t2i 1K（`image_size:'1k'` 小写归一）→ completed + /static/ 出图 >20KB + credit_cost=5** / 删任务 200。测试任务已清（含首轮崩溃残留 #100 + 历史遗留 #36/#27），admin credits 9969。
+- [x] **UI 层 Playwright 核验 22/22 全绿**（10-22，`Temp\opencode\ui-agnes.js` v2）：t2i 模型 Tag+文档外链 / 强度下拉存在且默认「1K（推荐）」+ 四档齐全 / 扣费规则档位文案 / t2v·i2v Tag+外链 / 分辨率下拉仅 720p / 时长选项恰 5/10/12 / 音色默认「星予（推荐）」/ 失败提示栏「模型生成失败」+「积分已退还，可以重新生成」+「重新生成」按钮 + error_msg 细节 / 提交后 prompt 保留 / 0 pageerror。（首轮 19+3 FAIL 全是脚本自身时序/选择器 bug：Tab 是原生 button 带 emoji 前缀、goto 后须 waitFor 挂载而非固定 sleep，已修）
+- [ ] **等用户交互验收**（generate 页先验收，所有页面均已换链）
+- [ ] **等用户部署指示**（与安全批次 A/B 代码部署 + Redis requirepass 激活合并部署；部署后生产库需同步：删 active 非 Agnes image/video 行、确认 agnes/tongyi key、`prod-verify.js` 18 条复测）
+- [ ] 本轮零 git 提交（含 10-13 批次 A/B/C 记录 + 本节；提交/push 需用户指示，push 走代理 7890）
+- **服务已全部停止（用户关机，10-21 收工）**：3000/5173/5174 端口已清；下次重启顺序 = 后端 `cmd /c "cd /d D:\AI-Anime-main\backend && node dist\src\main.js > <Temp>\opencode\backend-run32.log 2>&1"`（dist 已最新）+ FE/admin `npm.cmd run dev`
+
+---
+
+## 2026-10-13（安全修复批次 B 服务器加固 5 批 + C1 MySQL 轮换 —— 全部执行完毕，终检全绿）
+
+> 承接同日批次 A。用户拍板三批次全做；本节为**批次 B（服务器）+ C1（MySQL 轮换，C 批准先行项）**完成记录。改动依据 = 仓库外安全审查报告；所有改动均有服务器端备份可回滚。
+
+### ✅ 第 1 批（H2 文件权限 + M8 备份扩容）
+- H2：`find -perm -o+w` 202 → 35（余全为 `node_modules/.bin` symlink，已收口）；`.env`/`.env.local`=600、`.env.example`=644、tree 775。
+- M8：宝塔 cron `c0388aca819024eb3fd3cd2188c0fe68` backup.py `ALL 3`（只备 3 项）→ `ALL 30`（全量）；原配置备份 `/root/bt_cron_c0388.bak_sec`。
+
+### ✅ 第 2 批（nginx M3 限流 + L7 TLS/安全头）
+- 改动（`batch2-nginx.py` + `fix-auth-proxy.py`，备份 `/root/vhost-anime.bak_sec`、`/root/nginx.conf.bak_sec`）：
+  - **M3**：`limit_req_zone` aiapi 30r/s + authapi 10r/s（nginx.conf）；vhost `client_max_body_size 350m→310m` ×2（媒体 330M 不受影响）；`/api/` 内 `limit_req zone=aiapi burst=60 nodelay; limit_conn perip 50` ×2；**auth 独立 `location ^~ /api/auth/` + 完整 proxy 配置** ×2（首轮插的兄弟块缺 proxy_pass 致静态 404 → 修复脚本补全；嵌套 location 不继承父块 proxy 指令，兄弟块写全是确定性方案）。
+  - **L7**：`ssl_protocols TLSv1.2 TLSv1.3`、删 3DES 套件、HSTS 加 `includeSubDomains" always` + nosniff/SAMEORIGIN/Referrer-Policy 三头（server 级）。
+- 验证 `verify-nginx2.sh` **17/18 + 尾验 PASS**：TLS1.1/3DES 拒绝（s_client rc 判定）、TLS1.2/1.3 通过、200+404 双场景 4 头齐全、auth 突发 404→503 限流、api 突发 100×401+14×429+6×503（429=后端全局节流 100 次/分，503=nginx limit_req——双层限流都在工作）、auth 反代 401 正常、`.env` 拦截 000。唯一 FAIL 是测试自己把后端节流打满后单发拿到 429，等窗口过期复验 401 = 非问题。
+- ⚠️ 80 端口带 Host → 301 正常；`.well-known` 无文件时 301 是既有表现（宝塔 lua 查文件存在才直出，ACME 续签有文件即正常）；**`abc.leesystem.xyz` 站仍含 `ssl_protocols TLSv1.1`（nginx -T line 350）——本轮范围外未动，后续可顺手清理**。
+
+### ✅ 第 3 批（H4 sshd）
+- `/etc/ssh/sshd_config.d/99-no-password.conf`：`PermitRootLogin yes→prohibit-password` + 新增 `MaxAuthTries 3`（`PasswordAuthentication` 保持 yes，非 root 用户不受影响）；备份 `/root/sshd99.bak_sec`。
+- 链路：改 → `sshd -t` → 生效值核对 → `systemctl restart ssh` → 同会话生成临时 ed25519 测试键回环 `KEY_LOOP_OK` → 测试键清理；失败分支自动还原备份+重启。
+- ⚠️ 断言坑：**OpenSSH 把 `prohibit-password` 的生效值输出为 `without-password`（同义词）**，grep 写死原词会误判失败触发回滚——首轮即此（安全还原未 restart）。
+
+### ✅ 第 4 批（L17 ufw 清陈旧规则）
+- `batch4-ufw.py` 解析 `ufw status numbered` 现场行号**降序删除**（避开编号漂移），删 8 条：20/21/8888/3001 × v4+v6；带「合并规则安全闸」（若目标端口与保留端口同规则则跳过并 FAIL，防连带）。
+- 结果 `UFW_L17_PASS`：残留恰为保留清单 12 条（22/80/443/888/35823/39000:40000 × v4+v6）。
+- ⚠️ **与桌面凭据文件第 6 节第 5 条「FTP/phpMyAdmin 按要求保留」冲突——已按本次批准的 L17 方案删除并以新节为准**（vsftpd 未运行、安全组也没开 20/21，删除零功能影响；恢复命令已写进凭据文件）。
+
+### ✅ 第 5 批（C1 生产 MySQL 密码原子轮换）
+- `batch5-c1.sh`（`openssl rand -hex 16` 生成 32 位 hex 新密码）原子序：预检旧密码连通 → `ALTER USER CURRENT_USER IDENTIFIED BY` 自改（ai_anime 账号有自改权，不需要 root/skip-grant-tables）→ `cp .env /root/backend.env.bak_c1`（600）→ python 替换 `DB_PASSWORD` + 追加 `SUPER_ADMIN_EMAIL=1012453931@qq.com`（无则加）→ **新密码连通校验（失败 ALTER 回旧+还原 .env）** → `pm2 restart --update-env` → 冒烟（login 假凭据 401 + 日志零 `Access denied`，失败全回滚含反向 ALTER）。实测一把过：`C1_APPLIED`、pm2 online restarts=155、`.env` 600。
+- 新密码已追加桌面 `重要凭据记录.txt` 第七节（含回滚方法）；临时密码文件服务器 `shred` + 本地删除，零残留。
+- 密码变更不踢已建立连接（零停机）；`SUPER_ADMIN_EMAIL` 补上后 M9 的 2FA 收件人显式化。
+
+### 📋 终检（全绿）
+front=200 / admin=200 / api 未授权=401 / nginx -t 绿+active / sshd `without-password + maxauthtries 3`+active / ufw 陈旧=0 留存=12 / MySQL 新密码 `SELECT 1`=1 + SUPER_ADMIN_EMAIL=1 + `.env` 600 / pm2 online / fail2ban active。
+
+### 📋 状态与待办（下次接续）
+- [x] 批次 A 代码（见下节）+ 批次 B 服务器 5 批 + C1 MySQL 轮换，全部执行完毕
+- [x] **五项拍板已全部收齐（2026-10-13 用户答复，批次 C 收官）**：
+  - **M7 面板端口**：用户已在宝塔面板设置 **IP 白名单**（仅指定 IP 可访问面板）→ 保持现状，问题仅记录不处置；
+  - **M8 媒体异地备份**：暂不做（宝塔全量备份 ALL 30 已覆盖本机，异地等用户提供 OSS/网盘凭据再接）；
+  - **C2 仓库转 private**：用户后续自行操作（= 把 GitHub 仓库从公开改为私人仓库，止住历史泄露面）；
+  - **C3 DeepSeek 历史 key**：**已确认作废/不再使用**，无需轮换，风险关闭；
+  - **VideoNote/openclaw 同机进程**：暂不动（视为在用服务）。
+- [ ] Redis requirepass + `.env` REDIS_PASSWORD 激活 → 捆绑批次 A/B **代码部署**（新 dist + admin.service 密码修复，**用户答复「稍后另行指示」，等明确发话**）→ `prod-verify.js` 复测
+- [ ] `abc.leesystem.xyz` 的 TLS1.1 顺手清理（范围外遗留）
+- [ ] 封面 e2e 15 条：`VIDEO_E2E=1 node test-auto-cover.js`（视频链已通）
+
+---
+
 ## 2026-10-13（安全修复批次 A：代码类 14 项 + 连带修复全部落码 —— 专项 48/48 PASS + 回归全绿；B 服务器 / C 决策待执行）
 
 > 承接同日安全审查。用户拍板**三批次全做**；本节为批次 A（代码类）完成记录。完整报告（含各项漏洞细节与利用面）在仓库外：`C:\Users\Administrator\Desktop\服务器资料\安全审查报告-2026-10-12.md`，此处只记修复概要。

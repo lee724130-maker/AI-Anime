@@ -1398,7 +1398,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
               try {
                 const ttsText = [scene.name, description].filter(Boolean).join('，').slice(0, 200);
                 if (ttsText) {
-                  const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+                  const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'xingyu' : 'alloy';
                   const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
                   if (audioBuf && audioBuf.byteLength > 0) {
                     const ttsPath = path.join(workDir, `scene_${i}_tts.mp3`);
@@ -1699,7 +1699,7 @@ ${pageTitle ? `页面标题: "${pageTitle}"。根据页面标题判断视频内�
           try {
             const ttsText = [scene.name, description].filter(Boolean).join('，').slice(0, 200);
             if (ttsText) {
-              const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy';
+              const voice = /[\u4e00-\u9fa5]/.test(ttsText) ? 'xingyu' : 'alloy';
               const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
               if (audioBuf && audioBuf.byteLength > 0) {
                 const ttsPath = path.join(workDir, `scene_${sceneIndex}_tts.mp3`);

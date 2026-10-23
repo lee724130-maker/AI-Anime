@@ -19,6 +19,7 @@ export class GenerateController {
     model?: string;
     width?: number;
     height?: number;
+    image_size?: string;
   }) {
     return this.generateService.textToImage(req.user.id, body);
   }

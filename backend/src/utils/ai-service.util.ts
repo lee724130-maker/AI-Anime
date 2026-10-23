@@ -16,6 +16,8 @@ export interface ImageGenerationOptions {
   style?: string;
   numImages?: number;
   model?: string;
+  /** Agnes 图像尺寸档位（'1K' | '2K' | '3K' | '4K'），不传按 width/height 自动推档 */
+  imageSize?: string;
 }
 
 export interface VideoGenerationOptions {
@@ -339,10 +341,17 @@ export class AIServiceUtil {
       }
     }
 
-    // Auto mode fallback chain (priority: 百炼 → 火山 → OpenAI → 智谱)
+    // Auto mode fallback chain (priority: Agnes → 百炼 → 商汤 → 火山 → OpenAI → 智谱)
+    // 2026-10-21 全站生图模型切换：Agnes Image 2.5 Flash 提为首选（中国区端点 api.agnes-ai.cn，全档免费）
     const openaiKey = await this.getApiKey('openai_api_key');
     const volcKey = await this.getApiKey('volcengine_api_key');
 
+    const agnesImgKey = await this.getApiKey('agnes_api_key');
+    if (agnesImgKey) {
+      this.logger.log('Using Agnes Image 2.5 Flash for image generation (primary)');
+      try { return await this.generateImageWithAgnes(agnesImgKey, options); }
+      catch (err: any) { this.logger.warn(`Agnes image failed: ${err.message}`); }
+    }
     if (tongyiKey) {
       this.logger.log('Using 通义万相 for image generation');
       try { return await this.generateImageWithTongyi(tongyiKey, options); }
@@ -354,13 +363,6 @@ export class AIServiceUtil {
       this.logger.log('Using SenseNova (商汤) for image generation (fallback)');
       try { return await this.generateImageWithSenseNova(senseNovaKey, options); }
       catch (err: any) { this.logger.warn(`SenseNova failed: ${err.message}`); }
-    }
-    // 图像第 3 后备（2026-09-30 接入，Agnes 限免期）
-    const agnesImgKey = await this.getApiKey('agnes_api_key');
-    if (agnesImgKey) {
-      this.logger.log('Using Agnes Image for image generation (fallback)');
-      try { return await this.generateImageWithAgnes(agnesImgKey, options); }
-      catch (err: any) { this.logger.warn(`Agnes image failed: ${err.message}`); }
     }
     if (volcKey) {
       this.logger.log('Using 火山引擎 Seedream for image generation');
@@ -792,13 +794,15 @@ export class AIServiceUtil {
     throw lastError || new Error('All SenseNova image models unavailable');
   }
 
-  /** 请求尺寸 → Agnes 图像尺寸档（1K/2K/4K）+ 最近比例（1:1/16:9/9:16/4:3/3:4/21:9） */
-  private pickAgnesImageSize(width?: number, height?: number): { size: string; ratio: string } {
+  /** 请求尺寸 → Agnes 图像尺寸档（1K/2K/3K/4K）+ 最近比例（1:1/16:9/9:16/4:3/3:4/3:2/2:3/21:9）
+   *  forcedSize（前端「强度」下拉直传 1K/2K/3K/4K）优先于按像素推档 */
+  private pickAgnesImageSize(width?: number, height?: number, forcedSize?: string): { size: string; ratio: string } {
     const w = width || 1280, h = height || 720;
     const mp = (w * h) / 1_000_000;
-    const size = mp <= 1.3 ? '1K' : mp <= 4.2 ? '2K' : '4K';
+    const auto = mp <= 1.3 ? '1K' : mp <= 4.2 ? '2K' : mp <= 9.6 ? '3K' : '4K';
+    const size = ['1K', '2K', '3K', '4K'].includes(forcedSize || '') ? (forcedSize as string) : auto;
     const target = w / h;
-    const RATIOS: Array<[string, number]> = [['1:1', 1], ['16:9', 16 / 9], ['9:16', 9 / 16], ['4:3', 4 / 3], ['3:4', 3 / 4], ['21:9', 21 / 9]];
+    const RATIOS: Array<[string, number]> = [['1:1', 1], ['16:9', 16 / 9], ['9:16', 9 / 16], ['4:3', 4 / 3], ['3:4', 3 / 4], ['3:2', 3 / 2], ['2:3', 2 / 3], ['21:9', 21 / 9]];
     let best = '16:9', diff = Infinity;
     for (const [name, r] of RATIOS) {
       const d = Math.abs(r - target);
@@ -809,7 +813,7 @@ export class AIServiceUtil {
 
   /**
    * Agnes Image 文生图后备（2026-09-30 探针 2/2 实测通过，限免期 $0）：
-   * POST https://apihub.agnes-ai.com/v1/images/generations（OpenAI 兼容，返回 data[0].url）
+   * POST https://api.agnes-ai.cn/v1/images/generations（OpenAI 兼容，返回 data[0].url）
    * ⚠️ size 是档位 '1K'/'2K'/'4K'（不是像素串）+ ratio 比例参数；n 按张拆分；
    *    响应含 revised_prompt（自动扩写不可关——与 SenseNova 不同，风格漂移需靠提示词本身约束）。
    */
@@ -819,7 +823,7 @@ export class AIServiceUtil {
   ): Promise<string[]> {
     const requested = options.model && options.model.startsWith('agnes-image') ? [options.model] : [];
     const models = requested.length ? requested : ['agnes-image-2.5-flash', 'agnes-image-2.1-flash', 'agnes-image-2.0-flash'];
-    const { size, ratio } = this.pickAgnesImageSize(options.width, options.height);
+    const { size, ratio } = this.pickAgnesImageSize(options.width, options.height, options.imageSize);
     const count = Math.max(1, options.numImages || 1);
 
     let lastError: any;
@@ -828,7 +832,7 @@ export class AIServiceUtil {
       for (let i = 0; i < count; i++) {
         try {
           const res = await axios.post(
-            'https://apihub.agnes-ai.com/v1/images/generations',
+            'https://api.agnes-ai.cn/v1/images/generations',
             {
               model,
               prompt: options.prompt,
@@ -880,6 +884,8 @@ export class AIServiceUtil {
     }
 
     // If a specific model is requested, route by model prefix and use exclusively
+    // 2026-10-23 错峰重试保底：显式 agnes 走完整轮创建预算后，auto 二跳不得再打一遍 Agnes（防 10 次预算翻倍成 20 次）
+    let agnesExplicitTried = false;
     if (options.model) {
       this.logger.log(`Using requested model: ${options.model}`);
       try {
@@ -905,6 +911,7 @@ export class AIServiceUtil {
         }
       } catch (err: any) {
         this.logger.warn(`Requested model ${options.model} failed: ${err.message}. Falling back to auto mode.`);
+        if (options.model && options.model.startsWith('agnes-')) agnesExplicitTried = true;
         delete options.model; // clear specific model so auto mode uses full priority chain
       }
       // Requested model failed — fall through to auto mode
@@ -944,24 +951,26 @@ export class AIServiceUtil {
       } else { this.logger.warn('Runway Key 未配置'); }
     }
 
-    // Auto mode (default priority chain: 百炼 → 火山 → Runway → 智谱)
+    // Auto mode (default priority chain: Agnes → 百炼 → 火山 → Runway → 智谱)
+    // 2026-10-21 全站生视频模型切换：Agnes Video 2.5 Flash 提为首选（中国区端点 api.agnes-ai.cn，现价 ¥0/秒）
     const tongyiKey = await this.getApiKey('tongyi_api_key');
     const zhipuKey = await this.getApiKey('zai_api_key');
     const volcKey = await this.getApiKey('volcengine_api_key');
     const runwayKey = await this.getApiKey('runway_api_key');
     const activeVideoModels = await this.getActiveModels('video');
 
+    const agnesKey = await this.getApiKey('agnes_api_key');
+    if (agnesKey && agnesExplicitTried && activeVideoModels.some((m: any) => m.provider === 'agnes')) {
+      this.logger.log('Agnes 显式路径已用完整轮创建预算，auto 二跳跳过 Agnes 直接尝试后备链');
+    } else if (agnesKey && activeVideoModels.some((m: any) => m.provider === 'agnes')) {
+      this.logger.log('Using Agnes Video 2.5 Flash for video generation (primary)');
+      try { return await this.generateVideoWithAgnes(agnesKey, options, textPrompt, onProgress); }
+      catch (err: any) { this.logger.error(`Agnes video failed: ${err.message}`); }
+    }
     if (tongyiKey && !this.isProviderOnCooldown('aliyun')) {
       this.logger.log('Using 通义万相 for video generation');
       try { return await this.generateVideoWithTongyi(tongyiKey, options, textPrompt); }
       catch (err: any) { this.logger.error(`通义万相 failed: ${err.message}`); }
-    }
-    // 阿里云视频额度用尽/停用后的后备（2026-09-30 接入，Agnes Video 2.5 Flash 限免期）
-    const agnesKey = await this.getApiKey('agnes_api_key');
-    if (agnesKey && activeVideoModels.some((m: any) => m.provider === 'agnes')) {
-      this.logger.log('Using Agnes Video 2.5 Flash for video generation (fallback)');
-      try { return await this.generateVideoWithAgnes(agnesKey, options, textPrompt, onProgress); }
-      catch (err: any) { this.logger.error(`Agnes video failed: ${err.message}`); }
     }
     if (volcKey && !this.isProviderOnCooldown('volcengine') && activeVideoModels.some((m: any) => m.provider === 'volcengine')) {
       this.logger.log('Using 火山引擎 Seedance for video generation');
@@ -1070,11 +1079,13 @@ export class AIServiceUtil {
     }
 
     // 创建任务（503 队列满 / 429 限流 → 退避重试）
+    // 2026-10-23 需求：一次点击最多 10 次创建尝试、成功即停（间隔 45~65s 含抖动，总窗口 ≈8 分钟，扛过限免队列拥堵波段）
+    const MAX_CREATE_ATTEMPTS = 10;
     let created: any = null;
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt++) {
       try {
         const res = await axios.post(
-          'https://apihub.agnes-ai.com/v1/videos',
+          'https://api.agnes-ai.cn/v1/videos',
           body,
           { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 30000 },
         );
@@ -1083,29 +1094,31 @@ export class AIServiceUtil {
       } catch (err: any) {
         const status = err.response?.status;
         const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
-        if ((status === 503 || status === 429) && attempt < 4) {
-          // 实测（2026-09-30 长探针）：免费档创建限流 ≈2 次/分钟（25s 间隔必撞每 3 次 429）→ 固定 45s 退避
-          const wait = 45;
-          this.logger.warn(`Agnes video create ${status} (attempt ${attempt}): ${msg} → ${wait}s 后重试`);
+        if ((status === 503 || status === 429) && attempt < MAX_CREATE_ATTEMPTS) {
+          // 实测（2026-09-30 长探针）：免费档创建限流 ≈2 次/分钟（25s 间隔必撞每 3 次 429）→ 45s 基准退避；
+          // +0~20s 抖动防多任务同秒互撞 429（2026-10-23 三单并发探针：同秒创建 1 成 2 败）
+          const wait = 45 + Math.floor(Math.random() * 21);
+          onProgress?.(Math.min(4, attempt)); // 创建重试期给前端可见进度（1→4，创建成功后 5 起步）
+          this.logger.warn(`Agnes video create ${status} (attempt ${attempt}/${MAX_CREATE_ATTEMPTS}): ${msg} → ${wait}s 后重试`);
           await this.delay(wait * 1000);
           continue;
         }
         throw new Error(`Agnes video 创建失败(HTTP ${status}): ${msg}`);
       }
     }
-    if (!created) throw new Error('Agnes video 创建失败：队列持续拥堵');
+    if (!created) throw new Error(`Agnes video 创建失败：队列持续拥堵（${MAX_CREATE_ATTEMPTS} 次尝试用尽）`);
     const vid = created.video_id || created.id;
     if (!vid) throw new Error(`Agnes video 创建响应缺少 video_id: ${JSON.stringify(created).slice(0, 200)}`);
     this.logger.log(`Agnes video task created: ${vid} mode=${body.mode} ${seconds}s ${body.aspect_ratio}`);
 
-    // 轮询（6s 间隔，最多 10 分钟；免费档限流 ≈2 次/分钟 → 429 单独退避 20s）
+    // 轮询（6s 间隔，最多 20 分钟；12s 长片远端渲染可超 10 分钟——#116 实测教训；免费档限流 ≈2 次/分钟 → 429 单独退避 20s）
     onProgress?.(5);
     const t0 = Date.now();
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 200; i++) {
       await this.delay(6000);
       let pj: any = null;
       try {
-        const pr = await axios.get('https://apihub.agnes-ai.com/agnesapi', {
+        const pr = await axios.get('https://api.agnes-ai.cn/agnesapi', {
           params: { video_id: vid, model_name: model },
           headers: { Authorization: `Bearer ${apiKey}` },
           timeout: 30000,
@@ -1134,7 +1147,7 @@ export class AIServiceUtil {
       }
     }
     this.logModelUsage(model, prompt, false, 'poll timeout');
-    throw new Error('Agnes video 轮询超时（10 分钟）');
+    throw new Error('Agnes video 轮询超时（20 分钟）');
   }
 
   /** Generate video using 通义万相 (Aliyun Bailian) — async task-based API */
@@ -2050,9 +2063,24 @@ export class AIServiceUtil {
 
   /** Generate TTS audio */
   async generateTTS(options: TTSOptions): Promise<ArrayBuffer> {
-    // 1. 阿里云百炼 CosyVoice（主链，2026-08-12 接入，额度 10,000 次/模型）
+    // 1. 阿里云百炼（tongyi key 通用）
     const tongyiKey = await this.getApiKey('tongyi_api_key');
     if (tongyiKey) {
+      // 1a. 星予 qwen-audio TTS（2026-10-21 接入并设为默认音色）：
+      //   显式选中 xingyu，或完全未指定音色 → 走 qwen-audio（失败回退 CosyVoice）
+      const resolved = this.resolveCosyVoice(options.voice);
+      const qwenVoice = (resolved.model || '').startsWith('qwen-audio')
+        ? resolved.voiceId || 'loongstella_v3.1'
+        : (!options.voice ? 'loongstella_v3.1' : undefined);
+      if (qwenVoice) {
+        try {
+          return await this.generateTTSWithQwenAudio(tongyiKey, options, qwenVoice);
+        } catch (err: any) {
+          this.logger.warn(`Qwen Audio TTS failed, falling back to CosyVoice: ${err.message}`);
+        }
+      }
+
+      // 1b. CosyVoice（2026-08-12 接入，额度 10,000 次/模型）
       try {
         return await this.generateTTSWithCosyVoice(tongyiKey, options);
       } catch (err: any) {
@@ -2073,6 +2101,49 @@ export class AIServiceUtil {
     return new ArrayBuffer(0);
   }
 
+  /** 星予 TTS（qwen-audio-3.1-tts-flash，2026-10-21 接入）
+   *  端点同为 DashScope SpeechSynthesizer；flash 系 input 用 text（tts-next 才是 text_prompt）
+   *  契约依据：桌面「剪辑应用/pipeline/tools/tts_dashscope.cjs」实测 + 统一模型管线方案.md 2.3 */
+  private async generateTTSWithQwenAudio(
+    apiKey: string,
+    options: TTSOptions,
+    voiceId: string,
+  ): Promise<ArrayBuffer> {
+    const model = 'qwen-audio-3.1-tts-flash';
+    const input: Record<string, any> = {
+      format: 'mp3',
+      sample_rate: 24000,
+      voice: voiceId,
+      text: (options.text || '').slice(0, 2000),
+    };
+    if (options.speed && Math.abs(options.speed - 1) > 0.01) input.rate = options.speed;
+    this.logger.log(`Qwen Audio TTS: model=${model} voice=${voiceId} text=${(options.text || '').slice(0, 50)}...`);
+
+    try {
+      const res = await axios.post(
+        'https://dashscope.aliyuncs.com/api/v1/services/audio/tts/SpeechSynthesizer',
+        { model, input },
+        {
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          timeout: 120000,
+        },
+      );
+      const audioUrl = res.data.output?.audio?.url;
+      if (!audioUrl) {
+        this.logger.error(`Qwen Audio TTS response: ${JSON.stringify(res.data).slice(0, 300)}`);
+        throw new Error('No audio URL returned from Qwen Audio TTS');
+      }
+      const audioRes = await axios.get(audioUrl, { responseType: 'arraybuffer', timeout: 60000 });
+      const buf = audioRes.data as ArrayBuffer;
+      this.logger.log(`Qwen Audio TTS ready: ${buf.byteLength} bytes`);
+      return buf;
+    } catch (err: any) {
+      const body = err.response?.data?.error?.message || err.response?.data?.message || err.message || '';
+      this.logger.warn(`Qwen Audio TTS failed: [${err.response?.status}] ${body}`);
+      throw err;
+    }
+  }
+
   /** CosyVoice 模型降级链（额度确认见 模型与额度统计.md / 三个短板改造方案.md）
    *  注：cosyvoice-v1 不支持 HTTP 调用（仅 WebSocket），cosyvoice-v3.5-* 无系统音色（仅复刻/设计），均不列入 */
   private readonly cosyvoiceModels: Array<{ model: string; voices: Record<string, string> }> = [
@@ -2087,6 +2158,8 @@ export class AIServiceUtil {
     id: string; name: string; gender: 'male' | 'female'; style: string;
     model: string; voiceId: string;
   }> = [
+    // 星予（2026-10-21 拍板：默认音色，qwen-audio TTS；契约见 docs/agnes-models.md）
+    { id: 'xingyu', name: '星予', gender: 'female', style: '推荐', model: 'qwen-audio-3.1-tts-flash', voiceId: 'loongstella_v3.1' },
     { id: 'longxiaochun', name: '温柔女声', gender: 'female', style: '温柔知性', model: 'cosyvoice-v2', voiceId: 'longxiaochun_v2' },
     { id: 'longwan', name: '知性女声', gender: 'female', style: '成熟知性', model: 'cosyvoice-v2', voiceId: 'longwan_v2' },
     { id: 'longfei', name: '阳光男声', gender: 'male', style: '阳光活力', model: 'cosyvoice-v2', voiceId: 'longfei_v2' },
@@ -2112,7 +2185,13 @@ export class AIServiceUtil {
     if (!voice) return modelVoices.male;
     const lower = voice.toLowerCase();
     const hit = this.cosyvoiceVoiceCatalog.find((v) => v.id === lower);
-    if (hit) return hit.voiceId;
+    if (hit) {
+      // qwen-audio（星予）音色不适用于 CosyVoice：回退该音色性别的默认男女声
+      if (hit.model.startsWith('qwen-audio')) {
+        return hit.gender === 'female' ? modelVoices.female : modelVoices.male;
+      }
+      return hit.voiceId;
+    }
     // nova 是 OpenAI 女声，映射到温柔女声；其余（alloy/onyx/echo 等）用沉稳男声
     if (lower === 'nova' || lower === 'shimmer' || lower === 'fable') {
       return modelVoices.female;

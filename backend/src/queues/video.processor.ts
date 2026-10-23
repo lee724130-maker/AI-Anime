@@ -180,7 +180,7 @@ export class VideoProcessor {
       try {
         const audioData = await this.aiService.generateTTS({
           text: ttsText,
-          voice: 'alloy',
+          voice: /[\u4e00-\u9fa5]/.test(ttsText) ? 'xingyu' : 'alloy',
           speed: 1.0,
         });
         if (audioData && audioData.byteLength > 0) {

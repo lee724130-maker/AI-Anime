@@ -68,6 +68,38 @@ export class GenerateService {
     }
   }
 
+  /**
+   * 生成配音字幕（SRT）：按标点切句，按字符占比把 TTS 音频时长分给各句（与 video.processor 同款逻辑）。
+   * 任何失败返回 undefined——字幕是增强项，绝不能拖垮配音主链。
+   */
+  private async buildVoiceSubtitles(ttsText: string, audioPath: string, taskId: number): Promise<string | undefined> {
+    try {
+      const duration = audioPath ? await this.ffmpeg.getAudioDuration(audioPath) : 5;
+      const sentences = ttsText
+        .split(/[。！？；.!?;]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (sentences.length === 0) sentences.push(ttsText);
+      const totalChars = sentences.reduce((sum, s) => sum + s.length, 0);
+      let currentTime = 0;
+      const segments = sentences.map((text) => {
+        const charRatio = totalChars > 0 ? text.length / totalChars : 1 / sentences.length;
+        const segDuration = Math.max(duration * charRatio, 1.5);
+        const start = currentTime;
+        currentTime += segDuration;
+        const end = Math.min(currentTime, duration);
+        return { start, end, text };
+      });
+      if (segments.length > 0) segments[segments.length - 1].end = duration;
+      const subPath = this.ffmpeg.createSubtitleFile(segments);
+      this.logger.log(`任务 ${taskId} 字幕已生成：${segments.length} 句 / 音频 ${duration.toFixed(1)}s`);
+      return subPath;
+    } catch (subErr: any) {
+      this.logger.warn(`任务 ${taskId} 字幕生成失败，跳过字幕烧录: ${subErr.message}`);
+      return undefined;
+    }
+  }
+
   /** 更新任务进度（单调递增 + 内存对象与 DB 同步，避免 save 覆盖旧值） */
   private async updateProgress(task: any, progress: number) {
     if (progress <= (task.progress || 0)) return;
@@ -75,11 +107,38 @@ export class GenerateService {
     await this.taskRepo.update(task.id, { progress });
   }
 
-  /** 图：5 分/张；视频：480p=10/720p=20/1080p=40 × ceil(时长/5) */
+  /**
+   * 终态写入（completed/failed）：必须用 UPDATE 而非 save()。
+   * TypeORM save() 对「执行期间被用户删除的行」会 upsert 复活（2026-10-23 冒烟实测：
+   * 删掉 processing 任务后，480s 完成时 save 把行写回 completed，任务在历史里复活）。
+   * UPDATE 对不存在的行 affected=0、绝不重建；affected=0 时顺手清掉执行期间新建的
+   * 悬挂 media_files 行（其文件不再被引用，走 30 天孤儿清理）。
+   */
+  private async finalizeTask(task: GenerationTask): Promise<boolean> {
+    const res = await this.taskRepo.update(task.id, {
+      status: task.status,
+      output_data: task.output_data,
+      error_msg: task.error_msg ?? null,
+      credits_charged: task.credits_charged,
+      completed_at: task.completed_at ?? null,
+    });
+    if (!res.affected) {
+      await this.mediaRepo.delete({ task_id: task.id });
+      this.logger.log(`任务 ${task.id} 已在执行期间被删除，跳过终态写入（不复活行）并清理悬挂 media_files`);
+      return false;
+    }
+    return true;
+  }
+
+  /** Agnes 图像档位阶梯倍数（2026-10-21 拍板：1K=基础 / 2K=2倍 / 3K=4倍 / 4K=8倍） */
+  private readonly imageTierMultipliers: Record<string, number> = { '1K': 1, '2K': 2, '3K': 4, '4K': 8 };
+
+  /** 图：5 分/张 × 档位倍数；视频：480p=10/720p=20/1080p=40 × ceil(时长/5) */
   private async estimateCreditCost(dto: any): Promise<number> {
     if (dto.type === 'image') {
       const per = await this.creditsService.getConfigInt('credit_cost_image', 5);
-      return per * (dto.num_images || 1);
+      const tierMult = this.imageTierMultipliers[String(dto.image_size || '1K').toUpperCase()] ?? 1;
+      return per * tierMult * (dto.num_images || 1);
     }
     const res = dto.resolution || '720p';
     const defaults: Record<string, number> = { '480p': 10, '720p': 20, '1080p': 40 };
@@ -98,6 +157,7 @@ export class GenerateService {
     ]);
     return {
       image_per_image: image,
+      image_size_multipliers: { ...this.imageTierMultipliers },
       video_480p_per_5s: r480,
       video_720p_per_5s: r720,
       video_1080p_per_5s: r1080,
@@ -113,9 +173,19 @@ export class GenerateService {
     model?: string;
     width?: number;
     height?: number;
+    image_size?: string;
   }) {
     const { prompt, model } = dto;
     if (!prompt) throw new BadRequestException('请输入描述');
+
+    // Agnes 图像档位白名单（2026-10-21 拍板：1K/2K/3K/4K，缺省 1K）
+    if (dto.image_size !== undefined) {
+      const allowed = ['1K', '2K', '3K', '4K'];
+      dto.image_size = String(dto.image_size).toUpperCase();
+      if (!allowed.includes(dto.image_size)) {
+        throw new BadRequestException(`图像强度仅支持 ${allowed.join(' / ')}`);
+      }
+    }
 
     let modelName = '';
     if (model) {
@@ -125,7 +195,7 @@ export class GenerateService {
       modelName = match.model_name;
     }
 
-    const creditCost = await this.estimateCreditCost({ type: 'image', num_images: dto.num_images });
+    const creditCost = await this.estimateCreditCost({ type: 'image', num_images: dto.num_images, image_size: dto.image_size });
     const charged = await this.creditsService.charge(userId, creditCost);
     if (!charged) {
       throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
@@ -154,6 +224,7 @@ export class GenerateService {
     model?: string;
     width?: number;
     height?: number;
+    image_size?: string;
   }) {
     const task = await this.taskRepo.findOne({ where: { id: taskId } });
     if (!task) return;
@@ -230,6 +301,7 @@ export class GenerateService {
           width: dto.width || 1080,
           height: dto.height || 1920,
           model: dto.model || undefined,
+          imageSize: dto.image_size || undefined,
         });
         for (const url of urls) {
           const localUrl = await this.downloadToLocal(url, `img_${task.id}_${view.label}`);
@@ -251,7 +323,7 @@ export class GenerateService {
       task.credits_charged = true;
       task.completed_at = new Date();
       await this.updateProgress(task, 100);
-      await this.taskRepo.save(task);
+      await this.finalizeTask(task);
       this.logger.log(`任务 ${task.id} 文生图完成`);
     } catch (err: any) {
       task.status = 'failed';
@@ -261,7 +333,7 @@ export class GenerateService {
         await this.creditsService.refund(task.user_id, task.credit_cost, `gen_t2i_${task.id}`);
         task.credits_charged = true;
       }
-      await this.taskRepo.save(task);
+      await this.finalizeTask(task);
       this.logger.warn(`任务 ${task.id} 文生图失败，已${task.credit_cost > 0 ? '退款' : '处理'}: ${err.message}`);
     }
   }
@@ -351,7 +423,7 @@ export class GenerateService {
         try {
           const ttsText = (dto.voiceover_text || prompt || '').slice(0, 500);
           if (ttsText) {
-            const voice = dto.tts_voice || (/[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy');
+            const voice = dto.tts_voice || (/[\u4e00-\u9fa5]/.test(ttsText) ? 'xingyu' : 'alloy');
             const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
             if (audioBuf && audioBuf.byteLength > 0) {
               const outputDir = path.resolve(process.cwd(), 'output');
@@ -360,13 +432,15 @@ export class GenerateService {
               const localAbs = localUrl.startsWith('/static/')
                 ? path.join(outputDir, path.basename(localUrl))
                 : localUrl;
+              const subPath = await this.buildVoiceSubtitles(ttsText, ttsPath, task.id);
               const voicedPath = await this.ffmpeg.compositeVideoWithAudio(
                 localAbs, ttsPath, duration || 5,
                 path.join(outputDir, `vid_${task.id}_voiced_${Date.now()}.mp4`),
+                subPath,
               );
               if (voicedPath && fs.existsSync(voicedPath)) {
                 localUrl = `/static/${path.basename(voicedPath)}`;
-                this.logger.log(`任务 ${task.id} 文生视频配音完成`);
+                this.logger.log(`任务 ${task.id} 文生视频配音完成${subPath ? ' + 字幕烧录' : ''}`);
               }
             }
           }
@@ -389,7 +463,7 @@ export class GenerateService {
       task.credits_charged = true;
       task.completed_at = new Date();
       await this.updateProgress(task, 100);
-      await this.taskRepo.save(task);
+      await this.finalizeTask(task);
       this.logger.log(`任务 ${task.id} 文生视频完成`);
       // C：异步自动生成封面（不阻塞任务收尾，失败静默降级）
       void this.generateAutoCover(task.id, {
@@ -406,7 +480,7 @@ export class GenerateService {
         await this.creditsService.refund(task.user_id, task.credit_cost, `gen_t2v_${task.id}`);
         task.credits_charged = true;
       }
-      await this.taskRepo.save(task);
+      await this.finalizeTask(task);
       this.logger.warn(`任务 ${task.id} 文生视频失败，已${task.credit_cost > 0 ? '退款' : '处理'}: ${err.message}`);
     }
   }
@@ -504,7 +578,7 @@ export class GenerateService {
         try {
           const ttsText = (dto.voiceover_text || prompt || '').slice(0, 500);
           if (ttsText) {
-            const voice = dto.tts_voice || (/[\u4e00-\u9fa5]/.test(ttsText) ? 'nova' : 'alloy');
+            const voice = dto.tts_voice || (/[\u4e00-\u9fa5]/.test(ttsText) ? 'xingyu' : 'alloy');
             const audioBuf = await this.aiService.generateTTS({ text: ttsText, voice, speed: 1.0 });
             if (audioBuf && audioBuf.byteLength > 0) {
               const outputDir = path.resolve(process.cwd(), 'output');
@@ -513,13 +587,15 @@ export class GenerateService {
               const localAbs = localUrl.startsWith('/static/')
                 ? path.join(outputDir, path.basename(localUrl))
                 : localUrl;
+              const subPath = await this.buildVoiceSubtitles(ttsText, ttsPath, task.id);
               const voicedPath = await this.ffmpeg.compositeVideoWithAudio(
                 localAbs, ttsPath, duration || 5,
                 path.join(outputDir, `i2v_${task.id}_voiced_${Date.now()}.mp4`),
+                subPath,
               );
               if (voicedPath && fs.existsSync(voicedPath)) {
                 localUrl = `/static/${path.basename(voicedPath)}`;
-                this.logger.log(`任务 ${task.id} 图生视频配音完成`);
+                this.logger.log(`任务 ${task.id} 图生视频配音完成${subPath ? ' + 字幕烧录' : ''}`);
               }
             }
           }
@@ -542,7 +618,7 @@ export class GenerateService {
       task.credits_charged = true;
       task.completed_at = new Date();
       await this.updateProgress(task, 100);
-      await this.taskRepo.save(task);
+      await this.finalizeTask(task);
       this.logger.log(`任务 ${task.id} 图生视频完成`);
       // C：异步自动生成封面（不阻塞任务收尾，失败静默降级）
       void this.generateAutoCover(task.id, {
@@ -559,7 +635,7 @@ export class GenerateService {
         await this.creditsService.refund(task.user_id, task.credit_cost, `gen_i2v_${task.id}`);
         task.credits_charged = true;
       }
-      await this.taskRepo.save(task);
+      await this.finalizeTask(task);
       this.logger.warn(`任务 ${task.id} 图生视频失败，已${task.credit_cost > 0 ? '退款' : '处理'}: ${err.message}`);
     }
   }
@@ -915,7 +991,12 @@ ${this.styleInstruction(style)}
       const localUrl = await this.downloadToLocal(remote, `cover_${taskId}`);
       if (!localUrl.startsWith('/static/')) { this.logger.warn(`任务 ${taskId} 封面下载失败，保留占位: ${localUrl}`); return; }
       task.cover_url = localUrl;
-      await this.taskRepo.save(task);
+      // 同款防复活：任务行若在封面生成期间被删，UPDATE affected=0（save 会 upsert 复活行）
+      const upd = await this.taskRepo.update(taskId, { cover_url: localUrl });
+      if (!upd.affected) {
+        this.logger.log(`任务 ${taskId} 封面生成期间被删除，丢弃封面 ${localUrl}（文件走 30 天孤儿清理）`);
+        return;
+      }
       this.logger.log(`任务 ${taskId} 自动封面完成: ${localUrl}`);
     } catch (err: any) {
       this.logger.warn(`任务 ${taskId} 自动封面失败（忽略，不影响视频）: ${err.message}`);

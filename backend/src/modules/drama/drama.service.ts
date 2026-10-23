@@ -1178,7 +1178,7 @@ export class DramaService {
               }
             }
             if (!audioPath || !fs.existsSync(audioPath)) {
-              const voiceMap: Record<string, string> = { zh: 'nova', en: 'alloy', ja: 'nova' };
+              const voiceMap: Record<string, string> = { zh: 'xingyu', en: 'alloy', ja: 'nova' };
               const voice = (episode as any).tts_voice || voiceMap[audioLang] || 'alloy';
               const audioBuf = await this.aiService.generateTTS({
                 text: ttsText.slice(0, 500),
