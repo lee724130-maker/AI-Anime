@@ -1,5 +1,35 @@
 # 修复日志
 
+## 2026-10-26（收尾轮：生产配音冒烟 18/18 全绿关单 + durations 放开 4~12 全档上线 + 口型同步定案 —— FE-only 部署验证通过）
+
+> 承接 10-23 收官轮遗留两拍板项 + 改日冒烟。三件全落地。
+
+### ✅ ① 生产配音冒烟 18/18 全绿（10-23 改日复跑项，关闭）
+- 任务 38（t2v + voiceover + xingyu）：Agnes 623s completed（**无拥堵一次创建成功**，10 次重试闸没触发）→ `vid_38_voiced_*.mp4` 1,547,346B、video+aac、5s 精确 → 字幕抽帧底部亮像素 **7531**（无声基线 16）→ **provider 行 + `[MODEL_USAGE] model=agnes-video-2.5-flash success=true` 双断言过** → input_data 三配音字段持久化 → 积分 100→90 不退 → 清理零残留（任务/临时用户/Redis 全清）。
+- **Linux 生产无冒号路径 → subtitles 双反斜杠转义天然免疫**（10-23 担心的 Windows 专属坑在生产不存在）。
+- 脚本留档：`Temp\opencode\prod-voice-smoke.js` + `cleanup-smoke.sh`（bash 清理脚本变量用 `USER_ID` 非 `UID`）。
+
+### ✅ ② durations 放开 4~12 全档（用户拍板「放开成 4~12 全选」）+ 生产部署
+- **改动仅 1 文件** `frontend/src/pages/Generate/index.tsx`：`videoDurations [5,10,12]` → `[4,5,6,7,8,9,10,11,12]`（t2v/i2v 两表单共用同数组）；扣费规则文案「可选 5/10/12 秒」→「可选 4~12 秒任意整数」；旧注释同步。后端**零改动**（无时长白名单，计费 `ceil(duration/5)×单价`，Agnes 侧超界自夹 4~12）。
+- **本地 UI 核验 7/7**（`Temp\opencode\test-duration-opts.js`，Playwright）：t2v/i2v 下拉各 = `[4..12]` 9 档 / 新文案在旧文案消失 / 0 pageerror。⚠️ 下拉定位必须 `:visible`——隐藏 Tab 的表单留在 DOM，不带 `:visible` 会点到隐藏实例超时。
+- **生产 FE-only 部署**：`npm run build` → `Generate-B4R_jukI.js` + `index-DL-pyhf9.js` → 打包 frontend.zip + `deploy-fe-dur.sh` scp → 执行踩老坑（**`set -e` + unzip backslash warning 返 1 直接断脚本**——本次连双保险 `|| unzip` 都救不回：第二次 unzip 同样 warning 返 1 → `||` 链整体 1 → set -e 退）→ **但解压实际成功**（现场核：91 assets、新 index hash 与本地一致）→ 补 `verify-fe-dur.sh` 收尾：`GEN=Generate-B4R_jukI.js / 新文案=1 / 旧文案=0 / FRONT=200 / WORKS=401`，pm2 online（2D uptime 未动，FE-only 本就不该重启后端）；zip+脚本服务器端已清。
+- ⚠️ **部署脚本血泪（新）**：FE-only 脚本别在 unzip 步骤放 `set -e`（或 unzip 后直接 `|| true`）——backslash warning 是必现噪音，靠它返回码断链是第 N 次踩；**「脚本 exit 1 ≠ 部署失败」，现场 `ls + grep hash` 才是判据**。
+- ⚠️ SSH 远程命令再踩引号双坑：`$(...)` 会被 **PS 本地展开**（curl 变 Invoke-WebRequest 报错）、`||` 在双引号串里被 PS 解析器拒——**远程带 `$()`/`||`/中文的命令一律 .sh scp**（老铁律本轮又验两次）。
+
+### ✅ ③ 口型同步定案（用户拍板）：维持现状
+- **决定：配音环节保持「TTS 旁白 + 烧录字幕」，不做生成时口型**；已向用户解释清楚「后处理 lip-sync 独立线」= 成片后加一整个工序（wav2lip/LatentSync 开源模型要 GPU，或商用 API 按分钟计费 + 流程改造 + 正脸检测降级），**留作未来独立评估线**——等真实用户反馈「必须开口说话」再立项选型。
+- 8888 安全组规则：用户自行核查（若有其他绑定不删；完全空挂才关），服务器端零操作结论不变。
+
+### 📋 状态与待办（接续）
+- [x] 生产配音冒烟 18/18（本节①）/ durations 4~12 放开+上线（②）/ 口型同步定案维持现状（③）
+- [x] **本轮 AGENTS.md 记录 + 前端 durations 改动的 git 提交**（2026-10-26 用户指示提交推送，同轮完成；新增 `docs/current-version.md` 版本功能与工作流程全景文档）
+- [ ] 阿里云控制台手动复扫 + 安全组 8888 规则核查（用户自行）
+- [ ] Redis requirepass 激活 → 另批发话
+- [ ] VoiceStudio 暂停中（等用户）；《体面》E2-E6 等用户
+- **本地三端在跑**：backend :3000（run38.log，SMTP 新码）+ FE :5173 + admin :5174；admin credits ~9894（测试币）
+
+---
+
 ## 2026-10-23（深夜收官轮：git 保底 `99673e6` + 三端生产部署 + 生产库 key/模型收敛 + prod-verify 实质 18/18 —— 今日全部上线生产）
 
 > 用户拍板「GitHub 提交，生产环境也更新吧」→ 全链执行完毕；配音冒烟跑在途时用户指示「不急着测，安全掐掉」→ 掐断+零残留清理后收工。

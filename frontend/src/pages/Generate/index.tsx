@@ -402,10 +402,11 @@ export default function GeneratePage() {
     });
   };
 
-  // Agnes Video 2.5 Flash（2026-10-21）：仅支持 720P；seconds 4~12 → 可选 5/10/12 秒
+  // Agnes Video 2.5 Flash（2026-10-21）：仅支持 720P；seconds 4~12
   const videoResolutions = ['720p'];
   const videoRatios = ['9:16', '16:9', '1:1', '4:3', '3:4', '21:9'];
-  const videoDurations: number[] = [5, 10, 12];
+  // Agnes 官方 seconds 支持 4~12 任意整数（2026-10-26 用户拍板放开全档）
+  const videoDurations: number[] = [4, 5, 6, 7, 8, 9, 10, 11, 12];
 
   const uploadProps = {
     name: 'file',
@@ -970,7 +971,7 @@ export default function GeneratePage() {
                   <div style={{ marginTop: 4, padding: '8px 10px', background: 'rgba(250,173,20,0.08)', borderRadius: 6, border: '1px solid rgba(250,173,20,0.2)' }}>
                     <Text style={{ color: 'var(--warning, #d48806)', fontSize: 12, fontWeight: 600 }}>⚠️ 生成限制说明</Text>
                     <ul style={{ margin: '4px 0 0 0', paddingLeft: 16, color: 'var(--text-secondary)', fontSize: 11, lineHeight: 1.8 }}>
-                      <li><b>时长</b>：可选 5/10/12 秒（Agnes Video 2.5 Flash 支持 4~12 秒），超出范围会被自动收敛</li>
+                      <li><b>时长</b>：可选 4~12 秒任意整数（Agnes Video 2.5 Flash 官方支持范围），超出范围会被自动收敛</li>
                       <li><b>宽高比</b>：可选 9:16（竖屏）/ 16:9（横屏）等，由 Agnes Video 2.5 Flash 支持的比例范围内生成</li>
                       <li><b>免费额度</b>：当前图像/视频模型为限免，若遇队列拥堵或限流会自动重试或降级到备选模型</li>
                     </ul>
