@@ -20,13 +20,23 @@
 - **决定：配音环节保持「TTS 旁白 + 烧录字幕」，不做生成时口型**；已向用户解释清楚「后处理 lip-sync 独立线」= 成片后加一整个工序（wav2lip/LatentSync 开源模型要 GPU，或商用 API 按分钟计费 + 流程改造 + 正脸检测降级），**留作未来独立评估线**——等真实用户反馈「必须开口说话」再立项选型。
 - 8888 安全组规则：用户自行核查（若有其他绑定不删；完全空挂才关），服务器端零操作结论不变。
 
+### ✅ ④ 深夜追加：Redis requirepass 激活（生产 + 本地，安全批次收官项）
+- **用户拍板**：密码用其常用密码（明文只在 4 个 env + redis conf + 桌面凭据文件第八节，不进 git/md/日志）。
+- **前置探查（关键一步）**：`INFO clients` + `lsof :6379` 实锤同机 **VideoNote 项目（extract-api/extract-worker 两 pm2 进程）共用此 Redis**——直接加密码会拦掉它。所幸 VideoNote 代码天然支持（`queue.js: password: process.env.REDIS_PASSWORD || ''`）且 `.env` 已有该键（空值）→ 填值即无缝。
+- **生产执行**（`redis-apply-pass.sh`，用后即删）：`/etc/redis/redis.conf` 末尾追加 `requirepass`（备份 `.bak_reqpass`）→ ai-anime `.env`+`.env.local` 两份（**.env.local 优先老坑遵守**）+ VideoNote `.env` 三处补值、chmod 600 → `systemctl restart redis` → pm2 restart 三进程。
+- **验证全绿**：裸连 `NOAUTH` 拒绝 / 带密码 `PONG` / ai-anime BullMQ 3 条 `cmd=subscribe` 存活 / `[AIServiceUtil] [quota] Redis connected` / VideoNote `bull:video-parser:*` 键可读写 / front=200 / extract 两进程 error log 干净。
+- ⚠️ **NOAUTH 2 次是「重启窗口期旧进程遗言」不是故障**：Redis 先加密码、旧进程几秒后才被 pm2 杀掉，窗口内旧进程 BullMQ 重连无密码报 NOAUTH×2（新旧进程共写同一 pm2 log）——**判据 = 新进程起来后 error log mtime 是否再前进**（本轮 18:48:59 后 3.5 分钟零新增 = 稳定）。
+- **本地同款**：⚠️ Windows MSI 服务读的是 **`redis.windows-service.conf`**（服务参数 `--service-run` 指定，不是 `redis.windows.conf`）——改错文件重启白改；`Restart-Service Redis` 后裸连 NOAUTH / 带密码 PONG 双验过；`backend/.env` line16 `REDIS_PASSWORD=` 空值替换（`.env.local` 无 REDIS 行不覆盖，无需动）；后端重启 run39.log → `Nest started` + `Redis connected` 零 error。
+- **本地业务级零发信验证 5/6**（注入验证码→注册→清理）：带密码客户端 SET ✓ / register 201+token（后端读 Redis 校验码）✓ / **code consumed（后端 verify 成功 DEL 键 = 后端写 Redis）**✓；唯一 FAIL `reg_ip 键不存在` = **断言预期错非故障**——`checkRegisterLimit` 对 127.0.0.1 豁免不写键（10-08 既有设计）。
+- **后续注意**：历史测试脚本里 `require('redis')` 注入验证码的写法要带 password（从 `.env` 读或 `redis://:pw@127.0.0.1:6379/0` URL 形式）；回滚 = 删 requirepass 行重启 Redis + 删各 env 的 REDIS_PASSWORD 行重启服务（备份 `.bak_reqpass` 四处齐全）。
+
 ### 📋 状态与待办（接续）
-- [x] 生产配音冒烟 18/18（本节①）/ durations 4~12 放开+上线（②）/ 口型同步定案维持现状（③）
+- [x] 生产配音冒烟 18/18（本节①）/ durations 4~12 放开+上线（②）/ 口型同步定案维持现状（③）/ **Redis requirepass 激活生产+本地（④）**
 - [x] **本轮 AGENTS.md 记录 + 前端 durations 改动的 git 提交**（2026-10-26 用户指示提交推送，同轮完成；新增 `docs/current-version.md` 版本功能与工作流程全景文档）
+- [x] 本节④的 AGENTS.md 记录 git 提交（`a5ced07` 已推）
 - [ ] 阿里云控制台手动复扫 + 安全组 8888 规则核查（用户自行）
-- [ ] Redis requirepass 激活 → 另批发话
 - [ ] VoiceStudio 暂停中（等用户）；《体面》E2-E6 等用户
-- **本地三端在跑**：backend :3000（run38.log，SMTP 新码）+ FE :5173 + admin :5174；admin credits ~9894（测试币）
+- **本地三端在跑**：backend :3000（run39.log，Redis 已带密码）+ FE :5173 + admin :5174；admin credits ~9894（测试币）
 
 ---
 
