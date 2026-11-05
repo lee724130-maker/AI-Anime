@@ -1,11 +1,11 @@
-﻿import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+﻿import { Injectable, BadRequestException, Logger, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository, InjectEntityManager } from '@nestjs/typeorm';
-import { Repository, EntityManager } from 'typeorm';
-import { AIServiceUtil } from '../../utils/ai-service.util';
+import { Repository, EntityManager, In } from 'typeorm';
+import { AIServiceUtil, AGNES_IMAGE_MODELS, AGNES_IMAGE_RATIOS } from '../../utils/ai-service.util';
 import { FFmpegUtil } from '../../utils/ffmpeg.util';
 import { ModelConfigService } from '../admin/model-config.service';
 import { CreditsService } from '../credits/credits.service';
-import { downloadToFile } from '../../common/utils/safe-download.util';
+import { downloadToFile, resolveSafeStaticPath, assertSafeRemoteUrl } from '../../common/utils/safe-download.util';
 import { MediaFile } from '../media/media-file.entity';
 import { GenerationTask } from '../task/generation-task.entity';
 import { User } from '../user/user.entity';
@@ -16,14 +16,31 @@ import { promisify } from 'util';
 import axios from 'axios';
 const execFileAsync = promisify(execFile);
 
+/** 图片生图片参考图上限（官方体验价下第 4 张起也免费；文档未写张数硬上限，与前端 MAX_LIBRARY_ASSETS 对齐） */
+const I2I_MAX_IMAGES = 9;
+
 @Injectable()
-export class GenerateService {
+export class GenerateService implements OnModuleDestroy {
   private readonly logger = new Logger(GenerateService.name);
 
   /** 后台生成任务并发上限（system_configs: max_concurrent_generations 可配置），超出部分排队等待 */
   private maxConcurrent = 3;
   private active = 0;
   private pending: Array<() => void> = [];
+
+  /**
+   * 执行体心跳：/generate 是进程内队列、任务不落 Bull，所以「进程没了」这件事在 DB 里
+   * 根本看不出来——行会永远停在 processing（积分已预扣、既不完成也不退款）。
+   * 执行期间每 20s 刷一次 heartbeat_at，给 TaskRecoveryService 当存活探针：
+   * 心跳新鲜 = 真有执行体在跑；心跳停摆 = 孤儿，可安全判失败退款。
+   *
+   * value 里带 refs 计数，是因为「对仍在 processing 的任务点重试」是允许的
+   * （retryGeneration 会对同一个 taskId 再 enqueue 一次）——一行可能挂着两个执行体。
+   * 若只存单个定时器，后注册的覆盖前者、先结束的那个又把后者的定时器掐掉，
+   * 还在跑的任务就失去探针、90s 后被误判成孤儿。计数归零才真正停表。
+   */
+  private readonly heartbeats = new Map<number, { timer: ReturnType<typeof setInterval>; refs: number }>();
+  private static readonly HEARTBEAT_MS = 20_000;
 
   constructor(
     private readonly aiService: AIServiceUtil,
@@ -45,13 +62,49 @@ export class GenerateService {
     }).catch(() => undefined);
   }
 
-  /** 任务入队：超过并发上限的排队等待，空闲时自动调度 */
-  private enqueue<T>(fn: () => Promise<T>): Promise<T> {
+  /** 停机时清掉所有心跳定时器（任务终态由下次启动的自愈统一收口，不在此处写库） */
+  onModuleDestroy() {
+    for (const [, hb] of this.heartbeats) clearInterval(hb.timer);
+    this.heartbeats.clear();
+  }
+
+  /** 起心跳，返回停止函数；taskId 为空（不经队列的调用）时不注册 */
+  private startHeartbeat(taskId?: number): () => void {
+    if (!taskId) return () => undefined;
+    const existing = this.heartbeats.get(taskId);
+    if (existing) {
+      existing.refs += 1;
+      return () => this.releaseHeartbeat(taskId);
+    }
+    const touch = () => {
+      this.taskRepo.update(taskId, { heartbeat_at: new Date() }).catch(() => undefined);
+    };
+    touch();
+    this.heartbeats.set(taskId, { timer: setInterval(touch, GenerateService.HEARTBEAT_MS), refs: 1 });
+    return () => this.releaseHeartbeat(taskId);
+  }
+
+  /** 引用计数归零才真正停表（同一行的多个执行体共享一个心跳定时器） */
+  private releaseHeartbeat(taskId: number) {
+    const hb = this.heartbeats.get(taskId);
+    if (!hb) return;
+    hb.refs -= 1;
+    if (hb.refs > 0) return;
+    clearInterval(hb.timer);
+    this.heartbeats.delete(taskId);
+  }
+
+  /** 任务入队：超过并发上限的排队等待，空闲时自动调度。taskId 用于执行期间刷心跳 */
+  private enqueue<T>(fn: () => Promise<T>, taskId?: number): Promise<T> {
     return new Promise<T>((resolve, reject) => {
+      // 入队即起心跳：任务一落库就是 processing，排队中的任务若没有心跳，
+      // 会被 TaskRecoveryService 误判成孤儿并退款掉（并发上限 3 时排队几分钟是常态）。
+      const stopHeartbeat = this.startHeartbeat(taskId);
       const job = () => {
         this.active++;
         this.logger.log(`[gen-queue] 开始执行 active=${this.active} pending=${this.pending.length}`);
         fn().then(resolve, reject).finally(() => {
+          stopHeartbeat();
           this.active--;
           this.drain();
         });
@@ -113,18 +166,25 @@ export class GenerateService {
    * 删掉 processing 任务后，480s 完成时 save 把行写回 completed，任务在历史里复活）。
    * UPDATE 对不存在的行 affected=0、绝不重建；affected=0 时顺手清掉执行期间新建的
    * 悬挂 media_files 行（其文件不再被引用，走 30 天孤儿清理）。
+   *
+   * 2026-10-29 追加 WHERE status 条件：进程重启遗留的孤儿任务已由 TaskRecoveryService
+   * 判失败并退款，若那个「其实还活着」的慢执行体后来才完成，不能把行覆盖回 completed
+   * ——否则用户既拿到退款又拿到成片（双花）。affected=0 时同样按悬挂文件清理。
    */
   private async finalizeTask(task: GenerationTask): Promise<boolean> {
-    const res = await this.taskRepo.update(task.id, {
-      status: task.status,
-      output_data: task.output_data,
-      error_msg: task.error_msg ?? null,
-      credits_charged: task.credits_charged,
-      completed_at: task.completed_at ?? null,
-    });
+    const res = await this.taskRepo.update(
+      { id: task.id, status: In(['processing', 'pending']) },
+      {
+        status: task.status,
+        output_data: task.output_data,
+        error_msg: task.error_msg ?? null,
+        credits_charged: task.credits_charged,
+        completed_at: task.completed_at ?? null,
+      },
+    );
     if (!res.affected) {
       await this.mediaRepo.delete({ task_id: task.id });
-      this.logger.log(`任务 ${task.id} 已在执行期间被删除，跳过终态写入（不复活行）并清理悬挂 media_files`);
+      this.logger.log(`任务 ${task.id} 终态写入被跳过（行已被用户删除，或已被孤儿回收结清），不覆盖既有终态并清理悬挂 media_files`);
       return false;
     }
     return true;
@@ -166,6 +226,162 @@ export class GenerateService {
     };
   }
 
+  // ─── 图片生图片（2026-11-05 按 docs/图片生图片-实施方案 实现）───────────────
+
+  /** 参考图统一转 Data URI Base64。
+   *  Agnes 图生图只接受公网 HTTPS URL 或 Data URI；项目上传/资产库返回的是本地 /static/*。
+   *  /static/* → resolveSafeStaticPath 安全解析；http(s) → 防 SSRF 校验后下载临时文件。
+   *  统一用 ffmpeg 压到 1024px 宽 / ~100KB JPEG，避免 base64 请求体过大。 */
+  private async prepareReferenceImages(urls: string[], taskId: number): Promise<string[]> {
+    const outputDir = path.resolve(process.cwd(), 'output');
+    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
+    const ffmpegBin = path.resolve(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe');
+    const out: string[] = [];
+    const temps: string[] = [];
+    try {
+      for (let i = 0; i < urls.length; i++) {
+        const raw = String(urls[i] || '').trim();
+        let src: string | null = null;
+        if (!/^https?:\/\//i.test(raw)) {
+          src = resolveSafeStaticPath(raw);
+          if (!src || !fs.existsSync(src)) {
+            throw new BadRequestException(`第 ${i + 1} 张参考图无法读取（路径不合法或文件不存在）`);
+          }
+        } else {
+          // 二期公网 URL 输入的后端通路：一期仅用于资产库里存外链的情况
+          await assertSafeRemoteUrl(raw);
+          const tmp = path.join(outputDir, `i2i_src_${taskId}_${i}_${Date.now()}.img`);
+          await downloadToFile(raw, tmp, { maxBytes: 20 * 1024 * 1024, timeoutMs: 30000 });
+          src = tmp;
+          temps.push(tmp);
+        }
+        const jpg = path.join(outputDir, `i2i_ref_${taskId}_${i}_${Date.now()}.jpg`);
+        temps.push(jpg);
+        await execFileAsync(ffmpegBin,
+          ['-y', '-v', 'quiet', '-i', src, '-vf', 'scale=1024:-2', '-q:v', '5', '-frames:v', '1', jpg],
+          { timeout: 60000 });
+        if (!fs.existsSync(jpg) || fs.statSync(jpg).size === 0) {
+          throw new Error(`第 ${i + 1} 张参考图压缩失败`);
+        }
+        out.push(`data:image/jpeg;base64,${fs.readFileSync(jpg).toString('base64')}`);
+      }
+      const total = out.reduce((s, x) => s + x.length, 0);
+      if (total > 12 * 1024 * 1024) {
+        throw new BadRequestException('参考图总大小超出限制，请减少张数或使用更小的图片');
+      }
+      return out;
+    } finally {
+      for (const f of temps) {
+        try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch { /* ignore */ }
+      }
+    }
+  }
+
+  async imageToImage(userId: number, dto: {
+    images: string[];
+    prompt: string;
+    model?: string;
+    image_size?: string;
+    ratio?: string;
+  }) {
+    const { images, prompt, model } = dto;
+    if (!prompt?.trim()) throw new BadRequestException('请输入图片描述');
+    if (!Array.isArray(images) || images.length === 0) throw new BadRequestException('请提供至少一张参考图片');
+    if (images.length > I2I_MAX_IMAGES) throw new BadRequestException(`最多支持 ${I2I_MAX_IMAGES} 张参考图片`);
+    if (model && !AGNES_IMAGE_MODELS.includes(model as any)) {
+      throw new BadRequestException('仅支持 Agnes Image 2.1 / 2.5 Flash');
+    }
+    const imageSize = dto.image_size ? String(dto.image_size).toUpperCase() : '1K';
+    if (!['1K', '2K', '3K', '4K'].includes(imageSize)) {
+      throw new BadRequestException('图像强度仅支持 1K / 2K / 3K / 4K');
+    }
+    const ratio = dto.ratio || '3:4';
+    if (!AGNES_IMAGE_RATIOS.includes(ratio as any)) {
+      throw new BadRequestException(`比例仅支持 ${AGNES_IMAGE_RATIOS.join(' / ')}`);
+    }
+
+    const normalized = { ...dto, image_size: imageSize, ratio };
+    const creditCost = await this.estimateCreditCost({ type: 'image', num_images: 1, image_size: imageSize });
+    const charged = await this.creditsService.charge(userId, creditCost);
+    if (!charged) {
+      throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
+    }
+
+    const task = await this.taskRepo.save({
+      user_id: userId,
+      type: 'image',
+      source: 'image_to_image',
+      status: 'processing',
+      model_name: model || AGNES_IMAGE_MODELS[0],
+      credit_cost: creditCost,
+      input_data: JSON.stringify(normalized),
+    });
+
+    void this.enqueue(() => this.runImageToImage(userId, task.id, normalized), task.id).catch((err: any) => {
+      this.logger.error(`[后台] 图片生图片任务 ${task.id} 异常: ${err.message}`);
+    });
+    return { taskId: task.id, status: 'processing' };
+  }
+
+  private async runImageToImage(userId: number, taskId: number, dto: {
+    images: string[];
+    prompt: string;
+    model?: string;
+    image_size?: string;
+    ratio?: string;
+  }) {
+    const task = await this.taskRepo.findOne({ where: { id: taskId } });
+    if (!task) return;
+    try {
+      await this.updateProgress(task, 10);
+      const refs = await this.prepareReferenceImages(dto.images, taskId);
+      await this.updateProgress(task, 30);
+
+      const urls = await this.aiService.generateImage({
+        prompt: dto.prompt,
+        model: dto.model || undefined,
+        numImages: 1,
+        imageSize: dto.image_size || '1K',
+        ratio: dto.ratio || '3:4',
+        referenceImages: refs,
+        style: undefined, // 关键：不让画风前缀污染参考图，见方案 §2.2
+      });
+      await this.updateProgress(task, 70);
+
+      const results: any[] = [];
+      for (const url of urls) {
+        const localUrl = await this.downloadToLocal(url, `i2i_${task.id}`);
+        const file = await this.mediaRepo.save({
+          user_id: userId,
+          task_id: task.id,
+          type: 'image',
+          url: localUrl,
+          original_name: path.basename(localUrl),
+          mime_type: 'image/png',
+        });
+        results.push({ id: file.id, url: localUrl, view: '结果' });
+      }
+
+      task.status = 'completed';
+      task.output_data = JSON.stringify(results);
+      task.credits_charged = true;
+      task.completed_at = new Date();
+      await this.updateProgress(task, 100);
+      await this.finalizeTask(task);
+      this.logger.log(`任务 ${task.id} 图片生图片完成`);
+    } catch (err: any) {
+      task.status = 'failed';
+      task.error_msg = err.message;
+      task.completed_at = new Date();
+      if (task.credit_cost > 0 && !task.credits_charged) {
+        await this.creditsService.refund(task.user_id, task.credit_cost, `gen_i2i_${task.id}`);
+        task.credits_charged = true;
+      }
+      await this.finalizeTask(task);
+      this.logger.warn(`任务 ${task.id} 图片生图片失败，已退款: ${err.message}`);
+    }
+  }
+
   async textToImage(userId: number, dto: {
     prompt: string;
     style?: string;
@@ -187,13 +403,12 @@ export class GenerateService {
       }
     }
 
-    let modelName = '';
-    if (model) {
-      const models = await this.modelConfigService.findActive('image');
-      const match = models.find((m: any) => m.model_id === model);
-      if (!match) throw new BadRequestException(`模型 ${model} 不存在或未启用`);
-      modelName = match.model_name;
+    // 2026-11-05：全站生图只允许 Agnes Image 2.0 / 2.1 / 2.5 Flash
+    if (model && !AGNES_IMAGE_MODELS.includes(model as any)) {
+      throw new BadRequestException('仅支持 Agnes Image 2.0 / 2.1 / 2.5 Flash');
     }
+    // 未指定时记录实际使用的默认模型，避免历史任务里 model_name 为空
+    const modelName = model || AGNES_IMAGE_MODELS[0];
 
     const creditCost = await this.estimateCreditCost({ type: 'image', num_images: dto.num_images, image_size: dto.image_size });
     const charged = await this.creditsService.charge(userId, creditCost);
@@ -210,7 +425,7 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
-    void this.enqueue(() => this.runTextToImage(userId, task.id, dto)).catch((err: any) => {
+    void this.enqueue(() => this.runTextToImage(userId, task.id, dto), task.id).catch((err: any) => {
       this.logger.error(`[后台] 文生图任务 ${task.id} 异常: ${err.message}`);
     });
 
@@ -376,7 +591,7 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
-    void this.enqueue(() => this.runTextToVideo(userId, task.id, dto)).catch((err: any) => {
+    void this.enqueue(() => this.runTextToVideo(userId, task.id, dto), task.id).catch((err: any) => {
       this.logger.error(`[后台] 文生视频任务 ${task.id} 异常: ${err.message}`);
     });
 
@@ -526,7 +741,7 @@ export class GenerateService {
       input_data: JSON.stringify(dto),
     });
 
-    void this.enqueue(() => this.runImageToVideo(userId, task.id, dto)).catch((err: any) => {
+    void this.enqueue(() => this.runImageToVideo(userId, task.id, dto), task.id).catch((err: any) => {
       this.logger.error(`[后台] 图生视频任务 ${task.id} 异常: ${err.message}`);
     });
 
@@ -689,16 +904,16 @@ export class GenerateService {
     await this.taskRepo.save(task);
 
     if (task.type === 'image') {
-      void this.enqueue(() => this.runTextToImage(userId, task.id, input)).catch((err: any) => {
+      void this.enqueue(() => this.runTextToImage(userId, task.id, input), task.id).catch((err: any) => {
         this.logger.error(`[后台] 重试文生图任务 ${task.id} 异常: ${err.message}`);
       });
     } else if (task.type === 'video') {
       if (input.image_url) {
-        void this.enqueue(() => this.runImageToVideo(userId, task.id, input)).catch((err: any) => {
+        void this.enqueue(() => this.runImageToVideo(userId, task.id, input), task.id).catch((err: any) => {
           this.logger.error(`[后台] 重试图生视频任务 ${task.id} 异常: ${err.message}`);
         });
       } else {
-        void this.enqueue(() => this.runTextToVideo(userId, task.id, input)).catch((err: any) => {
+        void this.enqueue(() => this.runTextToVideo(userId, task.id, input), task.id).catch((err: any) => {
           this.logger.error(`[后台] 重试文生视频任务 ${task.id} 异常: ${err.message}`);
         });
       }
@@ -708,7 +923,7 @@ export class GenerateService {
     return { taskId: task.id, status: 'processing' };
   }
 
-  async smartDescribe(userId: number, dto: { images: string[] }) {
+  async smartDescribe(userId: number, dto: { images: string[]; mode?: 'video' | 'i2i' }) {
     const { images } = dto;
     if (!images || images.length === 0) {
       throw new BadRequestException('请提供至少一张图片');
@@ -718,7 +933,7 @@ export class GenerateService {
     }
 
     try {
-      const description = await this.aiService.generateSmartDescription(images);
+      const description = await this.aiService.generateSmartDescription(images, dto.mode || 'video');
       return { description };
     } catch (err: any) {
       throw new BadRequestException(`智能描述生成失败: ${err.message}`);

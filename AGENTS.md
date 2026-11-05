@@ -1,5 +1,58 @@
 # 修复日志
 
+## 2026-10-29（P0 第一批：孤儿任务自愈 + synchronize 开关 + 日志轮转 + 定时任务托管 —— 本地改完待测，未提交）
+
+> 起因：用户要求先通读全项目文档并列出后续开发工作。文档体检结论——`docs/roadmap.md`(停在 07-15)、`docs/dev-checklist.md`(10-08)、`docs/READMEs/`(09-22，只写 6 个后端模块，实际 21 个) **全部严重滞后于代码**，唯一真相是 `docs/current-version.md`。两条反直觉发现：① 支付宝支付其实早已端到端实现（`modules/payment/payment.service.ts` 用 alipay-sdk 下单 + `checkNotifySignV2` 验签 + 主动查单，`order.service.ts` 原子入账，前端 `pages/Order` 轮询已接通），只是被 `system_configs.recharge_enabled='0'` 关掉——roadmap 里「真实支付 2~4 天」实际只剩开闸 + 商户资质 + 生产回调对账。② 下文①号漏洞。
+
+### 🔴 ① 新发现并已修复：/generate 不走队列，进程重启即丢任务（文档从未记录）
+- **根因**：主力生成页 `modules/generate/generate.service.ts` 是 `void this.enqueue(...)` 的**进程内 promise 信号量**（并发上限 `max_concurrent_generations`=3），全后端只有 `video.service`/`drama.service` 有 `InjectQueue`。`generation_tasks` 表也只有 generate 在写（其余是读）。除 `order.service.ts` 外**没有任何启动自愈钩子**。
+- **后果**：每次 `pm2 restart`/部署/崩溃，内存队列蒸发，DB 行永远停在 `processing`——积分已预扣、页面一直转圈、既不完成也不退款。**10-23 与 10-26 两次部署正好都会踩**。
+- **修法**（处置选「失败+退款」而非自动续跑，前端零改动：`Generate/index.tsx:854` 的 failed 卡片本就渲染「积分已退还 + 重新生成」）：
+  - `generation-task.entity.ts` 加 `heartbeat_at` (datetime null) + `@Index('IDX_gen_task_heartbeat',['status','heartbeat_at'])`——索引名与迁移一致，防止开着 synchronize 的环境把这个「它不认识的索引」当多余对象处理。
+  - `GenerateService.enqueue(fn, taskId)` **入队那一刻**就起 20s 心跳（不是开始执行才起：并发 3 时排队几分钟是常态，只在执行起表会把排队任务误杀）。心跳带 **refs 引用计数**：`retryGeneration` 允许对仍在 processing 的任务再 enqueue 一次，同一行两个执行体共用一个定时器，归零才 `clearInterval`。
+  - 新增 `modules/generate/task-recovery.service.ts`：`onApplicationBootstrap` 扫一轮 + `@Interval(90s)` 周期扫；孤儿 = 心跳停摆 >90s（或心跳为 null 且 created_at 停摆 >90s）；先按 `status IN('processing','pending')` **原子抢占**写 failed（`affected=0` 一律不再动钱），再对 `credits_charged=false && credit_cost>0` 的行按同款 key `gen_{t2i|t2v|i2v}_{id}` 退款。抢占条件里**不能**带 `credits_charged=false`，否则「已结清却卡死」的脏行永远收不掉。退款失败打 `[CREDIT-DEBT]`（可 grep，第二批告警挂这个键）。
+  - **顺手堵双花**：`finalizeTask` 的终态 UPDATE 追加 `WHERE status IN ('processing','pending')`——被回收判失败的任务，慢执行体后来才完成也不能把行覆盖回 completed（否则用户既拿退款又拿成片）。affected=0 分支原有的「清悬挂 media_files」保留。
+  - `main.ts` 加 `app.enableShutdownHooks()`；关机路径**不做**任务结清（来不及且易写半截），留给下次启动自愈。
+
+### 🔧 ② synchronize 从硬编码改为 env 开关 + 迁移体系
+- `app.module.ts` 两个分支的 `synchronize: true` → `DB_SYNCHRONIZE`（**默认取 '1'，本地开发手感零变化**）；接上 `migrations` 目录（`path.join(__dirname,'migrations','*.{ts,js}')`，编译后落 `dist/src/migrations/` 实测可用）+ `DB_MIGRATIONS_RUN` 开关 + `migrationsTableName='typeorm_migrations'`；顺手把重复两遍的 29 个实体数组上提成常量。
+- 新增 `src/data-source.ts`（仅 CLI 用，强制 `synchronize:false`——否则 `migration:generate` 把差异算成 0 生成空迁移）。⚠️ **不要再加 `export default`**：TypeORM CLI 要求数据源文件有且仅有一个 DataSource 导出，具名+default 双导出直接报 `must contain only one export of DataSource instance`。
+- `src/migrations/1793261717250-BaselineSchema.ts`：对空库 `migration:generate` 产出后**脚本改造成幂等**——29 张表全加 `IF NOT EXISTS`，逐条只吞 `ER_TABLE_EXISTS_ERROR/ER_DUP_KEYNAME/ER_DUP_INDEX(NAME)/ER_DUP_FIELDNAME/ER_CANT_DROP_FIELD_OR_KEY/ER_FK_DUP_NAME`，其余照抛；`down()` 改为抛异常（反向执行等于清空整库）。**为什么必须幂等**：老库里 29 张表早就存在，谁把 `DB_MIGRATIONS_RUN` 误开成 1，裸 CREATE TABLE 会让应用在启动阶段报错 → pm2 崩溃循环。
+- `src/migrations/1793261717251-AddGenerationTaskHeartbeat.ts`：baseline 的 `IF NOT EXISTS` 对已存在的 `generation_tasks` 是 no-op、**不会补列**，所以补列必须单独一条迁移（非 MySQL 方言直接 return，本地 sqlite 仍走 synchronize）。
+- `package.json` 加 `migration:generate / run / show / revert`（走 `typeorm-ts-node-commonjs -d src/data-source.ts`）。
+
+### 📦 ③ 日志轮转（原来是假的）+ 备份脚本
+- ⚠️ **`winston.transports.File({ maxsize, maxFiles })` 这两个参数 File transport 根本不认**（按大小/份数轮转在 `winston-daily-rotate-file` 包里）——所以日志一直在无限增长，本地 `combined.log` 已 1.5MB，生产是 1.6G 小机器，写满即全站故障。改为 DailyRotateFile：按天切 + 20MB + 保留 14 天，`logFormat` 抽出来给 Console 与文件复用，**输出格式与前缀保持不变**（既有 grep 习惯和验证脚本不受影响）。旧的 `combined.log`/`error.log` 不会被新代码接管，留着或删由用户决定。
+- 新增 `scripts/backup-mysql.sh`：mysqldump `--single-transaction --routines --triggers --events` + gzip，写完**双重校验**（`gzip -t` + dump 尾部必须有 `Dump completed`——「写了但写坏」比没写更危险）；`-h` 走 TCP（生产 socket 必 1045 老规矩）；`ENV_FILE` 读取按 `.env.local → .env` 优先级与后端一致；保留策略默认**只报告不删除**，自动清理要显式 `PURGE_OLD=1`（不可逆动作不替用户做主）。crontab 示例写在脚本头。
+
+### ⏱ ④ 四处裸 setInterval → @nestjs/schedule + Redis 分布式锁
+- 新增 `common/services/distributed-lock.service.ts` + `@Global CommonModule`：`SET NX EX` + Lua 校验 token 释放，外加**同进程重叠保护**（`@Interval` 不等 async handler 完成）。语义三条：抢不到锁=本轮跳过（这些任务都幂等，跳过比等待正确）；**Redis 不可用降级为照常执行**（绝不让定时任务因 Redis 抖动停摆）；锁 TTL 必须小于周期否则挡死下一轮。
+- `cleanup.service.ts`（6h，TTL 3h；构造器里的同步 `run()` 挪到 `@Timeout(30s)`——原来会在应用没起完、TypeORM 还在建表/跑迁移时就抢 DB）、`order.service.ts`（60s，TTL 50s；`cancelExpiredOrders` 本身已原子，锁只是省重复扫描）、`ai-service.util.ts`（`startQuotaMonitor` 裸定时器 → `@Timeout(10s)`+`@Interval(300s)`，TTL 240s；`quotaCheckInterval` 字段删除）→ 三个都过锁。`auth.service.ts` 内存验证码清理 → `@Interval(300s)` **故意不过锁**（清的是本进程 Map，每个实例都得自己清；顺带修掉原来连句柄都没存的热重载泄漏）。
+
+### ✅ 本地验证（全部实跑，非推断）
+- `npx tsc` 退出码 0（改完最后一版复跑确认）。测试实例 :3100 启动全程 `[error]` 计数 0。
+- **孤儿回收 5 条混合用例**（临时用户 credits=100）：4 条孤儿全结清，**心跳新鲜那条完全没动且仍 processing**；credits 100→115 = A 退 10 + E 退 5，已结清的 C 不退、cost=0 的 D 不退；`pending` 态的 E 也被收掉，refund key 正确解析成 `gen_i2v_124`。
+- **重启安全**：刷新活跃任务心跳 → 杀进程 → 重启，日志 `退款` 出现 0 次、credits 仍 115、活跃任务仍 processing（无二次退款、活跃任务没被误杀）。
+- **真实 t2i 端到端**（走 Agnes，临时用户）：`processing`(心跳刷 2 拍)→ `completed`，credits 100→95 结清未退——证明 `finalizeTask` 新增的 status 守卫没挡住正常完成。
+- **迁移**：对临时空库 `migration:run` → 29 表 + 11 外键 + `heartbeat_at` + `IDX_gen_task_heartbeat`，与现网 `ai_anime` 结构对齐（现网 29 表/11 外键/无该列）；清掉 `typeorm_migrations` 后重跑模拟「老库误开 migrationsRun」→ 全部 no-op 通过，最终 `No migrations are pending`。本地 synchronize 也已自动补出该列与索引（默认 '1' 生效）。
+- 测试数据收尾：临时用户/测试任务/验证用空库 `ai_anime_baseline_tmp` 均已删除，`git status` 只剩代码改动。
+
+### ⚠️ 生产上线硬顺序（未执行，等用户测试通过）
+1. **先跑迁移，再启新代码**：`ALTER TABLE generation_tasks ADD COLUMN heartbeat_at datetime NULL`（或 `npm run migration:run`）必须在 pm2 重启前完成——新代码一 SELECT 这列就全站 500。
+2. 生产 `.env` **与** `.env.local` 两份都写 `DB_SYNCHRONIZE=0`（`.env.local` 优先老规矩）；本地不用改（默认 '1'）。
+3. 部署多一步 `npm install`（新增 `@nestjs/schedule`、`winston-daily-rotate-file`）。
+4. 备份脚本装 crontab（示例见脚本头），首轮建议手动跑一次确认校验通过。
+5. 回滚：`git checkout -- backend/src backend/package.json backend/package-lock.json` + 把新增文件（`task-recovery.service.ts`、`common/services/`、`data-source.ts`、`migrations/`、`scripts/backup-mysql.sh`）移回收库；DB 侧无需回滚（多出的列与索引对旧代码无害）。
+
+### 📋 状态与待办（接续）
+- [x] P0 第一批四项本地实现 + 本地验证（**未提交 git、未上生产**）
+- [ ] 用户本地测试通过 → 同步 `docs/current-version.md` → 提交推送 GitHub → 按上面顺序更新生产
+- [ ] P0 第二批：静态资源 Cache-Control/compression 或 OSS、自动告警（`AdminNotification` 实体与 WS 网关都在但**无任何自动写入触发点**，额度耗尽/磁盘不足只 `logger.warn`）、Bull 独立 worker + `@Process` concurrency（现在默认 1 且跑在 Web 进程内）
+- [ ] P1：`RolesGuard` 无 `@Roles` 即默认放行 + `JwtAuthGuard` 逐 controller 手挂（新接口漏装饰器即失守）、JWT 7d 无 refresh/无吊销（封禁用户 token 仍有效）、git 历史仍含 `admin123` 与仓库转 private 未拍板、`abc.leesystem.xyz` TLS1.1 遗留
+- [ ] 待用户决策：生产 1.6G 内存升配（PHP 源码编译必 OOM 的根治手段）、mock-pay 漏洞期 3 条已发积分订单是否扣回（08-19 挂到现在）、生产库 720p 单价实配 10 与代码默认 20 不一致哪个为准
+- [ ] 老文档待重建：`roadmap.md` / `dev-checklist.md` / `docs/READMEs/*` 都已滞后，建议以 `current-version.md` 为唯一真相后重排
+
+
 ## 2026-10-26（收尾轮：生产配音冒烟 18/18 全绿关单 + durations 放开 4~12 全档上线 + 口型同步定案 —— FE-only 部署验证通过）
 
 > 承接 10-23 收官轮遗留两拍板项 + 改日冒烟。三件全落地。

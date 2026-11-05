@@ -1,7 +1,8 @@
-# 当前版本功能与工作流程（v2026-10-26）
+# 当前版本功能与工作流程（v2026-10-29）
 
-> 本文档记录截至 **2026-10-26** 的版本功能全景与工作流程，供后续接手快速了解现状。
+> 本文档记录截至 **2026-10-29** 的版本功能全景与工作流程，供后续接手快速了解现状。
 > 配套阅读：`AGENTS.md`（修复日志/血泪教训）、`docs/deploy.md`（部署）、`docs/dev-checklist.md`（开发清单）、`docs/agnes-models.md`（模型参数，未跟踪）。
+> ⚠️ 2026-10-29：P0 第一批落地（/generate 孤儿任务自愈、`DB_SYNCHRONIZE` 开关 + 迁移体系、日志真轮转、定时任务托管）。改动细节与验证证据见 `AGENTS.md` 同日章节；本文 §一、§四.1、§七、§九 已同步。
 
 ---
 
@@ -9,7 +10,7 @@
 
 | 端 | 技术栈 | 端口 | 说明 |
 |----|--------|------|------|
-| backend | NestJS + TypeORM + MySQL + Redis | 3000 | `synchronize:true` 自动建表 |
+| backend | NestJS + TypeORM + MySQL + Redis | 3000 | 表结构由 `DB_SYNCHRONIZE` 开关管理（默认 `1`=自动同步；生产两份 env 都设 `0`，改由 `src/migrations/` 迁移管） |
 | frontend | React + Vite + antd v6 | 5173(dev) | 生产 nginx 反代 `/api/` → 3000 |
 | admin | React + Vite + antd v6 | 5174(dev) | 管理后台，独立 2FA 登录 |
 | 生产 | `anime.leesystem.xyz`（阿里云 47.121.137.131） | 443 | pm2 `ai-anime-backend` + 三端 dist |
@@ -82,6 +83,7 @@
 **通用**：
 - 生成历史独立页 `/generate/history`（筛选/分页/重试/删除）；主页轮播展示；活跃任务 3s 轮询。
 - 扣费规则页面内明示（`GET /api/generate/credit-rules` 实时读配置）。
+- **任务生命周期保障（2026-10-29）**：本模块走**进程内队列**（非 Bull，`max_concurrent_generations`=3 超出排队）。执行体每 20s 刷 `generation_tasks.heartbeat_at`（入队即开始刷，同一行的多执行体按引用计数共享定时器）；`TaskRecoveryService` 启动 + 每 90s 扫描，心跳停摆 >90s 判孤儿 → 原子抢占写 `failed` 并按 `gen_{t2i|t2v|i2v}_{id}` 全额退款；`finalizeTask` 的终态 UPDATE 带 `WHERE status IN ('processing','pending')`，防止「已退款又被慢执行体改回 completed」的双花。用户侧表现就是既有的 failed 卡片（提示积分已退还 + 「重新生成」按钮）。
 
 ### 2. 短剧工作室（/drama）
 ```
@@ -157,6 +159,7 @@ scp -i <key> deploy\*.zip root@47.121.137.131:/home/www/ai-anime/deploy/
 ssh -i <key> root@47.121.137.131 "bash /home/www/ai-anime/deploy/deploy.sh"
 ```
 - **踩坑铁律**：
+  - **后端改动含表结构/新依赖时（2026-10-29 起）**：顺序 = `npm install` → **跑迁移**（`npm run migration:run` 或手工 `ALTER TABLE`）→ 才 `pm2 restart` → 最后现场核对。反序会让新代码先撞上缺失的列（如 `generation_tasks.heartbeat_at`）直接全站 500。`DB_SYNCHRONIZE=0` 要在 `.env` **和** `.env.local` 两份都写（`.env.local` 优先）。
   - PowerShell zip 的 backslash warning → unzip 返非零 → `set -e` 断链——**脚本 exit 1 ≠ 部署失败**，以现场 `ls + grep hash` 为准；FE-only 脚本 unzip 步骤不要 set -e。
   - 部署后核对：线上 index.html 的 hash = 本地、pm2 uptime/pid、`curl -k https://127.0.0.1/ -H 'Host: anime.leesystem.xyz'`。
   - 复杂远程命令（`$()`/`||`/中文/引号）**一律本地写 .sh → scp → 执行**（PS→OpenSSH 必吃引号）；grep 用 `grep -e A -e B`。
@@ -176,13 +179,23 @@ ssh -i <key> root@47.121.137.131 "bash /home/www/ai-anime/deploy/deploy.sh"
 
 ---
 
-## 九、当前状态与待办（2026-10-26）
+## 九、当前状态与待办
 
+### 2026-10-29（P0 第一批：本地已改完，**待用户测试 → 未提交 git、未上生产**）
+- **新发现并修复**：`/generate` 走的是进程内 promise 信号量（非 Bull），且没有启动自愈——每次 `pm2 restart`/崩溃都会让任务永远卡在 `processing`（积分已预扣、不完成也不退款，10-23/10-26 两次部署正好会踩）。现补 `generation_tasks.heartbeat_at` 存活探针（入队即刷、20s 一次、同行多执行体引用计数）+ `task-recovery.service.ts` 启动扫 + 每 90s 周期扫（心跳停摆>90s → 原子抢占写 failed → 按同款 `gen_{t2i|t2v|i2v}_{id}` key 退款）；`finalizeTask` 追加 `WHERE status IN ('processing','pending')` 防「退款后又完成」双花。前端零改动（failed 卡片本就带「重新生成」）。
+- **表结构**：`DB_SYNCHRONIZE`（默认 `1`）+ `DB_MIGRATIONS_RUN`（默认 `0`）两个 env 键；新增 `src/data-source.ts`（CLI 用，强制 synchronize:false）与 `src/migrations/`：`BaselineSchema`（29 表全 `IF NOT EXISTS`、逐条只吞「已存在」错误码、`down()` 抛异常）与 `AddGenerationTaskHeartbeat`（补列 + `IDX_gen_task_heartbeat`，实体上同名 `@Index` 对齐）；npm 脚本 `migration:generate/run/show/revert`。
+- **日志**：原 `winston.transports.File({maxsize,maxFiles})` 两参数根本不生效 → 改 `winston-daily-rotate-file`（按天 + 20MB + 保留 14 天，格式不变）。
+- **定时任务**：4 处裸 `setInterval`（cleanup/order/额度巡检/验证码内存）→ `@nestjs/schedule` 托管，前三者过 `DistributedLockService`（Redis `SET NX EX` + Lua 释放 + 同进程重叠保护；Redis 挂则降级照常跑）。
+- **备份**：新增 `backend/scripts/backup-mysql.sh`（mysqldump `--single-transaction` + gzip + `gzip -t`/`Dump completed` 双校验；保留策略默认只报告不删，自动清理需 `PURGE_OLD=1`）。
+- ⚠️ **上线硬顺序**：① 先跑迁移（`ALTER TABLE generation_tasks ADD COLUMN heartbeat_at datetime NULL` 或 `npm run migration:run`）**再**启新代码，否则新代码一 SELECT 该列全站 500；② 生产 `.env` 与 `.env.local` **两份**都写 `DB_SYNCHRONIZE=0`；③ 部署多一步 `npm install`（`@nestjs/schedule`、`winston-daily-rotate-file`）。
+- 本地验证：`npx tsc` 零错误；孤儿回收 5 用例（活跃任务不误杀、credits 100→115 精确、已结清/0 分不重复退）；重启无二次退款；真实 t2i 端到端 completed 且结清；迁移对空库产出与现网结构对齐且「误开 migrationsRun」重跑全 no-op。测试数据与临时库已清。
+
+### 2026-10-26（已上线生产）
 - **已上线生产**：配音+字幕全链、防复活、t2v 10 次重试、durations 4~12 全档（FE `Generate-B4R_jukI.js`）、生产库 key/模型收敛、prod-verify 实质 18/18、生产配音冒烟 18/18。
 - **本地三端在跑**：backend :3000（run38.log）+ FE :5173 + admin :5174。
 - 待办：
   - [ ] 阿里云控制台手动复扫 + 安全组 8888 规则核查（**用户自行**）
-  - [ ] Redis requirepass 激活 → 等用户发话
+  - [ ] ~~Redis requirepass 激活~~ → 已于 10-26 完成（生产+本地）
   - [ ] 口型同步 lip-sync —— 定案维持现状，未来有需求再立项
   - [ ] VoiceStudio 暂停中（等用户）；《体面》E2-E6 等用户
   - [ ] 保留任务：#115 / #117（无声降级现场）/ #118（联调成功证据单）**不删**

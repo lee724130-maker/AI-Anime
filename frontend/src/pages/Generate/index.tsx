@@ -6,6 +6,7 @@ import {
 } from 'antd';
 import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import { useAuthStore } from '../../stores/authStore';
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
@@ -16,6 +17,11 @@ const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + 
 const RATIO_LABELS: Record<string, string> = {
   '9:16': '竖屏', '16:9': '横屏', '1:1': '方屏', '4:3': '传统', '3:4': '海报', '21:9': '超宽',
 };
+
+/** 图片生图片：官方 agnes-image-2.1/2.5-flash 支持的全部 8 种比例，默认 3:4 */
+const I2I_RATIOS = ['3:4', '9:16', '1:1', '4:3', '16:9', '2:3', '3:2', '21:9'];
+/** 图片生图片：参考图上限（官方体验价第 4 张起也免费，文档未写硬上限） */
+const I2I_MAX_IMAGES = 9;
 
 const IMAGE_PRESETS = [
   { label: '角色立绘', value: '一个全身角色形象，动态姿势，精致的服装细节，明亮的色彩，高品质，面部细节丰富，工作室灯光' },
@@ -149,6 +155,15 @@ export default function GeneratePage() {
   const [formTextToImage] = Form.useForm();
   const [formTextToVideo] = Form.useForm();
   const [formImageToVideo] = Form.useForm();
+  const [formImageToImage] = Form.useForm();
+
+  // 图片生图片独立状态：不与其他 tab 共享 assetSource/uploadFileList/selectedLibraryAssets，
+  // 避免串图、上传回调写错表单、提交后被 doGenerate 清空等耦合（方案 §11.3）
+  const [i2iAssetSource, setI2iAssetSource] = useState<'upload' | 'library'>('library');
+  const [i2iUploadFileList, setI2iUploadFileList] = useState<any[]>([]);
+  const [i2iSelectedAssets, setI2iSelectedAssets] = useState<any[]>([]);
+  const modelImageToImage = Form.useWatch('model', formImageToImage) || 'agnes-image-2.5-flash';
+  const i2iImageSizeWatch = Form.useWatch('image_size', formImageToImage) || '1K';
 
   // 使用 Form.useWatch 让 prompt 值变成响应式，按钮状态才能实时更新
   const promptTextToImage = Form.useWatch('prompt', formTextToImage) || '';
@@ -158,6 +173,8 @@ export default function GeneratePage() {
   // 预计扣费：文生图按张数、文生视频按时长×分辨率（需积分规则）
   const numImagesWatch = Form.useWatch('num_images', formTextToImage) || 1;
   const imageSizeWatch = Form.useWatch('image_size', formTextToImage) || '1K';
+  // 2026-11-05：全站生图统一 Agnes，用户可在这三款之间切换
+  const modelTextToImage = Form.useWatch('model', formTextToImage) || 'agnes-image-2.5-flash';
   const resolutionWatch = Form.useWatch('resolution', formTextToVideo) || '720p';
   const durationWatch = Form.useWatch('duration', formTextToVideo) || 5;
   const estimateCost = (mode: string): number | null => {
@@ -177,6 +194,9 @@ export default function GeneratePage() {
     try {
       const { data } = await api.get('/api/generate/tasks', { params: { page, limit: 20 } });
       setHistory(data.items || []);
+      // 扣费发生在提交时、退款发生在后台任务失败时；顶部积分来自登录时缓存的 authStore，
+      // 必须随任务状态一起刷新，否则用户会看到「成功不扣分 / 失败才变」的假象。
+      void useAuthStore.getState().refreshUser();
     } catch { /* ignore */ }
   }, []);
 
@@ -211,6 +231,13 @@ export default function GeneratePage() {
       fetchGlobalAssets(assetTab);
     }
   }, [assetSource, assetTab, fetchGlobalAssets]);
+
+  // 图片生图片用独立来源状态，但资产列表数据可共享（只读）
+  useEffect(() => {
+    if (i2iAssetSource === 'library') {
+      fetchGlobalAssets(assetTab);
+    }
+  }, [i2iAssetSource, assetTab, fetchGlobalAssets]);
 
   // 预览弹窗多图左右键切换
   useEffect(() => {
@@ -252,14 +279,14 @@ export default function GeneratePage() {
     setSelectedLibraryAssets([]);
   };
 
-  const generateSmartDescription = async (form: any, images: string[]) => {
+  const generateSmartDescription = async (form: any, images: string[], mode: 'video' | 'i2i' = 'video') => {
     if (!images || images.length === 0) {
       message.warning('请先上传图片');
       return;
     }
     const hideLoading = message.loading('正在智能分析图片...', 0);
     try {
-      const { data } = await api.post('/api/generate/smart-describe', { images });
+      const { data } = await api.post('/api/generate/smart-describe', { images, mode });
       form.setFieldsValue({ prompt: data.description });
       hideLoading();
       message.success('描述生成成功！');
@@ -455,6 +482,59 @@ export default function GeneratePage() {
     ? selectedLibraryAssets.length > 0
     : uploadFileList.some((f: any) => f.status === 'done');
 
+  // ─── 图片生图片：独立来源/上传/选择逻辑（不复用上面 i2v 的共享状态）───────
+  const i2iUploadProps = {
+    name: 'file',
+    multiple: true,
+    maxCount: I2I_MAX_IMAGES,
+    fileList: i2iUploadFileList,
+    onChange(info: any) {
+      const list = info.fileList.slice(-I2I_MAX_IMAGES);
+      setI2iUploadFileList(list);
+      const urls = list.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
+      formImageToImage.setFieldsValue({ images: urls });
+    },
+    customRequest: async (options: any) => {
+      const formData = new FormData();
+      formData.append('file', options.file);
+      try {
+        const { data } = await api.post('/api/media/upload', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        options.onSuccess(data);
+      } catch (err: any) {
+        options.onError(err);
+      }
+    },
+    onRemove: (file: any) => {
+      const list = i2iUploadFileList.filter((f: any) => f.uid !== file.uid);
+      setI2iUploadFileList(list);
+      const urls = list.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
+      formImageToImage.setFieldsValue({ images: urls });
+    },
+  };
+
+  const i2iImageUrls = () => i2iAssetSource === 'library'
+    ? i2iSelectedAssets.map((a: any) => a.image_url)
+    : i2iUploadFileList.filter((f: any) => f.status === 'done').map((f: any) => f.response?.url || f.url);
+  const i2iHasImages = () => i2iAssetSource === 'library'
+    ? i2iSelectedAssets.length > 0
+    : i2iUploadFileList.some((f: any) => f.status === 'done');
+  const i2iToggleAsset = (asset: any) => {
+    const exists = i2iSelectedAssets.find((a: any) => a.id === asset.id);
+    if (exists) {
+      setI2iSelectedAssets(i2iSelectedAssets.filter((a: any) => a.id !== asset.id));
+    } else {
+      if (i2iSelectedAssets.length >= I2I_MAX_IMAGES) {
+        message.warning(`最多只能选择${I2I_MAX_IMAGES}张图片`);
+        return;
+      }
+      setI2iSelectedAssets([...i2iSelectedAssets, asset]);
+    }
+  };
+  const i2iRemoveAsset = (id: number) => setI2iSelectedAssets(i2iSelectedAssets.filter((a: any) => a.id !== id));
+  const i2iClearAssets = () => setI2iSelectedAssets([]);
+
   const renderForm = (mode: string) => {
     switch (mode) {
       case 'text-to-image':
@@ -471,6 +551,12 @@ export default function GeneratePage() {
               smartPlanLoading={planLoading}
             />
             <Space style={{ width: '100%' }} size={12} wrap>
+              <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" style={{ flex: '1 1 210px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[
+                  { label: 'Agnes Image 2.5 Flash（推荐）', value: 'agnes-image-2.5-flash' },
+                  { label: 'Agnes Image 2.1 Flash', value: 'agnes-image-2.1-flash' },
+                ]} />
+              </Form.Item>
               <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 130px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
@@ -489,7 +575,7 @@ export default function GeneratePage() {
             </Space>
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>agnes-image-2.5-flash</Tag>
+              <Tag color="blue" style={{ marginLeft: 8 }}>{modelTextToImage}</Tag>
               <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
               {estimateCost('text-to-image') !== null && (
                 <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
@@ -759,12 +845,124 @@ export default function GeneratePage() {
           </Form>
         );
 
-      case 'image-merge':
+      case 'image-to-image':
         return (
-          <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-secondary)' }}>
-            <Text strong style={{ fontSize: 16 }}>多图合并</Text>
-            <div style={{ marginTop: 8 }}>功能开发中，敬请期待</div>
-          </div>
+          <Form form={formImageToImage} layout="vertical" onFinish={(v) => {
+            const images = i2iImageUrls();
+            if (!images.length) { message.warning('请先选择或上传至少一张参考图片'); return; }
+            doGenerate('/api/generate/image-to-image', { ...v, images }, formImageToImage);
+          }}>
+            <Form.Item label="参考图来源" style={{ marginBottom: 8 }}>
+              <Radio.Group value={i2iAssetSource} onChange={(e) => {
+                setI2iAssetSource(e.target.value);
+                setI2iUploadFileList([]);
+                setI2iSelectedAssets([]);
+                formImageToImage.setFieldsValue({ images: [] });
+              }}>
+                <Radio.Button value="library">📚 大资产库</Radio.Button>
+                <Radio.Button value="upload">📁 本地上传</Radio.Button>
+              </Radio.Group>
+            </Form.Item>
+
+            {i2iAssetSource === 'library' ? (
+              <Form.Item style={{ marginBottom: 16 }}>
+                <Space wrap style={{ marginBottom: 8 }}>
+                  <Tag color="blue">{i2iSelectedAssets.length}/{I2I_MAX_IMAGES} 张参考图</Tag>
+                  {i2iSelectedAssets.length > 0 && (
+                    <Button type="link" size="small" onClick={i2iClearAssets}><DeleteOutlined /> 清空</Button>
+                  )}
+                  <Text type="secondary" style={{ fontSize: 12 }}>建议 1–3 张；最多 {I2I_MAX_IMAGES} 张，参考图不额外计费</Text>
+                </Space>
+                {i2iSelectedAssets.length > 0 && (
+                  <div style={{ marginBottom: 12, padding: 8, background: 'var(--primary-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>已选参考图（顺序即第 1/2/… 张）：</Text>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {i2iSelectedAssets.map((asset: any, idx: number) => (
+                        <div key={asset.id} style={{ position: 'relative' }}>
+                          <Image src={getUrl(asset.image_url)} width={50} height={50} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+                          <Tag color="blue" style={{ position: 'absolute', top: -6, left: -6, fontSize: 10, padding: '0 3px' }}>{idx + 1}</Tag>
+                          <Tooltip title="取消选择">
+                            <CloseCircleOutlined onClick={() => i2iRemoveAsset(asset.id)}
+                              style={{ position: 'absolute', top: -4, right: -4, fontSize: 16, color: 'var(--danger)', cursor: 'pointer', background: 'var(--bg)', borderRadius: '50%' }} />
+                          </Tooltip>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <Card size="small" style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Tag color={assetTab === 'character' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('character')}>👤 人物</Tag>
+                    <Tag color={assetTab === 'scene' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('scene')}>🌄 场景</Tag>
+                    <Tag color={assetTab === 'prop' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('prop')}>📦 道具</Tag>
+                  </div>
+                  {assetsLoading ? (
+                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>加载中...</div>
+                  ) : globalAssets.length === 0 ? (
+                    <Empty description="暂无可用资产" style={{ padding: 20 }} />
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                      {globalAssets.map((asset) => {
+                        const isSelected = i2iSelectedAssets.some((a: any) => a.id === asset.id);
+                        return (
+                          <div key={asset.id} onClick={() => i2iToggleAsset(asset)}
+                            style={{ cursor: 'pointer', border: isSelected ? '2px solid var(--primary)' : '2px solid transparent', borderRadius: 12, overflow: 'hidden', background: isSelected ? 'var(--primary-bg)' : 'var(--bg)', padding: 4, opacity: isSelected ? 1 : (i2iSelectedAssets.length >= I2I_MAX_IMAGES ? 0.5 : 1) }}>
+                            <Image src={getUrl(asset.image_url)} alt={asset.name} width={92} height={92} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+                            <div style={{ fontSize: 11, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>{asset.name}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+              </Form.Item>
+            ) : (
+              <Form.Item style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <Tag color="blue">{i2iUploadFileList.length}/{I2I_MAX_IMAGES} 张参考图</Tag>
+                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>建议 1–3 张；图片由后端压缩后送入模型</Text>
+                </div>
+                <Dragger {...i2iUploadProps} listType="picture">
+                  <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+                  <p className="ant-upload-text">点击或拖拽上传参考图片（最多 {I2I_MAX_IMAGES} 张）</p>
+                  <p className="ant-upload-hint">支持 JPG / PNG，顺序即第 1/2/… 张</p>
+                </Dragger>
+              </Form.Item>
+            )}
+
+            <Form.Item name="prompt" label="描述" rules={[{ required: true, message: '请输入图片描述' }]}>
+              <TextArea rows={3} placeholder="描述想要的变化，例如：把第1张的人物、第2张的姿势、第3张的服饰融合成一张真人写真…" />
+            </Form.Item>
+            <Button block icon={<BulbOutlined />} style={{ marginBottom: 16 }}
+              disabled={!i2iHasImages()}
+              onClick={() => generateSmartDescription(formImageToImage, i2iImageUrls(), 'i2i')}>
+              AI 反推描述（图生图专用：三图分工 + 逐件服装，不出分镜）
+            </Button>
+
+            <Space style={{ width: '100%' }} size={12} wrap>
+              <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" style={{ flex: '1 1 210px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={[
+                  { label: 'Agnes Image 2.5 Flash（推荐）', value: 'agnes-image-2.5-flash' },
+                  { label: 'Agnes Image 2.1 Flash', value: 'agnes-image-2.1-flash' },
+                ]} />
+              </Form.Item>
+              <Form.Item name="image_size" label="强度" initialValue="1K" style={{ flex: '1 1 120px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={['1K', '2K', '3K', '4K'].map(v => ({ label: v, value: v }))} />
+              </Form.Item>
+              <Form.Item name="ratio" label="比例" initialValue="3:4" style={{ flex: '1 1 130px', minWidth: 0 }}>
+                <Select style={{ width: '100%' }} options={I2I_RATIOS.map(r => ({ label: `${r} ${RATIO_LABELS[r] || ''}`.trim(), value: r }))} />
+              </Form.Item>
+            </Space>
+            <Form.Item>
+              <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
+              <Tag color="blue" style={{ marginLeft: 8 }}>{modelImageToImage}</Tag>
+              {creditRules && (
+                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                  预计扣费 {creditRules.image_per_image * (creditRules.image_size_multipliers?.[i2iImageSizeWatch] ?? 1)} 积分（参考图不额外计费）
+                </Text>
+              )}
+            </Form.Item>
+          </Form>
         );
       default:
         return null;
@@ -917,7 +1115,7 @@ export default function GeneratePage() {
     { key: 'text-to-image', label: '📝 文字生图片' },
     { key: 'text-to-video', label: '🎬 文字生视频' },
     { key: 'image-to-video', label: '🖼 图片生视频' },
-    { key: 'image-merge', label: '🔀 多图合并' },
+    { key: 'image-to-image', label: '🖼 图片生图片' },
   ];
   const sidebarItems = history.slice(0, 10);
 
@@ -986,7 +1184,7 @@ export default function GeneratePage() {
             <div style={{ display: tabKey === 'text-to-image' ? 'block' : 'none' }}>{renderForm('text-to-image')}</div>
             <div style={{ display: tabKey === 'text-to-video' ? 'block' : 'none' }}>{renderForm('text-to-video')}</div>
             <div style={{ display: tabKey === 'image-to-video' ? 'block' : 'none' }}>{renderForm('image-to-video')}</div>
-            <div style={{ display: tabKey === 'image-merge' ? 'block' : 'none' }}>{renderForm('image-merge')}</div>
+            <div style={{ display: tabKey === 'image-to-image' ? 'block' : 'none' }}>{renderForm('image-to-image')}</div>
           </div>
 
           {/* 生成结果 */}

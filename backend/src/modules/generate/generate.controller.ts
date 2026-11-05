@@ -58,13 +58,19 @@ export class GenerateController {
     return this.generateService.imageToVideo(req.user.id, body);
   }
 
-  @Post('image-merge')
-  imageMerge() {
-    return { message: '多图合并功能正在开发中，敬请期待' };
+  @Post('image-to-image')
+  imageToImage(@Req() req, @Body() body: {
+    images: string[];
+    prompt: string;
+    model?: string;
+    image_size?: string;
+    ratio?: string;
+  }) {
+    return this.generateService.imageToImage(req.user.id, body);
   }
 
   @Post('smart-describe')
-  smartDescribe(@Req() req, @Body() body: { images: string[] }) {
+  smartDescribe(@Req() req, @Body() body: { images: string[]; mode?: 'video' | 'i2i' }) {
     return this.generateService.smartDescribe(req.user.id, body);
   }
 

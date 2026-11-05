@@ -1,12 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Interval, Timeout } from '@nestjs/schedule';
 import { AdminService } from '../modules/admin/admin.service';
 import { ModelConfigService } from '../modules/admin/model-config.service';
+import { DistributedLockService } from '../common/services/distributed-lock.service';
 import axios, { AxiosInstance } from 'axios';
 import { execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { assertSafeRemoteUrl, resolveSafeStaticPath } from '../common/utils/safe-download.util';
 import { createClient } from 'redis';
+
+/**
+ * 全站生图统一模型白名单（2026-11-05 用户需求）。
+ * 只用这两款 Agnes 图像模型，其他厂商模型一律不调用。
+ * 2.0 已按用户决定移除：官方 apihub 端点才有，且项目中国区 key 不支持。
+ */
+export const AGNES_IMAGE_MODELS = [
+  'agnes-image-2.5-flash',
+  'agnes-image-2.1-flash',
+] as const;
+export type AgnesImageModel = typeof AGNES_IMAGE_MODELS[number];
+
+/** 中国区端点：现有 agnes_api_key 可用，两款模型都在此（2026-11-05 实测） */
+const AGNES_IMAGE_ENDPOINT = 'https://api.agnes-ai.cn/v1/images/generations';
+
+/** agnes-image-2.1/2.5-flash 官方支持的全部宽高比（图片生图片下拉用） */
+export const AGNES_IMAGE_RATIOS = ['1:1', '3:4', '4:3', '16:9', '9:16', '2:3', '3:2', '21:9'] as const;
 
 export interface ImageGenerationOptions {
   prompt: string;
@@ -18,6 +37,10 @@ export interface ImageGenerationOptions {
   model?: string;
   /** Agnes 图像尺寸档位（'1K' | '2K' | '3K' | '4K'），不传按 width/height 自动推档 */
   imageSize?: string;
+  /** 指定宽高比（AGNES_IMAGE_RATIOS 之一）；不传则按 width/height 自动推断 */
+  ratio?: string;
+  /** 图生图/多图合成的参考图（已转好的公网 URL 或 Data URI Base64）；文生图不传 */
+  referenceImages?: string[];
 }
 
 export interface VideoGenerationOptions {
@@ -44,21 +67,21 @@ const WAN3_QUOTA_LIMIT = 30;
 const WAN3_QUOTA_WARN_THRESHOLD = 5;
 const QUOTA_REDIS_KEY_PREFIX = 'wan3_quota:';
 const QUOTA_REDIS_DAILY_PREFIX = 'wan3_quota_daily:';
+/** 额度巡检周期（沿用原裸 setInterval 的 5 分钟） */
+const QUOTA_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class AIServiceUtil {
   private readonly logger = new Logger(AIServiceUtil.name);
   private clients: Map<string, AxiosInstance> = new Map();
   private providerCooldowns = new Map<string, number>();
-  quotaCheckInterval: NodeJS.Timeout | null = null;
   redisClient: any = null;
 
   constructor(
     private readonly adminService: AdminService,
     private readonly modelConfigService: ModelConfigService,
-  ) {
-    this.startQuotaMonitor();
-  }
+    private readonly lock: DistributedLockService,
+  ) {}
 
   async getRedis(): Promise<any> {
     if (this.redisClient) return this.redisClient;
@@ -78,10 +101,27 @@ export class AIServiceUtil {
     return this.redisClient;
   }
 
-  startQuotaMonitor(): void {
-    setTimeout(() => this.checkQuotaStatus(), 10000);
-    this.quotaCheckInterval = setInterval(() => this.checkQuotaStatus(), 5 * 60 * 1000);
-    this.logger.log('[quota] Wan3.0 quota monitor started (checks every 5 min, limit=30/model)');
+  /**
+   * 额度巡检（2026-10-29 从裸 setInterval 迁到 ScheduleModule 托管）。
+   * 用分布式锁包住：将来后端扩到多实例或拆出独立 worker 时，同一轮只有一个实例真跑，
+   * 避免 N 个实例各自去打供应商的额度查询接口（既浪费配额也可能触发限流）。
+   * 锁 TTL 240s < 巡检周期 300s，既保证一轮独占，也不会把下一轮挡死。
+   */
+  @Timeout(10_000)
+  async initialQuotaCheck() {
+    await this.quotaMonitorTick('startup');
+  }
+
+  @Interval(QUOTA_CHECK_INTERVAL_MS)
+  async scheduledQuotaCheck() {
+    await this.quotaMonitorTick('interval');
+  }
+
+  private async quotaMonitorTick(reason: 'startup' | 'interval') {
+    const ran = await this.lock.runExclusive('quota-check', 240, () => this.checkQuotaStatus());
+    if (ran && reason === 'startup') {
+      this.logger.log(`[quota] Wan3.0 quota monitor running (every ${QUOTA_CHECK_INTERVAL_MS / 1000}s, limit=${WAN3_QUOTA_LIMIT}/model)`);
+    }
   }
 
   async trackQuotaUsage(model: string): Promise<{ remaining: number; total: number; limited: boolean }> {
@@ -161,7 +201,7 @@ export class AIServiceUtil {
   }
 
   onModuleDestroy(): void {
-    if (this.quotaCheckInterval) clearInterval(this.quotaCheckInterval);
+    // 巡检定时器已由 ScheduleModule 托管（停机自动清理），这里只关自己建的 Redis 连接
     if (this.redisClient) this.redisClient.quit().catch(() => { });
   }
 
@@ -232,7 +272,8 @@ export class AIServiceUtil {
 
   /** Generate image from text prompt using configured AI provider */
   async generateImage(options: ImageGenerationOptions): Promise<string[]> {
-    const provider = await this.getConfigValue('image_provider') || 'auto';
+    // 2026-11-05：全站生图统一走 Agnes，忽略 image_provider 的 DB 配置
+    const provider = 'agnes';
 
     // Inject style keywords and strip conflicting ones
     if (options.style === 'realistic') {
@@ -263,6 +304,11 @@ export class AIServiceUtil {
     } else if (options.style === 'anime') {
       let p = options.prompt.replace(/\bphotorealistic[,，]?\s*/gi, '').replace(/真人实拍质感[,，]?\s*/g, '').replace(/超写实风格[,，]?\s*/g, '').replace(/真实照片[,，]?\s*/g, '');
       options = { ...options, prompt: `anime style,动漫风格,Animation,Japanese anime,セル画調,精美二次元,${p}` };
+    }
+    // 只允许 Agnes 两款（2.5 / 2.1）；任何非白名单模型一律忽略并回落到默认 2.5
+    if (options.model && !AGNES_IMAGE_MODELS.includes(options.model as AgnesImageModel)) {
+      this.logger.warn(`非 Agnes 生图模型已禁用: ${options.model}，改用 ${AGNES_IMAGE_MODELS[0]}`);
+      options = { ...options, model: undefined };
     }
     // If a specific model is requested, route by model prefix and use exclusively
     if (options.model) {
@@ -311,10 +357,18 @@ export class AIServiceUtil {
     const tongyiKey = await this.getApiKey('tongyi_api_key');
     const zhipuKey = await this.getApiKey('zai_api_key');
 
-    if (isRealistic && tongyiKey) {
+    if (provider !== 'agnes' && isRealistic && tongyiKey) {
       this.logger.log('Using 阿里云通义万相 for image generation (realistic)');
       try { return await this.generateImageWithTongyi(tongyiKey, options); }
       catch (err: any) { this.logger.warn(`通义万相 failed: ${err.message}`); }
+    }
+
+    // === 全站生图统一入口（2026-11-05）===
+    // 到此只剩 Agnes：不再回退到通义 / 智谱 / 商汤 / 火山 / OpenAI。
+    if (provider === 'agnes') {
+      const key = await this.getApiKey('agnes_api_key');
+      if (!key) throw new Error('Agnes Key 未配置，无法生成图片');
+      return await this.generateImageWithAgnes(key, options);
     }
 
     // Forced provider routing (non-auto)
@@ -812,18 +866,22 @@ export class AIServiceUtil {
   }
 
   /**
-   * Agnes Image 文生图后备（2026-09-30 探针 2/2 实测通过，限免期 $0）：
-   * POST https://api.agnes-ai.cn/v1/images/generations（OpenAI 兼容，返回 data[0].url）
-   * ⚠️ size 是档位 '1K'/'2K'/'4K'（不是像素串）+ ratio 比例参数；n 按张拆分；
-   *    响应含 revised_prompt（自动扩写不可关——与 SenseNova 不同，风格漂移需靠提示词本身约束）。
+   * Agnes Image 统一生图（2026-11-05 起全站唯一入口，体验价 $0）
+   * POST https://api.agnes-ai.cn/v1/images/generations，用 agnes_api_key
+   * - 2.1 / 2.5 参数一致：size 档位 '1K'/'2K'/'3K'/'4K' + ratio
+   * - 图生图/多图合成：extra_body.image 数组（两款都支持；2026-11-05 图片生图片接入）
+   * - response_format 必须放在 extra_body 内，不能放顶层
    */
   private async generateImageWithAgnes(
     apiKey: string,
     options: ImageGenerationOptions,
   ): Promise<string[]> {
-    const requested = options.model && options.model.startsWith('agnes-image') ? [options.model] : [];
-    const models = requested.length ? requested : ['agnes-image-2.5-flash', 'agnes-image-2.1-flash', 'agnes-image-2.0-flash'];
-    const { size, ratio } = this.pickAgnesImageSize(options.width, options.height, options.imageSize);
+    const requested = options.model && AGNES_IMAGE_MODELS.includes(options.model as AgnesImageModel) ? [options.model] : [];
+    const models: string[] = requested.length ? [...requested] : [...AGNES_IMAGE_MODELS];
+    const { size, ratio: autoRatio } = this.pickAgnesImageSize(options.width, options.height, options.imageSize);
+    // 图片生图片由用户指定比例；非白名单值回落自动推断
+    const ratio = options.ratio && AGNES_IMAGE_RATIOS.includes(options.ratio as any)
+      ? options.ratio : autoRatio;
     const count = Math.max(1, options.numImages || 1);
 
     let lastError: any;
@@ -831,16 +889,21 @@ export class AIServiceUtil {
       const urls: string[] = [];
       for (let i = 0; i < count; i++) {
         try {
-          const res = await axios.post(
-            'https://api.agnes-ai.cn/v1/images/generations',
-            {
-              model,
-              prompt: options.prompt,
-              size,
-              ratio,
-              n: 1,
-              extra_body: { response_format: 'url' },
+          const body: Record<string, unknown> = {
+            model,
+            prompt: options.prompt,
+            size,
+            ratio,
+            n: 1,
+            // 官方要求：文生图不带 image；图生图/多图合成才带，且 response_format 必须在 extra_body 内
+            extra_body: {
+              response_format: 'url',
+              ...(options.referenceImages?.length ? { image: options.referenceImages } : {}),
             },
+          };
+          const res = await axios.post(
+            AGNES_IMAGE_ENDPOINT,
+            body,
             { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
           );
           const url = res.data?.data?.[0]?.url;
@@ -2488,15 +2551,26 @@ export class AIServiceUtil {
     }
   }
 
-  async generateSmartDescription(imageUrls: string[]): Promise<string> {
+  /**
+   * 参考图反推提示词。
+   * mode='video'（默认）：视频/分镜描述，供图生视频、viral、smartPlan 使用，行为保持不变。
+   * mode='i2i'：图生图专用 —— 三图职责分离、逐件服装、单张画面，严禁镜头/分镜/多格语言。
+   *   原因：视频分镜式反推会把「三张参考图」翻译成「三个镜头」，导致模型输出三格拼图。
+   */
+  async generateSmartDescription(imageUrls: string[], mode: 'video' | 'i2i' = 'video'): Promise<string> {
     if (!imageUrls || imageUrls.length === 0) {
       throw new Error('请提供至少一张图片');
     }
 
     const provider = await this.getConfigValue('llm_provider') || 'auto';
-    const systemPrompt = '你是一个专业的视频创作助手。请仔细观察提供的图片，生成一个详细的中文描述，适合用于AI视频生成。描述应包含：1. 画面中的主要角色/物体 2. 场景环境 3. 人物动作或姿态 4. 情绪氛围 5. 镜头运动建议。描述要生动具体，200字以内。';
+    const isI2i = mode === 'i2i';
+    const systemPrompt = isI2i
+      ? '你是「图生图 / 多图融合」提示词专家。仔细观察参考图，输出一段用于 AI 图像生成的中文提示词。必须：1) 写明每张参考图的职责分工（如第1张人物身份、第2张服饰、第3张姿势，按实际张数调整）2) 逐件写清服装的版型、颜色、材质与配件 3) 用可观察的几何关系描述目标姿势 4) 明确要求生成「单张完整人像照片、一个人物、纯色简洁背景」。严禁出现：镜头、分镜、转场、多场景、拼图、三格、多格、「先…再…最后…」的镜头顺序、情绪氛围叙事。只输出一段 150 字以内的提示词，不要解释、标题或编号。'
+      : '你是一个专业的视频创作助手。请仔细观察提供的图片，生成一个详细的中文描述，适合用于AI视频生成。描述应包含：1. 画面中的主要角色/物体 2. 场景环境 3. 人物动作或姿态 4. 情绪氛围 5. 镜头运动建议。描述要生动具体，200字以内。';
 
-    const userPrompt = `请根据提供的${imageUrls.length}张图片，生成一段用于AI视频生成的中文描述。`;
+    const userPrompt = isI2i
+      ? `请根据提供的 ${imageUrls.length} 张参考图，生成一段用于图生图的中文提示词（单张画面、三图职责分离、逐件服装）。`
+      : `请根据提供的${imageUrls.length}张图片，生成一段用于AI视频生成的中文描述。`;
 
     if (provider === 'aliyun' || provider === 'auto') {
       this.logger.warn('阿里云全模态模型已全部失效，跳过视觉链');
@@ -2552,7 +2626,7 @@ export class AIServiceUtil {
 
     // 降级：如果所有多模态模型都失败，使用纯文本模型生成通用描述
     this.logger.warn('所有多模态模型不可用，降级为纯文本生成通用描述');
-    const textFallback = await this.generateDescriptionFromText(imageUrls);
+    const textFallback = await this.generateDescriptionFromText(imageUrls, mode);
     if (textFallback) return textFallback;
 
     throw new Error('所有模型均不可用，请检查API密钥配置或手动输入描述');
@@ -2677,12 +2751,16 @@ ${strictRules[strictness]}
     }
   }
 
-  private async generateDescriptionFromText(imageUrls: string[]): Promise<string> {
+  private async generateDescriptionFromText(imageUrls: string[], mode: 'video' | 'i2i' = 'video'): Promise<string> {
     try {
       const provider = await this.getConfigValue('llm_provider') || 'auto';
-      const systemPrompt = `你是一个专业的视频创作助手。请根据用户提供的图片信息，生成一个详细的中文描述，适合用于AI视频生成。描述应生动具体，200字以内。`;
+      const systemPrompt = mode === 'i2i'
+        ? `你是图生图提示词专家。输出一段用于 AI 图像生成的中文提示词：写明每张参考图的分工、逐件服装、目标姿势，并明确「生成单张完整人像照片、一个人物、纯色简洁背景」。严禁镜头、分镜、多场景、拼图、三格、镜头顺序。150字以内，只输出提示词。`
+        : `你是一个专业的视频创作助手。请根据用户提供的图片信息，生成一个详细的中文描述，适合用于AI视频生成。描述应生动具体，200字以内。`;
       const imageInfo = imageUrls.map((url, i) => `图片${i + 1}: ${url.split('/').pop() || url}`).join('\n');
-      const userPrompt = `以下是用户上传的图片列表，请为这些图片生成一个视频描述：\n${imageInfo}\n\n请生成一个适合AI视频生成的中文描述，包含：主要角色/物体、场景环境、动作姿态、情绪氛围等。`;
+      const userPrompt = mode === 'i2i'
+        ? `以下是用户上传的参考图列表，请生成一段图生图提示词（单张画面、三图职责分离、逐件服装）：\n${imageInfo}`
+        : `以下是用户上传的图片列表，请为这些图片生成一个视频描述：\n${imageInfo}\n\n请生成一个适合AI视频生成的中文描述，包含：主要角色/物体、场景环境、动作姿态、情绪氛围等。`;
 
       if (provider === 'aliyun' || provider === 'auto') {
         const key = await this.getApiKey('tongyi_api_key');
