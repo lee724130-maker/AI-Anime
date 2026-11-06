@@ -288,9 +288,50 @@ export class GenerateService implements OnModuleDestroy {
     image_size?: string;
     ratio?: string;
   }) {
+    const normalized = this.normalizeI2I(dto);
+    const taskId = await this.launchI2ITask(userId, normalized, 'image_to_image');
+    return { taskId, status: 'processing' };
+  }
+
+  /**
+   * 漫画工作室逐格生成入口（2026-11-06）。
+   * 与「图片生图片」共用校验、计费、建任务、队列、落盘与失败退款，只改 source 与元数据，
+   * 不复制一份生图逻辑。见 docs/漫画工作室-生图流程编排-2026-11-06.md §8。
+   */
+  async createComicPanelTask(userId: number, dto: {
+    images: string[];
+    prompt: string;
+    model?: string;
+    image_size?: string;
+    ratio?: string;
+  }, meta: { comicProjectId: number; group: string; pageNo: number }): Promise<number> {
+    const normalized = this.normalizeI2I(dto);
+    return this.launchI2ITask(userId, normalized, 'comic_panel', meta);
+  }
+
+  /** 单张图生图积分报价（供漫画工作室审格门控预估） */
+  async quoteImageCost(imageSize?: string): Promise<number> {
+    return this.estimateCreditCost({ type: 'image', num_images: 1, image_size: imageSize || '1K' });
+  }
+
+  /**
+   * V2 角色设定本的 4 个图像块是文生图（无参考图），用独立入口建任务：
+   * 复用同一套计费/任务/队列/落盘/退款，只是不套剧情页的拼版负面词。
+   */
+  async createSheetBlockTask(userId: number, dto: {
+    prompt: string;
+    model?: string;
+    image_size?: string;
+    ratio?: string;
+  }, meta: { comicProjectId: number; characterId: string; block: string }): Promise<number> {
+    const normalized = this.normalizeI2I({ ...dto, images: [] }, false);
+    return this.launchI2ITask(userId, normalized, 'comic_sheet', meta);
+  }
+
+  private normalizeI2I(dto: any, requireImages = true) {
     const { images, prompt, model } = dto;
     if (!prompt?.trim()) throw new BadRequestException('请输入图片描述');
-    if (!Array.isArray(images) || images.length === 0) throw new BadRequestException('请提供至少一张参考图片');
+    if (requireImages && (!Array.isArray(images) || images.length === 0)) throw new BadRequestException('请提供至少一张参考图片');
     if (images.length > I2I_MAX_IMAGES) throw new BadRequestException(`最多支持 ${I2I_MAX_IMAGES} 张参考图片`);
     if (model && !AGNES_IMAGE_MODELS.includes(model as any)) {
       throw new BadRequestException('仅支持 Agnes Image 2.1 / 2.5 Flash');
@@ -303,9 +344,17 @@ export class GenerateService implements OnModuleDestroy {
     if (!AGNES_IMAGE_RATIOS.includes(ratio as any)) {
       throw new BadRequestException(`比例仅支持 ${AGNES_IMAGE_RATIOS.join(' / ')}`);
     }
+    return { ...dto, image_size: imageSize, ratio };
+  }
 
-    const normalized = { ...dto, image_size: imageSize, ratio };
-    const creditCost = await this.estimateCreditCost({ type: 'image', num_images: 1, image_size: imageSize });
+  private async launchI2ITask(
+    userId: number,
+    normalized: any,
+    source: string,
+    meta?: { comicProjectId: number; group?: string; pageNo?: number; characterId?: string; block?: string },
+  ): Promise<number> {
+    const model = normalized.model;
+    const creditCost = await this.estimateCreditCost({ type: 'image', num_images: 1, image_size: normalized.image_size });
     const charged = await this.creditsService.charge(userId, creditCost);
     if (!charged) {
       throw new BadRequestException(`积分不足，本次生成需要 ${creditCost} 积分，请稍后再试`);
@@ -314,17 +363,17 @@ export class GenerateService implements OnModuleDestroy {
     const task = await this.taskRepo.save({
       user_id: userId,
       type: 'image',
-      source: 'image_to_image',
+      source,
       status: 'processing',
       model_name: model || AGNES_IMAGE_MODELS[0],
       credit_cost: creditCost,
-      input_data: JSON.stringify(normalized),
+      input_data: JSON.stringify(meta ? { ...normalized, ...meta } : normalized),
     });
 
     void this.enqueue(() => this.runImageToImage(userId, task.id, normalized), task.id).catch((err: any) => {
-      this.logger.error(`[后台] 图片生图片任务 ${task.id} 异常: ${err.message}`);
+      this.logger.error(`[后台] 图生图任务 ${task.id} (${source}) 异常: ${err.message}`);
     });
-    return { taskId: task.id, status: 'processing' };
+    return task.id;
   }
 
   private async runImageToImage(userId: number, taskId: number, dto: {

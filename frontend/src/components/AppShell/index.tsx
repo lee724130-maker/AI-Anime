@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Drawer, Avatar } from 'antd';
 import {
   DashboardOutlined, ThunderboltOutlined, FireOutlined, LayoutOutlined,
-  ScissorOutlined, VideoCameraOutlined, DatabaseOutlined, MenuOutlined,
+  ScissorOutlined, VideoCameraOutlined, DatabaseOutlined, PictureOutlined, MenuOutlined,
   MoonOutlined, SunOutlined, WalletOutlined, UserOutlined, LogoutOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
@@ -51,6 +51,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     { key: '/canvas', label: '画布', icon: <LayoutOutlined /> },
     ...(user?.role === 'admin' ? [{ key: '/editor', label: '剪辑', icon: <ScissorOutlined /> }] : []),
     { key: '/drama', label: '短剧工作室', icon: <VideoCameraOutlined /> },
+    { key: '/comic-studio', label: '漫画工作室', icon: <PictureOutlined /> },
     { key: '/global-assets', label: '大资产库', icon: <DatabaseOutlined /> },
   ];
 

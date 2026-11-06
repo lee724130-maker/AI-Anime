@@ -25,6 +25,7 @@ dist/
 output/
 uploads/
 data/
+frontend/dist-deploy/
 
 # Temp / test files
 *.mjs

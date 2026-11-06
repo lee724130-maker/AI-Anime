@@ -1,0 +1,760 @@
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
+import { ComicProject } from './comic-project.entity';
+import { GenerationTask } from '../task/generation-task.entity';
+import { Character } from '../character/character.entity';
+import { GlobalAsset } from '../global-asset/global-asset.entity';
+import { PromptTemplate } from '../admin/prompt-template.entity';
+import { GenerateService } from '../generate/generate.service';
+import { AIServiceUtil, AGNES_IMAGE_MODELS, AGNES_IMAGE_RATIOS } from '../../utils/ai-service.util';
+import { resolveSafeStaticPath } from '../../common/utils/safe-download.util';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const archiver = require('archiver');
+const execFileAsync = promisify(execFile);
+
+/** 两种画风的固定文本块，全片逐字复用 */
+const STYLE_BLOCKS: Record<string, string> = {
+  live_action: 'Photorealistic photograph of one real person, natural skin texture, real fabric and hair detail, soft even studio light, plain clean backdrop, photographic depth of field. Not an illustration, not a painting, not 3D render.',
+  anime: 'Anime illustration of one person, clean line art, cel shading, flat colour with soft painted background, expressive eyes, crisp outlines. Not a photograph, not 3D render.',
+};
+
+const TPL = {
+  outline: '漫画剧情大纲模板',
+  characters: '漫画人物解析模板',
+  persona: '漫画人设提示词模板',
+  script: '漫画分格脚本模板',
+};
+
+const DEFAULT_OUTLINE_TEMPLATE = `你是一位资深漫画编剧。请根据用户的一句话灵感，写出一套适合竖版条漫的完整剧情大纲。
+
+【灵感】{{idea}}
+【片名】{{title}}
+
+严格输出 JSON（不要解释、不要 markdown 代码块）：
+{"logline":"一句话梗概","outline":"完整大纲，含开端/推进/转折/收束，300-500字，中文","scenes":["场景1","场景2","场景3"]}`;
+
+const DEFAULT_CHARACTERS_TEMPLATE = `你是一位漫画人设师。请从下面的剧情大纲里识别出全部出场人物，并为每个人补全可用于 AI 生图的人设信息。
+
+【大纲】{{outline}}
+
+严格输出 JSON（不要解释、不要 markdown 代码块）：
+{"characters":[{"name":"姓名","role":"身份/职业","age":"年龄","gender":"性别","appearance":"脸型/五官/发型发色/瞳色/肤色/体型的中文描述","personality":"性格","costume":"服装逐件描述：上衣、下装、鞋、外搭、配饰，含颜色与材质","accessories":"随身物品与配饰","signature":"标志性特征（如发饰、疤痕、胎记）"}]}
+
+要求：只列出大纲中真实出现的人物；服装必须逐件写清（跨格最容易被模型改样）；不要编造大纲里没有的主要角色。`;
+
+const DEFAULT_PERSONA_TEMPLATE = `你是 AI 生图提示词专家。请把下面的人设转成一段**英文**生图提示词，用于生成该角色的 CHARACTER PROFILE 设定本。
+
+【人物】{{characters}}
+【画风】{{style}}
+
+严格输出 JSON（不要解释、不要 markdown 代码块）：
+{"prompts":[{"id":"人物id","prompt":"英文提示词：逐项写脸型、发型发色、五官、服装逐件（含颜色材质）、配饰、标志性特征；要求干净中性背景、正面均匀光、全身可辨；不要写版式、不要写文字、不要写多格要求"}]}`;
+
+const DEFAULT_SCRIPT_TEMPLATE = `你是一位资深漫画编剧，同时熟悉 AI 生图模型的限制。请为一套竖版条漫生成完整分格脚本。
+
+【大纲】{{outline}}
+【出场人物（id 与姓名）】{{characters}}
+【目标页数】{{page_count}}
+【画面风格】{{style}}
+
+【硬性要求】
+1. 一次性输出完整 {{page_count}} 格，剧情要有开端、推进、转折、收束，格与格必须衔接。
+2. 严格输出 JSON，形如 {"panels":[...]}，不要输出任何解释文字或 markdown 代码块。
+3. 每格必须包含：
+   page_no(整数，从1递增), scene_id, continuity(承接上一格的一句话),
+   characters(本格出场人物 id 数组，必须来自上面的人物列表),
+   action(本格人物动作，几何化描述), expression(表情), camera(景别),
+   narration(中文旁白，可空串), dialogue(中文台词，可空串),
+   choice(分支选项数组或 null), reuse_group(复用组名)。
+4. reuse_group：仅表情/台词变化、姿势与服装不变的连续格归为同一组；动作明确变化的格单独成组。
+5. action 写成可观察的几何锚点，不要写"镜头先拍…再展示…"这类分镜语言，不要写画面文字/气泡要求。
+6. narration 与 dialogue 只作后期排版文案，不会被送去生图。
+
+现在输出 JSON：`;
+
+/** 角色设定本的 4 个图像块（推荐 B：分块生成 + 后端 ffmpeg 拼版，文字归排版层） */
+const SHEET_BLOCKS = [
+  {
+    key: 'portrait', label: '正面头像',
+    prompt: 'A clean character reference sheet: ONE large front-facing head-and-shoulders portrait of {{persona}} Centered, neutral expression, both eyes visible, even front light, plain light grey backdrop. {{style}}',
+  },
+  {
+    key: 'three_view', label: '三视图',
+    prompt: 'Character turnaround reference sheet with THREE full-body views side by side labelled FRONT, 3/4 SIDE and BACK, head to toe, same character in all three: {{persona}} Identical face, hairstyle and outfit in every view, neutral standing pose, plain light grey backdrop. {{style}}',
+  },
+  {
+    key: 'expressions', label: '表情组',
+    prompt: 'Expression reference sheet with FIVE head portraits in one horizontal row of the SAME character: neutral, gentle smile, shy, upset, angry. {{persona}} Identical face, hairstyle and outfit in all five. {{style}}',
+  },
+  {
+    key: 'details', label: '局部特写',
+    prompt: 'Detail reference sheet with FOUR close-up panels of the SAME character: eyes and face detail, hair ornament, collar and upper garment fabric, shoes and lower garment. {{persona}} {{style}}',
+  },
+];
+
+export interface ComicCharacter {
+  id: string;
+  name: string;
+  role?: string;
+  age?: string;
+  gender?: string;
+  appearance?: string;
+  personality?: string;
+  costume?: string;
+  accessories?: string;
+  signature?: string;
+  prompt?: string;
+  blocks?: Array<{ key: string; task_id?: number; url?: string; status?: string }>;
+  sheet_url?: string;
+  locked?: boolean;
+}
+
+export interface ComicPanel {
+  page_no: number;
+  scene_id?: string;
+  continuity?: string;
+  characters?: string[];
+  reuse_group: string;
+  base_image_id?: string;
+  output_url?: string;
+  action?: string;
+  expression?: string;
+  camera?: string;
+  pose_ref?: string;
+  narration?: string;
+  dialogue?: string;
+  choice?: { guide?: string; options?: string[]; highlight?: number } | null;
+  nar?: any;
+  bubs?: any[];
+  ch?: any;
+  task_id?: number;
+  status?: string;
+  error_msg?: string;
+}
+
+export interface PanelSpec { version: number; panels: ComicPanel[] }
+
+@Injectable()
+export class ComicStudioService {
+  private readonly logger = new Logger(ComicStudioService.name);
+
+  constructor(
+    @InjectRepository(ComicProject) private readonly repo: Repository<ComicProject>,
+    @InjectRepository(GenerationTask) private readonly taskRepo: Repository<GenerationTask>,
+    @InjectRepository(Character) private readonly characterRepo: Repository<Character>,
+    @InjectRepository(GlobalAsset) private readonly assetRepo: Repository<GlobalAsset>,
+    @InjectRepository(PromptTemplate) private readonly templateRepo: Repository<PromptTemplate>,
+    private readonly generateService: GenerateService,
+    private readonly aiService: AIServiceUtil,
+  ) {}
+
+  // ---------- 通用读写 ----------
+
+  private parseSpec(p: ComicProject): PanelSpec {
+    if (!p.panel_spec) return { version: 1, panels: [] };
+    try {
+      const j = JSON.parse(p.panel_spec);
+      return { version: j.version || 1, panels: Array.isArray(j.panels) ? j.panels : [] };
+    } catch { return { version: 1, panels: [] }; }
+  }
+
+  private parseChars(p: ComicProject): ComicCharacter[] {
+    if (!p.characters) return [];
+    try {
+      const j = JSON.parse(p.characters);
+      return Array.isArray(j) ? j : (Array.isArray(j.characters) ? j.characters : []);
+    } catch { return []; }
+  }
+
+  private async saveSpec(p: ComicProject, spec: PanelSpec) {
+    p.panel_spec = JSON.stringify(spec);
+    return this.repo.save(p);
+  }
+
+  private async saveChars(p: ComicProject, chars: ComicCharacter[]) {
+    p.characters = JSON.stringify(chars);
+    return this.repo.save(p);
+  }
+
+  private async owned(userId: number, id: number): Promise<ComicProject> {
+    const p = await this.repo.findOne({ where: { id, user_id: userId } });
+    if (!p) throw new NotFoundException('漫画项目不存在');
+    return p;
+  }
+
+  private async template(name: string, fallback: string): Promise<string> {
+    try {
+      const t = await this.templateRepo.findOne({ where: { name, status: 'active' } });
+      if (t?.template) return t.template;
+    } catch { /* 模板表不可用则用内置 */ }
+    return fallback;
+  }
+
+  private async llmJson(prompt: string, temperature = 0.4): Promise<any> {
+    const raw = await this.aiService.chatCompletion([{ role: 'user', content: prompt }], { temperature });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new BadRequestException('模型未返回有效 JSON，请重试');
+    try { return JSON.parse(match[0]); } catch { throw new BadRequestException('模型输出 JSON 解析失败，请重试'); }
+  }
+
+  // ---------- CRUD ----------
+
+  async list(userId: number) {
+    const rows = await this.repo.find({ where: { user_id: userId }, order: { updated_at: 'DESC' }, take: 50 });
+    return rows.map((p) => ({ ...p, panel_count: this.parseSpec(p).panels.length, panel_spec: undefined, characters: undefined }));
+  }
+
+  async getById(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    return { ...p, spec: this.parseSpec(p), character_list: this.parseChars(p) };
+  }
+
+  async create(userId: number, dto: any) {
+    if (!dto?.title?.trim()) throw new BadRequestException('请填写项目名称');
+    const styleMode = dto.style_mode === 'anime' ? 'anime' : 'live_action';
+    const p = this.repo.create({
+      user_id: userId,
+      title: String(dto.title).trim(),
+      outline: dto.outline || '',
+      style_mode: styleMode,
+      character_id: dto.character_id || null,
+      character_ref: dto.character_ref || null,
+      character_card: dto.character_card || '',
+      costume_ref: dto.costume_ref || null,
+      costume_card: dto.costume_card || '',
+      style_block: dto.style_block || STYLE_BLOCKS[styleMode],
+      scene_anchor: dto.scene_anchor || 'plain pale studio backdrop, soft even light',
+      model: AGNES_IMAGE_MODELS.includes(dto.model) ? dto.model : AGNES_IMAGE_MODELS[0],
+      image_size: ['1K', '2K', '3K', '4K'].includes(String(dto.image_size || '').toUpperCase())
+        ? String(dto.image_size).toUpperCase() : '1K',
+      ratio: AGNES_IMAGE_RATIOS.includes(dto.ratio) ? dto.ratio : '2:3',
+      page_count: Math.max(4, Math.min(24, Number(dto.page_count) || 16)),
+      characters: '[]',
+      outline_status: dto.outline ? 'review' : 'draft',
+      characters_status: 'draft',
+      sheet_status: 'draft',
+      sheet_mode: dto.sheet_mode === 'single' ? 'single' : 'blocks',
+      status: 'draft',
+    });
+    const saved = await this.repo.save(p);
+    return this.getById(userId, saved.id);
+  }
+
+  async update(userId: number, id: number, dto: any) {
+    const p = await this.owned(userId, id);
+    if (p.status === 'generating') throw new BadRequestException('生成中不能修改项目，请等待完成');
+    const allowed = ['title', 'outline', 'style_mode', 'character_id', 'character_ref', 'character_card',
+      'costume_ref', 'costume_card', 'style_block', 'scene_anchor', 'model', 'image_size', 'ratio', 'page_count', 'sheet_mode'];
+    for (const k of allowed) if (dto[k] !== undefined) (p as any)[k] = dto[k];
+    if (dto.style_mode && !dto.style_block) p.style_block = STYLE_BLOCKS[dto.style_mode] || p.style_block;
+    await this.repo.save(p);
+    return this.getById(userId, id);
+  }
+
+  async remove(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    await this.repo.remove(p);
+    return { ok: true };
+  }
+
+  /** 可选素材角色（V2 只作补充参考，主链路是模型识别人物） */
+  async listCharacters(userId: number) {
+    const [chars, assets] = await Promise.all([
+      this.characterRepo.find({ where: { user_id: userId }, take: 100 }),
+      this.assetRepo.find({ where: { user_id: userId, type: 'character' }, take: 100 }),
+    ]);
+    return [
+      ...chars.map((c) => ({ key: `character:${c.id}`, source: 'character', id: c.id, name: c.name,
+        description: c.description || '', image_url: c.avatar_url || '',
+        ref_anime: c.reference_image_anime || '', ref_realistic: c.reference_image_realistic || '' })),
+      ...assets.map((a) => ({ key: `asset:${a.id}`, source: 'asset', id: a.id, name: a.name,
+        description: a.description || '', image_url: a.image_url || '', ref_anime: '', ref_realistic: '' })),
+    ];
+  }
+
+  // ---------- 阶段 1：剧情大纲 → 人物识别 ----------
+
+  async generateOutline(userId: number, id: number, dto: { idea?: string }) {
+    const p = await this.owned(userId, id);
+    const idea = String(dto?.idea || '').trim();
+    if (!idea) throw new BadRequestException('请先写一句话灵感/题材');
+    const tpl = await this.template(TPL.outline, DEFAULT_OUTLINE_TEMPLATE);
+    const prompt = tpl.replace(/\{\{idea\}\}/g, idea).replace(/\{\{title\}\}/g, p.title);
+    const j = await this.llmJson(prompt, 0.6);
+    if (!j?.outline) throw new BadRequestException('模型未生成大纲，请重试');
+    p.outline = String(j.outline);
+    p.outline_status = 'review';
+    await this.repo.save(p);
+    return { outline: p.outline, logline: j.logline || '', scenes: j.scenes || [] };
+  }
+
+  async saveOutline(userId: number, id: number, dto: { outline: string; confirm?: boolean }) {
+    const p = await this.owned(userId, id);
+    const outline = String(dto?.outline || '').trim();
+    if (!outline) throw new BadRequestException('大纲不能为空');
+    p.outline = outline;
+    p.outline_status = dto.confirm ? 'confirmed' : 'review';
+    await this.repo.save(p);
+    return this.getById(userId, id);
+  }
+
+  async extractCharacters(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    if (!p.outline?.trim()) throw new BadRequestException('请先生成或填写剧情大纲');
+    const tpl = await this.template(TPL.characters, DEFAULT_CHARACTERS_TEMPLATE);
+    const j = await this.llmJson(tpl.replace(/\{\{outline\}\}/g, p.outline), 0.3);
+    if (!Array.isArray(j?.characters) || !j.characters.length) throw new BadRequestException('未能从大纲识别出人物，请重试');
+    const chars: ComicCharacter[] = j.characters.slice(0, 8).map((c: any, i: number) => ({
+      id: `c${i + 1}`,
+      name: String(c.name || `角色${i + 1}`),
+      role: String(c.role || ''), age: String(c.age || ''), gender: String(c.gender || ''),
+      appearance: String(c.appearance || ''), personality: String(c.personality || ''),
+      costume: String(c.costume || ''), accessories: String(c.accessories || ''),
+      signature: String(c.signature || ''),
+      locked: false,
+    }));
+    p.characters_status = 'review';
+    await this.saveChars(p, chars);
+    return this.getById(userId, id);
+  }
+
+  async saveCharacters(userId: number, id: number, dto: { characters: ComicCharacter[]; confirm?: boolean }) {
+    const p = await this.owned(userId, id);
+    if (!Array.isArray(dto.characters) || !dto.characters.length) throw new BadRequestException('人物列表不能为空');
+    const old = this.parseChars(p);
+    const chars = dto.characters.map((c, i) => {
+      const prev = old.find((x) => x.id === c.id);
+      return { ...(prev || {}), ...c, id: c.id || `c${i + 1}`, locked: prev?.locked || false,
+        blocks: prev?.blocks, sheet_url: prev?.sheet_url, prompt: c.prompt || prev?.prompt };
+    });
+    p.characters_status = dto.confirm ? 'confirmed' : 'review';
+    await this.saveChars(p, chars);
+    return this.getById(userId, id);
+  }
+
+  private personaText(c: ComicCharacter): string {
+    return `${c.name}, ${c.role || ''}, ${c.age || ''} ${c.gender || ''}. Face and hair: ${c.appearance || ''}. Outfit item by item: ${c.costume || ''}. Accessories: ${c.accessories || 'none'}. Signature: ${c.signature || 'none'}.`;
+  }
+
+  // ---------- 阶段 2：人设提示词 → 角色设定本 ----------
+
+  async generateCharacterPrompts(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    const chars = this.parseChars(p);
+    if (!chars.length) throw new BadRequestException('请先识别人物');
+    const tpl = await this.template(TPL.persona, DEFAULT_PERSONA_TEMPLATE);
+    const brief = chars.map((c) => ({ id: c.id, name: c.name, appearance: c.appearance, costume: c.costume, accessories: c.accessories, signature: c.signature }));
+    const prompt = tpl.replace(/\{\{characters\}\}/g, JSON.stringify(brief))
+      .replace(/\{\{style\}\}/g, p.style_mode === 'anime' ? '动漫插画' : '真人写实照片');
+    let map = new Map<string, string>();
+    try {
+      const j = await this.llmJson(prompt, 0.3);
+      if (Array.isArray(j?.prompts)) map = new Map(j.prompts.map((x: any) => [String(x.id), String(x.prompt || '')]));
+    } catch (e: any) {
+      this.logger.warn(`人设提示词 LLM 失败，改用本地拼装: ${e.message}`);
+    }
+    for (const c of chars) c.prompt = map.get(c.id) || this.personaText(c);
+    await this.saveChars(p, chars);
+    return this.getById(userId, id);
+  }
+
+  private blockPrompt(p: ComicProject, c: ComicCharacter, key: string): string {
+    const block = SHEET_BLOCKS.find((b) => b.key === key);
+    if (!block) throw new BadRequestException('未知的设定本区块');
+    const persona = c.prompt || this.personaText(c);
+    const style = p.style_block || STYLE_BLOCKS[p.style_mode];
+    return [
+      'Create a clean CHARACTER PROFILE reference sheet panel.',
+      block.prompt.replace(/\{\{persona\}\}/g, persona).replace(/\{\{style\}\}/g, style),
+      '[CONSISTENCY] Same face, same hairstyle, same outfit in every view. No outfit change, no second character.',
+      '[HARD NEGATIVE] NO Chinese text, NO random letters, NO captions, NO watermark, NO mannequin lines, NO joints, plain neutral backdrop, even lighting.',
+    ].join('\n');
+  }
+
+  /** 为一个人物生成 4 个图像块任务，完成后由 status() 自动拼版 */
+  async generateCharacterSheet(userId: number, id: number, dto: { characterId: string }) {
+    const p = await this.owned(userId, id);
+    const chars = this.parseChars(p);
+    const c = chars.find((x) => x.id === dto.characterId);
+    if (!c) throw new NotFoundException('人物不存在');
+    if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
+    if (!c.prompt) throw new BadRequestException('请先生成人设提示词');
+    c.blocks = [];
+    c.sheet_url = undefined;
+    for (const b of SHEET_BLOCKS) {
+      const taskId = await this.generateService.createSheetBlockTask(userId, {
+        prompt: this.blockPrompt(p, c, b.key),
+        model: p.model,
+        image_size: p.image_size,
+        ratio: '1:1',
+      }, { comicProjectId: p.id, characterId: c.id, block: b.key });
+      c.blocks.push({ key: b.key, task_id: taskId, status: 'processing' });
+    }
+    p.sheet_status = 'generating';
+    await this.saveChars(p, chars);
+    return { characterId: c.id, blocks: c.blocks.length };
+  }
+
+  private localImage(url: string): string | null {
+    if (!url) return null;
+    const resolved = url.startsWith('/static/') ? resolveSafeStaticPath(url) : null;
+    const candidate = resolved || path.resolve(process.cwd(), 'output', path.basename(url));
+    return fs.existsSync(candidate) ? candidate : null;
+  }
+
+  /** 4 个 1:1 图像块 → ffmpeg xstack 拼成 1536×1536 设定本；文字档案不烧进图（归排版层） */
+  private async assembleSheet(p: ComicProject, c: ComicCharacter): Promise<string | null> {
+    const files = SHEET_BLOCKS.map((b) => {
+      const item = c.blocks?.find((x) => x.key === b.key);
+      return item?.url ? this.localImage(item.url) : null;
+    });
+    if (files.some((f) => !f)) return null;
+    const outDir = path.resolve(process.cwd(), 'output', `comic-${p.id}`);
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    const out = path.join(outDir, `sheet_${c.id}.png`);
+    const ffmpegBin = process.env.FFMPEG_PATH
+      || (process.platform === 'win32' ? path.resolve(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe') : 'ffmpeg');
+    const inputs: string[] = [];
+    for (const f of files) inputs.push('-i', f as string);
+    const filters = files.map((_, i) =>
+      `[${i}:v]scale=768:768:force_original_aspect_ratio=decrease,pad=768:768:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`).join(';');
+    const complex = `${filters};[v0][v1][v2][v3]xstack=inputs=4:layout=0_0|768_0|0_768|768_768[out]`;
+    await execFileAsync(ffmpegBin,
+      ['-y', '-v', 'quiet', ...inputs, '-filter_complex', complex, '-map', '[out]', '-frames:v', '1', out],
+      { timeout: 90000 });
+    return fs.existsSync(out) ? `/static/comic-${p.id}/sheet_${c.id}.png` : null;
+  }
+
+  async lockSheet(userId: number, id: number, dto: { characterId: string; locked: boolean }) {
+    const p = await this.owned(userId, id);
+    const chars = this.parseChars(p);
+    const c = chars.find((x) => x.id === dto.characterId);
+    if (!c) throw new NotFoundException('人物不存在');
+    if (dto.locked && !c.sheet_url) throw new BadRequestException('该人物还没有设定本，无法锁定');
+    c.locked = !!dto.locked;
+    const allLocked = chars.length > 0 && chars.every((x) => x.locked && x.sheet_url);
+    p.sheet_status = allLocked ? 'locked' : 'generating';
+    await this.saveChars(p, chars);
+    return this.getById(userId, id);
+  }
+
+  // ---------- 阶段 3：分格脚本与逐页剧情图 ----------
+
+  async generateScript(userId: number, id: number, dto: { page_count?: number }) {
+    const p = await this.owned(userId, id);
+    if (p.status === 'generating') throw new BadRequestException('生成中不能重出脚本');
+    if (!p.outline?.trim()) throw new BadRequestException('请先生成并确认剧情大纲');
+    const chars = this.parseChars(p);
+    if (!chars.length) throw new BadRequestException('请先识别并确认人物');
+    const pageCount = Math.max(4, Math.min(24, Number(dto.page_count) || p.page_count || 16));
+    const tpl = await this.template(TPL.script, DEFAULT_SCRIPT_TEMPLATE);
+    const prompt = tpl
+      .replace(/\{\{outline\}\}/g, p.outline)
+      .replace(/\{\{characters\}\}/g, JSON.stringify(chars.map((c) => ({ id: c.id, name: c.name, role: c.role }))))
+      .replace(/\{\{page_count\}\}/g, String(pageCount))
+      .replace(/\{\{style\}\}/g, p.style_mode === 'anime' ? '动漫插画' : '真人写实照片');
+    const j = await this.llmJson(prompt);
+    if (!Array.isArray(j?.panels) || !j.panels.length) throw new BadRequestException('分格脚本为空，请重试');
+    const panels: ComicPanel[] = j.panels.slice(0, pageCount).map((s: any, i: number) => {
+      const ids = Array.isArray(s.characters) ? s.characters.map(String).filter((x: string) => chars.some((c) => c.id === x)) : [];
+      return {
+        page_no: i + 1,
+        scene_id: String(s.scene_id || `S${i + 1}`),
+        continuity: String(s.continuity || (i === 0 ? '故事开场' : '承接上一格')),
+        characters: ids.length ? ids : [chars[0].id],
+        reuse_group: String(s.reuse_group || '').trim() || `G${i + 1}`,
+        action: String(s.action || 'standing naturally, relaxed posture'),
+        expression: String(s.expression || 'neutral'),
+        camera: String(s.camera || 'medium full-body shot'),
+        pose_ref: s.pose_ref ? String(s.pose_ref) : undefined,
+        narration: String(s.narration || ''),
+        dialogue: String(s.dialogue || ''),
+        choice: Array.isArray(s.choice) ? { guide: '你会怎么选？', options: s.choice.map(String) } : (s.choice || null),
+        status: 'pending',
+      };
+    });
+    p.page_count = panels.length;
+    p.status = 'script_review';
+    await this.saveSpec(p, { version: 2, panels });
+    return this.getById(userId, id);
+  }
+
+  async savePanels(userId: number, id: number, dto: { panels: ComicPanel[] }) {
+    const p = await this.owned(userId, id);
+    if (p.status === 'generating') throw new BadRequestException('生成中不能改分格');
+    if (!Array.isArray(dto.panels) || !dto.panels.length) throw new BadRequestException('分格不能为空');
+    const chars = this.parseChars(p);
+    const panels = dto.panels.map((s, i) => ({
+      ...s, page_no: i + 1,
+      characters: Array.isArray(s.characters) && s.characters.length ? s.characters : (chars.length ? [chars[0].id] : []),
+      reuse_group: String(s.reuse_group || '').trim() || `G${i + 1}`,
+      status: s.status || 'pending',
+    }));
+    p.page_count = panels.length;
+    if (p.status === 'draft') p.status = 'script_review';
+    await this.saveSpec(p, { version: 2, panels });
+    return this.getById(userId, id);
+  }
+
+  private involved(p: ComicProject, panel: ComicPanel, chars: ComicCharacter[]): ComicCharacter[] {
+    const ids = Array.isArray(panel.characters) && panel.characters.length ? panel.characters : (chars.length ? [chars[0].id] : []);
+    return ids.map((id) => chars.find((c) => c.id === id)).filter((c): c is ComicCharacter => !!c);
+  }
+
+  /** V2：每页参考图 = 该页出场人物已锁定的角色设定本 + 可选姿势图/服装图，总 ≤ 9 */
+  private buildRefs(p: ComicProject, panel: ComicPanel, chars: ComicCharacter[]): string[] {
+    const people = this.involved(p, panel, chars);
+    if (!people.length) throw new BadRequestException('请先识别人物');
+    for (const c of people) {
+      if (!c.locked || !c.sheet_url) throw new BadRequestException(`人物「${c.name}」的角色设定本尚未生成并锁定`);
+    }
+    const refs = [
+      ...people.map((c) => c.sheet_url as string),
+      p.costume_ref, panel.pose_ref,
+    ].filter((x) => !!x && String(x).trim()) as string[];
+    if (refs.length > 9) throw new BadRequestException('参考图超过 9 张上限，请减少出场人物或附加参考图');
+    return refs;
+  }
+
+  private buildPrompt(p: ComicProject, panel: ComicPanel, chars: ComicCharacter[]): string {
+    const people = this.involved(p, panel, chars);
+    const identity = people.map((c) => `${c.name}: ${c.appearance || c.prompt || ''}`).join(' | ') || p.character_card;
+    const costume = people.map((c) => `${c.name}: ${c.costume || ''} ${c.accessories || ''}`).join(' | ') || p.costume_card;
+    return [
+      'Using the attached CHARACTER PROFILE reference sheet(s) as the ONLY identity reference, create ONE single finished image of the SAME character(s).',
+      `[IDENTITY ONLY] ${identity} Keep the exact same face, hairstyle and hair colour as the character sheet.`,
+      `[COSTUME ONLY] ${costume} Do not change or omit any garment.`,
+      `[STYLE] ${p.style_block || STYLE_BLOCKS[p.style_mode]}`,
+      `[SCENE ANCHOR] ${p.scene_anchor || 'plain pale studio backdrop, soft even light'}. Keep identical across all pages.`,
+      `[CONTINUITY] ${panel.continuity || 'continuing from the previous page'}. Do not restate the whole scene.`,
+      `[THIS PANEL] Action: ${panel.action || 'standing naturally'}. Expression: ${panel.expression || 'neutral'}. Framing: ${panel.camera || 'medium full-body shot'}.`,
+      '[HARD NEGATIVE] ONE single finished image of the depicted character(s). NO Chinese text, NO speech bubbles, NO captions, NO collage, NO triptych, NO split panels, NO multiple scenes, NO extra figures, NO outfit change, NO mannequin lines.',
+    ].join('\n');
+  }
+
+  private groupsOf(spec: PanelSpec): Array<{ key: string; panels: ComicPanel[] }> {
+    const map = new Map<string, ComicPanel[]>();
+    for (const panel of spec.panels) {
+      const key = panel.reuse_group || `G${panel.page_no}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(panel);
+    }
+    return [...map.entries()].map(([key, panels]) => ({ key, panels }));
+  }
+
+  async estimate(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    const groups = this.groupsOf(this.parseSpec(p));
+    const per = await this.generateService.quoteImageCost(p.image_size);
+    return {
+      page_count: this.parseSpec(p).panels.length,
+      base_count: groups.length,
+      per_image_credits: per,
+      total_credits: per * groups.length,
+      image_size: p.image_size, ratio: p.ratio, model: p.model,
+    };
+  }
+
+  async startGeneration(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    if (p.status === 'generating') throw new BadRequestException('已在生成中');
+    const spec = this.parseSpec(p);
+    if (!spec.panels.length) throw new BadRequestException('请先生成并确认分格脚本');
+    const chars = this.parseChars(p);
+    const groups = this.groupsOf(spec);
+    // 门控：先校验所有出场人物的设定本已锁定，避免扣了积分才失败
+    for (const g of groups) this.buildRefs(p, g.panels[0], chars);
+    const created: number[] = [];
+    let failed = '';
+    for (const g of groups) {
+      const panel = g.panels[0];
+      try {
+        const taskId = await this.generateService.createComicPanelTask(userId, {
+          images: this.buildRefs(p, panel, chars),
+          prompt: this.buildPrompt(p, panel, chars),
+          model: p.model, image_size: p.image_size, ratio: p.ratio,
+        }, { comicProjectId: p.id, group: g.key, pageNo: panel.page_no });
+        for (const item of g.panels) {
+          item.task_id = taskId; item.output_url = undefined;
+          item.status = 'processing'; item.error_msg = undefined;
+        }
+        created.push(taskId);
+      } catch (e: any) {
+        failed = e.message;
+        for (const item of g.panels) { item.status = 'failed'; item.error_msg = e.message; }
+        break;
+      }
+    }
+    p.status = 'generating';
+    const per = await this.generateService.quoteImageCost(p.image_size);
+    p.total_credits = (p.total_credits || 0) + per * created.length;
+    await this.saveSpec(p, spec);
+    return { started: created.length, total_groups: groups.length, failed: failed || undefined };
+  }
+
+  /** 轮询：回填剧情页任务 + 设定本块任务，块齐了自动拼版 */
+  async status(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    const spec = this.parseSpec(p);
+    const chars = this.parseChars(p);
+    const panelIds = spec.panels.map((x) => x.task_id).filter((x): x is number => !!x);
+    const blockIds = chars.flatMap((c) => (c.blocks || []).map((b) => b.task_id)).filter((x): x is number => !!x);
+    const ids = [...new Set([...panelIds, ...blockIds])];
+    if (!ids.length) {
+      return { project: p, panels: spec.panels, characters: chars,
+        progress: { total: spec.panels.length, completed: 0, failed: 0, processing: 0 } };
+    }
+    const tasks = await this.taskRepo.find({ where: { id: In(ids) } });
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+    let dirtySpec = false, dirtyChars = false;
+
+    for (const panel of spec.panels) {
+      if (!panel.task_id) continue;
+      const t = byId.get(panel.task_id);
+      if (!t) continue;
+      const st = t.status === 'completed' ? 'completed' : t.status === 'failed' ? 'failed' : 'processing';
+      if (panel.status !== st) { panel.status = st; dirtySpec = true; }
+      if (st === 'completed' && !panel.output_url && t.output_data) {
+        try {
+          const arr = JSON.parse(t.output_data);
+          if (Array.isArray(arr) && arr[0]?.url) { panel.output_url = arr[0].url; dirtySpec = true; }
+        } catch { /* 等下次 */ }
+      }
+      if (st === 'failed' && t.error_msg) panel.error_msg = t.error_msg;
+    }
+
+    for (const c of chars) {
+      if (!c.blocks?.length) continue;
+      for (const b of c.blocks) {
+        if (!b.task_id) continue;
+        const t = byId.get(b.task_id);
+        if (!t) continue;
+        const st = t.status === 'completed' ? 'completed' : t.status === 'failed' ? 'failed' : 'processing';
+        if (b.status !== st) { b.status = st; dirtyChars = true; }
+        if (st === 'completed' && !b.url && t.output_data) {
+          try {
+            const arr = JSON.parse(t.output_data);
+            if (Array.isArray(arr) && arr[0]?.url) { b.url = arr[0].url; dirtyChars = true; }
+          } catch { /* 等下次 */ }
+        }
+      }
+      if (!c.sheet_url && c.blocks.every((b) => b.url)) {
+        try {
+          const url = await this.assembleSheet(p, c);
+          if (url) { c.sheet_url = url; dirtyChars = true; }
+        } catch (e: any) { this.logger.warn(`设定本拼版失败 ${c.id}: ${e.message}`); }
+      }
+    }
+
+    if (dirtySpec) await this.saveSpec(p, spec);
+    if (dirtyChars) await this.saveChars(p, chars);
+    const all = spec.panels.filter((x) => x.task_id);
+    const done = all.filter((x) => x.status === 'completed').length;
+    const failed = all.filter((x) => x.status === 'failed').length;
+    if (p.status === 'generating' && all.length && done + failed === all.length) {
+      p.status = 'completed';
+      await this.repo.save(p);
+    }
+    return {
+      project: p, panels: spec.panels, characters: chars,
+      progress: { total: all.length, completed: done, failed, processing: all.length - done - failed },
+    };
+  }
+
+  async regeneratePanel(userId: number, id: number, pageNo: number, patch: any) {
+    const p = await this.owned(userId, id);
+    const spec = this.parseSpec(p);
+    const chars = this.parseChars(p);
+    const panel = spec.panels.find((x) => x.page_no === pageNo);
+    if (!panel) throw new NotFoundException('分格不存在');
+    for (const k of ['action', 'expression', 'camera', 'pose_ref', 'narration', 'dialogue']) {
+      if (patch?.[k] !== undefined) (panel as any)[k] = patch[k];
+    }
+    panel.reuse_group = `G${pageNo}_r${Date.now()}`;
+    panel.output_url = undefined; panel.status = 'processing'; panel.error_msg = undefined;
+    const taskId = await this.generateService.createComicPanelTask(userId, {
+      images: this.buildRefs(p, panel, chars),
+      prompt: this.buildPrompt(p, panel, chars),
+      model: p.model, image_size: p.image_size, ratio: p.ratio,
+    }, { comicProjectId: p.id, group: panel.reuse_group, pageNo });
+    panel.task_id = taskId;
+    p.status = 'generating';
+    p.total_credits = (p.total_credits || 0) + await this.generateService.quoteImageCost(p.image_size);
+    await this.saveSpec(p, spec);
+    return { taskId, pageNo };
+  }
+
+  // ---------- 导出漫画包 ----------
+
+  async exportPackage(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    const spec = this.parseSpec(p);
+    if (!spec.panels.length) throw new BadRequestException('没有可导出的分格');
+    const outDir = path.resolve(process.cwd(), 'output', `comic-${p.id}`);
+    if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+    const zipName = `comic-${p.id}.zip`;
+    const zipPath = path.join(outDir, zipName);
+
+    const panelSpec = {
+      version: 2,
+      project: { id: p.id, title: p.title, style_mode: p.style_mode, ratio: p.ratio,
+        w: 1024, h: 1536, page_count: spec.panels.length },
+      characters: this.parseChars(p).map((c) => ({ id: c.id, name: c.name, sheet: c.sheet_url || null })),
+      panels: spec.panels.map((x) => ({
+        page_no: x.page_no,
+        base_image: `格${String(x.page_no).padStart(2, '0')}.png`,
+        reuse_group: x.reuse_group, scene_id: x.scene_id || '', continuity: x.continuity || '',
+        characters: x.characters || [],
+        w: 1024, h: 1536, view: { fit: 'cover', zoom: 1, offX: 0, offY: 0 },
+        nar: x.nar || { on: !!x.narration, text: x.narration || '', pos: 'top', theme: 'light' },
+        bubs: x.bubs || (x.dialogue ? [{ text: x.dialogue, shape: 'ellipse', x: 0.55, y: 0.12 }] : []),
+        ch: x.ch || (x.choice ? { guide: x.choice.guide || '你会怎么选？', options: x.choice.options || [], highlight: x.choice.highlight ?? 0 } : null),
+      })),
+    };
+    const manifest = {
+      generator: 'AI-Anime / 漫画工作室 V2',
+      project_id: p.id, title: p.title, style_mode: p.style_mode,
+      model: p.model, image_size: p.image_size, ratio: p.ratio,
+      page_count: spec.panels.length,
+      base_image_count: this.groupsOf(spec).length,
+      character_count: this.parseChars(p).length,
+      total_credits: p.total_credits,
+      exported_at: new Date().toISOString(),
+      note: '底图由 AI-Anime 生成，身份基准是锁定的角色设定本；旁白/气泡/A·B·C 分支卡由 D:\\剪辑应用 /comic 排版层添加。底图不含中文文字。',
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const output = fs.createWriteStream(zipPath);
+      const archive = archiver('zip', { zlib: { level: 6 } });
+      output.on('close', () => resolve());
+      output.on('error', reject);
+      archive.on('error', reject);
+      archive.pipe(output);
+      let included = 0;
+      for (const panel of spec.panels) {
+        const file = panel.output_url ? this.localImage(panel.output_url) : null;
+        if (file) { archive.file(file, { name: `格${String(panel.page_no).padStart(2, '0')}.png` }); included++; }
+      }
+      for (const c of this.parseChars(p)) {
+        const f = c.sheet_url ? this.localImage(c.sheet_url) : null;
+        if (f) archive.file(f, { name: `设定本_${c.id}.png` });
+      }
+      archive.append(JSON.stringify(panelSpec, null, 2), { name: 'panel-spec.json' });
+      archive.append(JSON.stringify({ ...manifest, included_images: included }, null, 2), { name: 'manifest.json' });
+      void archive.finalize();
+    });
+
+    p.export_url = `/static/comic-${p.id}/${zipName}`;
+    await this.repo.save(p);
+    return {
+      url: p.export_url,
+      included_images: spec.panels.filter((x) => x.output_url && this.localImage(x.output_url)).length,
+      page_count: spec.panels.length, bytes: fs.statSync(zipPath).size,
+    };
+  }
+}

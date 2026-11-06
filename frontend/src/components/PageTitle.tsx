@@ -11,6 +11,7 @@ const TITLES: Record<string, string> = {
   '/generate': 'AI 生成',
   '/generate/history': '生成历史',
   '/drama': '短剧工作室',
+  '/comic-studio': '漫画工作室',
   '/drama/create': '创建短剧',
   '/global-assets': '大资产库',
   '/user': '个人中心',
