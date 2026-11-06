@@ -235,7 +235,11 @@ export class GenerateService implements OnModuleDestroy {
   private async prepareReferenceImages(urls: string[], taskId: number): Promise<string[]> {
     const outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-    const ffmpegBin = path.resolve(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe');
+    // Windows 用项目自带 exe；Linux 生产机用 PATH 中的 ffmpeg（可用 FFMPEG_PATH 覆盖）
+    const ffmpegBin = process.env.FFMPEG_PATH
+      || (process.platform === 'win32'
+        ? path.resolve(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe')
+        : 'ffmpeg');
     const out: string[] = [];
     const temps: string[] = [];
     try {
@@ -403,9 +407,9 @@ export class GenerateService implements OnModuleDestroy {
       }
     }
 
-    // 2026-11-05：全站生图只允许 Agnes Image 2.0 / 2.1 / 2.5 Flash
+    // 2026-11-05：全站生图只允许 Agnes Image 2.1 / 2.5 Flash
     if (model && !AGNES_IMAGE_MODELS.includes(model as any)) {
-      throw new BadRequestException('仅支持 Agnes Image 2.0 / 2.1 / 2.5 Flash');
+      throw new BadRequestException('仅支持 Agnes Image 2.1 / 2.5 Flash');
     }
     // 未指定时记录实际使用的默认模型，避免历史任务里 model_name 为空
     const modelName = model || AGNES_IMAGE_MODELS[0];
