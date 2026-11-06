@@ -44,6 +44,11 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3000;
+  // 开关机钩子：pm2 restart / SIGTERM 会触发各 service 的 onModuleDestroy，及时停掉
+  // 心跳定时器、@Interval 定时任务与 Redis 连接，避免停机瞬间还在写库。
+  // 注意：关机路径**不**做任务结清（来不及、且容易写半截）；进程重启遗留的 processing
+  // 任务由下次启动的 TaskRecoveryService 自愈（心跳停摆 90s 判孤儿 → 失败 + 全额退款）。
+  app.enableShutdownHooks();
   await app.listen(port);
 }
 bootstrap();

@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -39,20 +40,26 @@ export class AuthService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly jwtService: JwtService,
-  ) {
-    // 定期清理过期的内存验证码缓存（与生产一致，每 5 分钟一次）
-    setInterval(() => {
-      const now = Date.now();
-      for (const [key, val] of this.codeStore.codes) {
-        if (now - val.expiresAt > 600000) this.codeStore.codes.delete(key);
-      }
-      for (const [key, val] of this.codeStore.sentAt) {
-        if (now - val > 86400000) this.codeStore.sentAt.delete(key);
-      }
-      for (const [key, val] of this.codeStore.daily) {
-        if (now - new Date(`${val.day}T00:00:00Z`).getTime() > 86400000) this.codeStore.daily.delete(key);
-      }
-    }, 300000);
+  ) {}
+
+  /**
+   * 定期清理过期的内存验证码缓存（每 5 分钟一次，与生产一致）。
+   * 2026-10-29：原来写在构造器的裸 setInterval 里，连句柄都没保存，
+   * start:dev 热重载会不断累积泄漏的定时器；交给 ScheduleModule 后停机/重载自动回收。
+   * ⚠️ 这里**故意不加**分布式锁：清的是本进程内存的 Map，每个实例都必须各自清。
+   */
+  @Interval(300_000)
+  pruneMemoryCodeStore() {
+    const now = Date.now();
+    for (const [key, val] of this.codeStore.codes) {
+      if (now - val.expiresAt > 600000) this.codeStore.codes.delete(key);
+    }
+    for (const [key, val] of this.codeStore.sentAt) {
+      if (now - val > 86400000) this.codeStore.sentAt.delete(key);
+    }
+    for (const [key, val] of this.codeStore.daily) {
+      if (now - new Date(`${val.day}T00:00:00Z`).getTime() > 86400000) this.codeStore.daily.delete(key);
+    }
   }
 
   async register(dto: RegisterDto, ip?: string) {

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GenerateController } from './generate.controller';
 import { GenerateService } from './generate.service';
+import { TaskRecoveryService } from './task-recovery.service';
 import { UtilsModule } from '../../utils/utils.module';
 import { TaskModule } from '../task/task.module';
 import { MediaModule } from '../media/media.module';
@@ -21,7 +22,7 @@ import { User } from '../user/user.entity';
     CreditsModule,
   ],
   controllers: [GenerateController],
-  providers: [GenerateService],
+  providers: [GenerateService, TaskRecoveryService],
   exports: [GenerateService],
 })
 export class GenerateModule {}

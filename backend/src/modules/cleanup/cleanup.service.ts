@@ -1,6 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { Interval, Timeout } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { DistributedLockService } from '../../common/services/distributed-lock.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -8,6 +10,10 @@ const TEMP_DIR_PREFIXES = ['viral_frames_', 'viral_analyze_', 'viral_gen_', 'vir
 const STALE_FILE_EXT = /\.(mp4|webm|mov|mkv|jpg|jpeg|png|webp|gif|mp3|m4a|wav)$/i;
 const TEMP_DIR_AGE = 2 * 60 * 60 * 1000;      // temp dirs older than 2h (crash leftovers)
 const RESULT_FILE_AGE = 30 * 24 * 60 * 60 * 1000; // unreferenced result files older than 30 days
+/** 清理周期：每 6 小时一轮（与原裸 setInterval 一致） */
+const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/** 锁 TTL 3 小时：远大于正常一轮耗时，又只在 6 小时周期的前半段独占，不会挡掉下一轮 */
+const CLEANUP_LOCK_TTL_SEC = 3 * 60 * 60;
 
 /**
  * Periodic output/ hygiene:
@@ -15,21 +21,37 @@ const RESULT_FILE_AGE = 30 * 24 * 60 * 60 * 1000; // unreferenced result files o
  * - deletes unreferenced viral_source_*.mp4 older than 2h
  * - deletes stale unreferenced result files (canvas_result_/viral_result_/scene/upload/...) older than 30 days
  * - files referenced by ANY table (projects/templates/media/drama assets) are NEVER deleted
+ *
+ * 2026-10-29：定时从构造器里的裸 setInterval 迁到 ScheduleModule（停机自动回收），
+ * 首轮从「构造时就跑」改成「启动后 30s 再跑」——原来的写法会在应用还没起完、
+ * TypeORM 还在建表/跑迁移的时候就抢 DB，属于无谓撞车。
  */
 @Injectable()
-export class CleanupService implements OnModuleDestroy {
+export class CleanupService {
   private readonly logger = new Logger(CleanupService.name);
   private readonly outputDir: string;
-  private timer: NodeJS.Timeout | null = null;
 
-  constructor(@InjectDataSource() private readonly dataSource: DataSource) {
+  constructor(
+    @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly lock: DistributedLockService,
+  ) {
     this.outputDir = path.resolve(process.cwd(), 'output');
-    this.run().catch(() => {});
-    this.timer = setInterval(() => this.run().catch(() => {}), 6 * 60 * 60 * 1000);
   }
 
-  onModuleDestroy() {
-    if (this.timer) clearInterval(this.timer);
+  @Timeout(30_000)
+  async initialCleanup() {
+    await this.tick('startup');
+  }
+
+  @Interval(CLEANUP_INTERVAL_MS)
+  async scheduledCleanup() {
+    await this.tick('interval');
+  }
+
+  /** 一轮清理：抢不到锁 = 别的实例或上一轮还在跑，直接跳过（清理是幂等的，谁跑都一样） */
+  private async tick(reason: 'startup' | 'interval') {
+    const ran = await this.lock.runExclusive('output-cleanup', CLEANUP_LOCK_TTL_SEC, () => this.run());
+    if (!ran) this.logger.log(`[cleanup] ${reason} 本轮跳过（锁被占用或上一轮未结束）`);
   }
 
   private async run() {

@@ -1,5 +1,11 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 'typeorm';
 
+/**
+ * 孤儿清扫按 (status, heartbeat_at) 查，索引名与迁移
+ * `1793261717251-AddGenerationTaskHeartbeat` 保持一致——实体声明 + 迁移建索引两边对齐，
+ * 否则开着 synchronize 的环境会把这个它不认识的索引当多余对象处理。
+ */
+@Index('IDX_gen_task_heartbeat', ['status', 'heartbeat_at'])
 @Entity('generation_tasks')
 export class GenerationTask {
   @PrimaryGeneratedColumn()
@@ -53,6 +59,14 @@ export class GenerationTask {
 
   @Column({ name: 'started_at', type: 'datetime', nullable: true })
   started_at: Date;
+
+  /**
+   * 执行体心跳：/generate 走进程内队列（非 Bull），执行期间由 GenerateService 每 20s 刷新。
+   * 用途 = 区分「还在真跑」和「进程已重启/崩溃留下的孤儿行」，供启动自愈与超时清扫判定。
+   * null = 老数据或不经进程内队列写入的行（清扫时按 created_at 兜底判定）。
+   */
+  @Column({ name: 'heartbeat_at', type: 'datetime', nullable: true })
+  heartbeat_at: Date | null;
 
   @Column({ name: 'completed_at', type: 'datetime', nullable: true })
   completed_at: Date;

@@ -19,6 +19,27 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 
+/**
+ * 分镜时长纪律（A14，2026-11-04）
+ * 出处：`桌面\剪辑应用\AI漫剧分镜与提示词模板.md` §二 —— 单镜头目标 4~5 秒，绝对上限 15 秒。
+ * 目标区间之外（6~15 秒）只告警不拒绝：AI 拆分与人工编辑都可能合理落在区间外，硬拦会把可用镜头挡掉；
+ * 但越过 15 秒一律拒绝——超长镜头的正确做法是拆成多个片段，而不是丢进生成队列白烧积分。
+ */
+const SEG_DURATION_TARGET_MIN = 4;
+const SEG_DURATION_TARGET_MAX = 5;
+const SEG_DURATION_HARD_MAX = 15;
+const SEG_DURATION_MIN = 1;
+
+/**
+ * `PUT /api/drama/episodes/:eid/segments/:sid` 允许写入的字段白名单。
+ * 为什么要显式列：控制器标的是内联 `Partial<{...}>`，TS 类型运行时被擦除，
+ * 而 `main.ts` 的全局 `ValidationPipe({whitelist:true})` 依赖 class-validator 元数据——对内联类型不生效。
+ * 少了这道白名单，客户端可以直接把片段写成 `status:'completed'` 或指向任意 `video_url`。
+ */
+const SEGMENT_EDITABLE_FIELDS = [
+  'prompt', 'prompt_cn', 'duration', 'character_refs', 'prop_refs', 'scene_refs',
+] as const;
+
 @Injectable()
 export class DramaService {
   private readonly logger = new Logger(DramaService.name);
@@ -345,7 +366,10 @@ export class DramaService {
             character_refs: JSON.stringify(seg.characters || []),
             prop_refs: JSON.stringify(seg.props || []),
             scene_refs: JSON.stringify(seg.scenes || []),
-            duration: seg.duration || 5,
+            duration: this.clampSegmentDuration(
+              seg.duration ?? SEG_DURATION_TARGET_MAX,
+              `分析入库 项目 ${projectId} 第 ${ep.episode_no} 集第 ${seg.segmentNo} 镜`,
+            ).duration,
           })
         );
         await this.segmentRepo.save(segments);
@@ -435,7 +459,10 @@ export class DramaService {
     if (!newSeg) throw new BadRequestException('AI 未返回有效的片段，请重试');
 
     newSeg.segmentNo = Number(dto.segmentNo) || current?.segmentNo || 1;
-    if (!newSeg.duration) newSeg.duration = current?.duration || 5;
+    newSeg.duration = this.clampSegmentDuration(
+      newSeg.duration ?? current?.duration ?? SEG_DURATION_TARGET_MAX,
+      `片段重生（项目 ${projectId} 第 ${dto.episodeNo} 集第 ${newSeg.segmentNo} 镜）`,
+    ).duration;
 
     // 语言/资产兜底（与 analyze 一致）
     const merged: any = { episodes: [{ segments: [newSeg] }], assets: result.assets || {} };
@@ -745,13 +772,103 @@ export class DramaService {
     return created;
   }
 
+  /**
+   * 人工编辑路径的时长校验（A14）：越界直接拒绝并说清原因，落在目标区间外只告警放行。
+   * 对应测试项 B12——故意保存一个 20 秒片段，必须被拦下且报错可读。
+   */
+  private normalizeSegmentDuration(raw: unknown, where: string): number {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) throw new BadRequestException(`片段时长必须是数字，收到的是 ${JSON.stringify(raw)}`);
+    const rounded = Math.round(n);
+    if (rounded < SEG_DURATION_MIN || rounded > SEG_DURATION_HARD_MAX) {
+      throw new BadRequestException(
+        `片段时长 ${rounded} 秒不合法：单镜头目标 ${SEG_DURATION_TARGET_MIN}~${SEG_DURATION_TARGET_MAX} 秒，`
+        + `绝对上限 ${SEG_DURATION_HARD_MAX} 秒。超过 ${SEG_DURATION_HARD_MAX} 秒的镜头请拆成多个片段，`
+        + `否则既烧积分又会被生成端夹断。`,
+      );
+    }
+    if (rounded < SEG_DURATION_TARGET_MIN || rounded > SEG_DURATION_TARGET_MAX) {
+      this.logger.warn(`[drama-discipline] ${where}: 时长 ${rounded}s 不在目标区间 ${SEG_DURATION_TARGET_MIN}-${SEG_DURATION_TARGET_MAX}s（未越硬上限，放行）`);
+    }
+    return rounded;
+  }
+
+  /** AI 产出路径的时长兜底（A14）：不拒绝整轮分析，但夹回范围内并留下告警，绝不静默 */
+  private clampSegmentDuration(raw: unknown, where: string): { duration: number; warning?: string } {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) {
+      this.logger.warn(`[drama-discipline] ${where}: AI 返回的时长不是数字（${JSON.stringify(raw)}），按 ${SEG_DURATION_TARGET_MAX}s 兜底`);
+      return { duration: SEG_DURATION_TARGET_MAX, warning: 'AI 未给出有效时长，已按 5 秒兜底' };
+    }
+    const rounded = Math.round(n);
+    const clamped = Math.min(SEG_DURATION_HARD_MAX, Math.max(SEG_DURATION_MIN, rounded));
+    if (clamped !== rounded) {
+      this.logger.warn(`[drama-discipline] ${where}: AI 返回 ${rounded}s 越界，已夹到 ${clamped}s（硬上限 ${SEG_DURATION_HARD_MAX}s）`);
+      return { duration: clamped, warning: `AI 给的 ${rounded}s 超出 ${SEG_DURATION_HARD_MAX}s 上限，已夹到 ${clamped}s，建议拆镜` };
+    }
+    if (rounded < SEG_DURATION_TARGET_MIN || rounded > SEG_DURATION_TARGET_MAX) {
+      this.logger.warn(`[drama-discipline] ${where}: AI 返回 ${rounded}s 不在目标区间 ${SEG_DURATION_TARGET_MIN}-${SEG_DURATION_TARGET_MAX}s`);
+    }
+    return { duration: rounded };
+  }
+
+  /** 打戏判定关键词（A24：命中才附加打戏强化块，避免给情绪镜头塞动作指令） */
+  private static readonly FIGHT_KEYWORDS = [
+    '战斗', '打斗', '打架', '攻击', '出拳', '挥拳', '挥剑', '砍', '刺', '追击', '逃窜', '爆炸', '搏斗', '厮杀',
+    'fight', 'battle', 'punch', 'kick', 'sword', 'chase', 'explosion', 'combat',
+  ];
+
+  /**
+   * 分镜提示词纪律附加块（A24，2026-11-04）
+   * 三条模板都做成「尾部附加」而不是「LLM 重写」：零额外模型调用、零额外积分，新分镜立即生效。
+   * 模板缺失或未启用（比如生产还没跑种子）时静默跳过——绝不因为少插了一条模板就打断出片。
+   */
+  private async buildPromptDiscipline(segment: DramaSegment): Promise<{ suffix: string; applied: string[] }> {
+    const blocks: string[] = [];
+    const applied: string[] = [];
+    let templates: any[] = [];
+    try {
+      templates = (await this.templateService.find(undefined, undefined)) as any[];
+    } catch {
+      templates = [];
+    }
+    const pick = (name: string) => (templates || []).find((t: any) => t.name === name && t.status === 'active');
+
+    const layout = pick('漫剧分镜提示词纪律');
+    if (layout?.template) { blocks.push(String(layout.template).trim()); applied.push(layout.name); }
+
+    const haystack = `${segment.prompt || ''} ${segment.prompt_cn || ''} ${segment.summary || ''} ${segment.timeline || ''}`.toLowerCase();
+    const isFight = DramaService.FIGHT_KEYWORDS.some(k => haystack.includes(k.toLowerCase()));
+    if (isFight) {
+      const fight = pick('打戏强化附加');
+      if (fight?.template) { blocks.push(String(fight.template).trim()); applied.push(fight.name); }
+    }
+
+    const transition = pick('转场衔接附加');
+    if (transition?.template) { blocks.push(String(transition.template).trim()); applied.push(transition.name); }
+
+    return { suffix: blocks.join('\n\n'), applied };
+  }
+
   async updateSegment(userId: number, segmentId: number, data: Partial<DramaSegment>) {
     const segment = await this.segmentRepo.findOne({ where: { id: segmentId } });
     if (!segment) throw new NotFoundException('片段不存在');
     const episode = await this.episodeRepo.findOne({ where: { id: segment.episode_id } });
     if (!episode) throw new NotFoundException('分集不存在');
     await this.getById(userId, episode.project_id);
-    Object.assign(segment, data);
+
+    // 白名单落库：status / video_url / episode_id / id 等一律忽略（见 SEGMENT_EDITABLE_FIELDS 注释）
+    const patch: Record<string, unknown> = {};
+    for (const key of SEGMENT_EDITABLE_FIELDS) {
+      if ((data as Record<string, unknown>)[key] !== undefined) patch[key] = (data as Record<string, unknown>)[key];
+    }
+    const ignored = Object.keys(data).filter(k => !(SEGMENT_EDITABLE_FIELDS as readonly string[]).includes(k));
+    if (ignored.length) this.logger.warn(`[drama-discipline] updateSegment 片段 ${segmentId} 忽略不可编辑字段: ${ignored.join(', ')}`);
+
+    if (patch.duration !== undefined) {
+      patch.duration = this.normalizeSegmentDuration(patch.duration, `片段 ${segmentId} 手工编辑`);
+    }
+    Object.assign(segment, patch);
     return this.segmentRepo.save(segment);
   }
 
@@ -1091,6 +1208,13 @@ export class DramaService {
         enhancedPrompt += `\n\n时间轴：${segment.timeline}`;
       }
 
+      // A24：尾部附加分镜提示词纪律（站位/景别 + 命中时的打戏强化 + 转场衔接）
+      const discipline = await this.buildPromptDiscipline(segment);
+      if (discipline.suffix) {
+        enhancedPrompt += `\n\n${discipline.suffix}`;
+        this.logger.log(`[drama-discipline] 片段 ${segment.id} 已附加提示词纪律：${discipline.applied.join(' / ')}（+${discipline.suffix.length} 字）`);
+      }
+
       // 调试日志：显示增强提示词和媒体信息
       this.logger.log(`[DEBUG] Segment ${segment.id} enhancedPrompt (first 300): ${enhancedPrompt.slice(0, 300)}`);
       this.logger.log(`[DEBUG] Segment ${segment.id} media count: ${media.length}, refs: chars=${charNames.length}(${charNames.join(',')}), scenes=${sceneNames.length}(${sceneNames.join(',')}), props=${propNames.length}(${propNames.join(',')})`);
@@ -1343,8 +1467,8 @@ export class DramaService {
 
 请严格按照以下 JSON 格式返回（不要返回其他内容）：
 {
-  "duration": 数字,  // 3~15 之间的整数秒数
-  "timeline": "时间轴描述，例如：1~3秒：角色A在城堡中行走；4~6秒：角色A遭遇敌人；7~8秒：角色A拔出宝剑战斗"
+  "duration": 数字,  // 整数秒。目标 4~5 秒（单镜头纪律），绝对不超过 15 秒；超过 15 秒的内容请只规划其中一镜
+  "timeline": "时间轴描述，例如：1~2秒：角色A推门进入城堡大厅；3~4秒：守卫转头举起长矛；5秒：角色A停步、眼神收紧"
 }`;
 
     const raw = await this.aiService.chatCompletion([
@@ -1366,7 +1490,8 @@ export class DramaService {
       }
     }
 
-    const duration = Math.max(3, Math.min(15, Math.round(result.duration || 5)));
+    const clamped = this.clampSegmentDuration(result.duration, `片段 ${segment.id} 智能规划`);
+    const duration = clamped.duration;
     const timeline = result.timeline || '';
 
     segment.duration = duration;
@@ -1375,7 +1500,7 @@ export class DramaService {
     }
     await this.segmentRepo.save(segment);
 
-    return { duration, timeline };
+    return { duration, timeline, ...(clamped.warning ? { warning: clamped.warning } : {}) };
   }
 
   async stitchEpisode(userId: number, episodeId: number) {

@@ -329,7 +329,8 @@ export default function EpisodeDetailPage() {
     setPlanning(prev => new Set(prev).add(segId));
     try {
       const { data } = await api.post(`/api/drama/episodes/${episodeId}/segments/${segId}/plan`);
-      message.success(`智能规划完成：${data.duration}秒`);
+      if (data.warning) message.warning(`智能规划：${data.duration}秒 · ${data.warning}`, 6);
+      else message.success(`智能规划完成：${data.duration}秒`);
       fetchData();
     } catch (err: any) {
       message.error(err.response?.data?.message || '规划失败');
@@ -341,7 +342,7 @@ export default function EpisodeDetailPage() {
     try {
       await api.put(`/api/drama/episodes/${episodeId}/segments/${segId}`, { duration });
       fetchData();
-    } catch { message.error('更新时长失败'); }
+    } catch (err: any) { message.error(err.response?.data?.message || '更新时长失败', 6); }
   };
 
   const parseRefs = (json: string | null): string[] => {
@@ -513,9 +514,11 @@ export default function EpisodeDetailPage() {
                 </Button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>时长</Text>
-                  <Select value={selectedSeg.duration || 5} size="small" style={{ width: 72 }}
+                  <Select value={selectedSeg.duration || 5} size="small" style={{ width: 84 }}
                     onChange={v => handleDurationChange(selectedSeg.id, v)}
-                    options={Array.from({ length: 13 }, (_, i) => ({ label: `${i + 3}秒`, value: i + 3 }))} />
+                    options={Array.from({ length: 15 }, (_, i) => ({
+                      label: `${i + 1}秒${i + 1 === 4 || i + 1 === 5 ? '★' : ''}`, value: i + 1,
+                    }))} />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Text type="secondary" style={{ fontSize: 12 }}>候选数</Text>

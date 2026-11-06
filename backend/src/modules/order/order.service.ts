@@ -1,6 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { DistributedLockService } from '../../common/services/distributed-lock.service';
 import { Order } from './order.entity';
 import { User } from '../user/user.entity';
 import { SystemConfig } from '../admin/admin.entity';
@@ -12,9 +14,8 @@ export const DEFAULT_CREDIT_PLANS = [
 ];
 
 @Injectable()
-export class OrderService implements OnModuleInit, OnModuleDestroy {
+export class OrderService {
   private readonly logger = new Logger(OrderService.name);
-  private expireTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @InjectRepository(Order)
@@ -24,23 +25,21 @@ export class OrderService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(SystemConfig)
     private readonly configRepo: Repository<SystemConfig>,
     private readonly dataSource: DataSource,
+    private readonly lock: DistributedLockService,
   ) {}
 
-  onModuleInit() {
-    // 每分钟清理超过 15 分钟未支付的 pending 订单（与生产一致）
-    this.expireTimer = setInterval(async () => {
-      try {
-        const count = await this.cancelExpiredOrders();
-        if (count > 0) this.logger.log(`已取消 ${count} 个超时订单`);
-      } catch (err: any) {
-        this.logger.error(`超时订单清理失败: ${err.message}`);
-      }
-    }, 60_000);
-    this.logger.log('订单超时清理任务已启动（每分钟，超时 15 分钟）');
-  }
-
-  onModuleDestroy() {
-    if (this.expireTimer) clearInterval(this.expireTimer);
+  /**
+   * 每分钟清理超过 15 分钟未支付的 pending 订单（与生产一致）。
+   * 2026-10-29：从 onModuleInit 里的裸 setInterval 迁到 ScheduleModule 托管（停机自动回收）。
+   * cancelExpiredOrders 本身已是「WHERE status='pending'」原子更新，多实例并发也不会重复入账，
+   * 这里的锁只是省掉重复扫描；TTL 50s < 60s 周期，不会挡掉下一轮。
+   */
+  @Interval(60_000)
+  async expirePendingOrders() {
+    await this.lock.runExclusive('order-expire', 50, async () => {
+      const count = await this.cancelExpiredOrders();
+      if (count > 0) this.logger.log(`已取消 ${count} 个超时订单`);
+    });
   }
 
   private async getPlansFromDb() {

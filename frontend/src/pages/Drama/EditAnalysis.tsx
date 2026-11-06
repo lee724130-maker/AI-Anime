@@ -213,7 +213,7 @@ export default function EditAnalysisPage() {
                         <Space size={8}>
                           <Tag>片段 {seg.segmentNo}</Tag>
                           <InputNumber value={seg.duration} onChange={(v) => updateSegment(epIndex, segIndex, 'duration', v)}
-                            min={3} max={30} addonAfter="秒" style={{ width: 100 }} />
+                            min={1} max={15} addonAfter="秒" style={{ width: 100 }} />
                         </Space>
                         <TextArea value={seg.summary} onChange={(e) => updateSegment(epIndex, segIndex, 'summary', e.target.value)}
                           rows={1} placeholder="片段概述" />
