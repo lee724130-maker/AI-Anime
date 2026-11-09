@@ -18,6 +18,18 @@ export class ComicStudioController {
     return this.service.listCharacters(req.user.id);
   }
 
+  /** 开源图鉴目录（RuiC-PoseAtlas：人脸/造型/服装，CC0），服务端缓存 1 小时 */
+  @Get('open-gallery')
+  openGallery(@Req() req) {
+    return this.service.getOpenCatalog();
+  }
+
+  /** 导入开源图鉴原图 → /static/gallery/，返回可粘贴到设定本素材图的路径 */
+  @Post('open-gallery/import')
+  importOpenImage(@Req() req, @Body() body: any) {
+    return this.service.importOpenImage(req.user.id, body);
+  }
+
   @Get(':id')
   get(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.service.getById(req.user.id, id);
@@ -73,6 +85,12 @@ export class ComicStudioController {
   @Put(':id/sheets/lock')
   lockSheet(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: any) {
     return this.service.lockSheet(req.user.id, id, body);
+  }
+
+  /** 块级素材来源：用现成图（/static/ 路径）替换某个设定本块，0 次生成 */
+  @Put(':id/sheets/block-asset')
+  setBlockAsset(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    return this.service.setBlockAsset(req.user.id, id, body);
   }
 
   /** V2 阶段 3：LLM 一次性生成完整分格脚本 */

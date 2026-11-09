@@ -90,6 +90,32 @@ export default function HistoryTable({ pageSize = 8, showFilters = false, showPa
     });
   };
 
+  /** 一键清理全部失败任务（批量删除，失败任务不涉及积分退款） */
+  const [cleaningFailed, setCleaningFailed] = useState(false);
+  const handleDeleteFailed = () => {
+    Modal.confirm({
+      title: '一键清理全部失败记录',
+      content: '将删除你名下所有「失败」状态的任务及其已生成的残留文件（每次最多 500 条）。已完成/生成中/排队中的任务不受影响。删除后无法恢复，确定继续？',
+      okText: '全部清理',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setCleaningFailed(true);
+        try {
+          const { data } = await api.post('/api/generate/tasks/delete-failed');
+          if (data?.deleted > 0) {
+            message.success(`已清理 ${data.deleted} 条失败记录${data.remaining ? `，剩余 ${data.remaining} 条可继续清理` : ''}`);
+          } else {
+            message.info('没有可清理的失败记录');
+          }
+          fetch();
+        } catch (err: any) {
+          message.error(err.response?.data?.message || '清理失败');
+        } finally { setCleaningFailed(false); }
+      },
+    });
+  };
+
   const openSaveModal = (record: any) => {
     try {
       const data = JSON.parse(record.output_data || '{}');
@@ -216,6 +242,15 @@ export default function HistoryTable({ pageSize = 8, showFilters = false, showPa
             ]}
           />
           <Text type="secondary">共 {total} 条</Text>
+          <Button
+            danger
+            size="small"
+            icon={<DeleteOutlined />}
+            loading={cleaningFailed}
+            onClick={handleDeleteFailed}
+          >
+            一键清理失败
+          </Button>
         </Space>
       )}
       <Table

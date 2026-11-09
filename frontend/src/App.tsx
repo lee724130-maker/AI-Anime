@@ -49,6 +49,7 @@ const EpisodeDetailPage = lazy(() => import('./pages/Drama/EpisodeDetail'));
 const EditorListPage = lazy(() => import('./pages/Editor'));
 const EditorPage = lazy(() => import('./pages/Editor/EditorPage'));
 const ComicStudioPage = lazy(() => import('./pages/ComicStudio'));
+const OpenGalleryPage = lazy(() => import('./pages/OpenGallery'));
 
 // 生产 bundle KI：页面级 loading 兜底
 function PageFallback() {
@@ -130,6 +131,7 @@ export default function App() {
               <Route path="/video/:id" element={<Shelled><VideoDetailPage /></Shelled>} />
               <Route path="/studio" element={<Shelled><StudioPage /></Shelled>} />
               <Route path="/comic-studio" element={<Shelled><UserLayout><ComicStudioPage /></UserLayout></Shelled>} />
+              <Route path="/open-gallery" element={<Shelled><UserLayout><OpenGalleryPage /></UserLayout></Shelled>} />
               <Route path="/order" element={<Shelled><OrderPage /></Shelled>} />
               <Route path="/viral" element={<Shelled><UserLayout><ViralIndex /></UserLayout></Shelled>} />
               <Route path="/viral/create" element={<Shelled><UserLayout><ViralCreateTemplate /></UserLayout></Shelled>} />

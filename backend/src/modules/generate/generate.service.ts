@@ -680,7 +680,8 @@ export class GenerateService implements OnModuleDestroy {
         videoType: 't2v',
         style,
       }, prompt, (p) => {
-        void this.updateProgress(task, Math.min(85, Math.max(30, p)));
+        void this.updateProgress(task, Math.min(85, Math.max(30, p))).catch((e: any) =>
+          this.logger.warn(`进度更新失败(忽略) task=${task.id}: ${e.message}`));
       });
 
       let localUrl = await this.downloadToLocal(videoUrl, `vid_${task.id}`);
@@ -835,7 +836,8 @@ export class GenerateService implements OnModuleDestroy {
         videoType,
         style,
       }, prompt, (p) => {
-        void this.updateProgress(task, Math.min(85, Math.max(30, p)));
+        void this.updateProgress(task, Math.min(85, Math.max(30, p))).catch((e: any) =>
+          this.logger.warn(`进度更新失败(忽略) task=${task.id}: ${e.message}`));
       });
 
       let localUrl = await this.downloadToLocal(videoUrl, `i2v_${task.id}`);
@@ -1482,6 +1484,35 @@ ${roleRule}
 
     this.logger.log(`Task ${taskId} and associated data deleted by user ${userId}`);
     return { message: '删除成功' };
+  }
+
+  /**
+   * 一键清理当前用户全部失败任务（2026-11-09 用户需求：一个个删太慢）。
+   * 逐条复用 deleteTask（含文件/封面/task_events/media_files 关联清理）；
+   * 只删 status='failed'（已结清 charged=true，不会触发退款路径），processing/pending 不动。
+   * 单条失败不中断整体；单次上限 500 条防请求超时，超出让用户再点一次。
+   */
+  async deleteFailedTasks(userId: number) {
+    const tasks = await this.taskRepo.find({
+      where: { user_id: userId, status: 'failed' },
+      order: { id: 'DESC' },
+      take: 500,
+    });
+    if (!tasks.length) return { deleted: 0, requested: 0, remaining: 0, errors: [] as string[] };
+    let deleted = 0;
+    const errors: string[] = [];
+    for (const t of tasks) {
+      try {
+        await this.deleteTask(userId, t.id);
+        deleted++;
+      } catch (e: any) {
+        errors.push(`#${t.id}: ${e.message}`);
+        this.logger.warn(`批量清理失败任务 #${t.id} 出错: ${e.message}`);
+      }
+    }
+    const remaining = await this.taskRepo.count({ where: { user_id: userId, status: 'failed' } });
+    this.logger.log(`[batch] 用户 ${userId} 一键清理失败任务: deleted=${deleted}/${tasks.length}, remaining=${remaining}`);
+    return { deleted, requested: tasks.length, remaining, errors };
   }
 
   private async downloadToLocal(url: string, prefix: string): Promise<string> {

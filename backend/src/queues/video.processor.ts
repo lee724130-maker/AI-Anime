@@ -160,14 +160,14 @@ export class VideoProcessor {
         } else {
           // videoUrl is empty — all AI services failed, generate placeholder
           this.logger.warn(`No video generated — creating local test pattern (${videoResolution} ${videoRatio}, ${videoDuration}s)`);
-          videoUrl = this.aiService.generatePlaceholderVideo({ imageUrl: '', duration: videoDuration, resolution: videoResolution, ratio: videoRatio });
+          videoUrl = await this.aiService.generatePlaceholderVideo({ imageUrl: '', duration: videoDuration, resolution: videoResolution, ratio: videoRatio });
         }
       }
 
       // Safety check: if videoUrl is still empty, create a fallback
       if (!videoUrl || videoUrl.length === 0) {
         this.logger.warn(`⚠️ videoUrl is empty, generating emergency fallback`);
-        videoUrl = this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration, videoRatio);
+        videoUrl = await this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration, videoRatio);
       }
 
       // --- Step 3: Generate TTS audio ---
@@ -273,7 +273,7 @@ export class VideoProcessor {
         }
         if (!localImagePath || !fs.existsSync(localImagePath)) {
           this.logger.warn(`Image file not found: ${localImagePath}, generating fallback...`);
-          localImagePath = this.aiService.generateEmergencyPlaceholder(videoResolution, 1, videoRatio);
+          localImagePath = await this.aiService.generateEmergencyPlaceholder(videoResolution, 1, videoRatio);
         }
         finalOutput = await this.ffmpeg.composite({
           imagePaths: [localImagePath],
@@ -287,7 +287,7 @@ export class VideoProcessor {
       } else {
         // Last resort: generate from scratch
         this.logger.warn(`⚠️ No image or video available — creating emergency placeholder`);
-        finalOutput = this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration, videoRatio);
+        finalOutput = await this.aiService.generateEmergencyPlaceholder(videoResolution, videoDuration, videoRatio);
         if (audioPath && fs.existsSync(audioPath)) {
           finalOutput = await this.ffmpeg.compositeVideoWithAudio(
             finalOutput,

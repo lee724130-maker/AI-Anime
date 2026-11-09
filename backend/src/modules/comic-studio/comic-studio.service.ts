@@ -8,7 +8,8 @@ import { GlobalAsset } from '../global-asset/global-asset.entity';
 import { PromptTemplate } from '../admin/prompt-template.entity';
 import { GenerateService } from '../generate/generate.service';
 import { AIServiceUtil, AGNES_IMAGE_MODELS, AGNES_IMAGE_RATIOS } from '../../utils/ai-service.util';
-import { resolveSafeStaticPath } from '../../common/utils/safe-download.util';
+import { resolveSafeStaticPath, assertSafeRemoteUrl, downloadToFile } from '../../common/utils/safe-download.util';
+import axios from 'axios';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -109,7 +110,7 @@ export interface ComicCharacter {
   accessories?: string;
   signature?: string;
   prompt?: string;
-  blocks?: Array<{ key: string; task_id?: number; url?: string; status?: string }>;
+  blocks?: Array<{ key: string; source?: 'generated' | 'library'; task_id?: number; url?: string; status?: string; asset_url?: string; error_msg?: string }>;
   sheet_url?: string;
   locked?: boolean;
 }
@@ -277,6 +278,115 @@ export class ComicStudioService {
     ];
   }
 
+  // ---------- 开源图鉴（RuiC-PoseAtlas，CC0，2026-11-09 用户需求） ----------
+
+  private openCatalogCache: { at: number; data: any } | null = null;
+  /** 拼版 in-flight 锁（P0-1）：key = projectId:characterId，同一设定本同时只跑一个 ffmpeg */
+  private sheetJobs = new Map<string, Promise<void>>();
+  /** 拼版失败退避：key 同上，失败后 90s 内不再自动重试 */
+  private sheetFailAt = new Map<string, number>();
+
+  /**
+   * 开源图鉴目录：人脸 1499（face 893 / styling 606）+ 服装 1407，CC0。
+   * 数据契约（实测）：faces.images[].{id,sec,hair,style,thumb_remote,full_remote}、
+   * costumes.costumes[].{id,cat,group,color,main,tags,thumb,image}。
+   * URL 策略（实测 200/404）：face 原图必须走 full_remote（pages.dev），仓库路径 404；
+   * costume 原图与全部缩略图走 github.io 仓库路径。
+   */
+  async getOpenCatalog() {
+    if (this.openCatalogCache && Date.now() - this.openCatalogCache.at < 3600_000) {
+      return this.openCatalogCache.data;
+    }
+    const base = 'https://hruiccc.github.io/RuiC-PoseAtlas';
+    const cacheFile = path.resolve(process.cwd(), 'output', 'gallery-cache', 'catalog.json');
+    let raw: any = null;
+    if (fs.existsSync(cacheFile)) {
+      try {
+        const j = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
+        if (Date.now() - j.at < 3600_000) raw = j;
+      } catch { /* 坏缓存重新拉 */ }
+    }
+    if (!raw) {
+      const [f, cst] = await Promise.all([
+        axios.get(`${base}/data/faces.json`, { timeout: 30000 }),
+        axios.get(`${base}/data/costumes.json`, { timeout: 30000 }),
+      ]);
+      raw = { at: Date.now(), faces: f.data, costumes: cst.data };
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(cacheFile, JSON.stringify(raw));
+    }
+    const faces = (raw.faces.images || []).map((img: any) => ({
+      kind: img.sec === 'face' ? 'face' : 'styling',
+      id: img.id, hair: img.hair || '', title: img.style || img.hair || '',
+      w: img.w, h: img.h,
+      thumb: `${base}/portrait/thumbs/${img.id}.webp`,
+      full: img.full_remote || `${base}/portrait/img/${img.id}.png`,
+    }));
+    const catName = new Map((raw.costumes.categories || []).map((x: any) => [x.key, x.names?.zh || x.key]));
+    const costumes = (raw.costumes.costumes || []).map((cst: any) => ({
+      kind: 'costume', id: cst.id, cat: cst.cat,
+      catName: catName.get(cst.cat) || cst.cat,
+      color: cst.color || '', main: cst.main || '', tags: cst.tags || [],
+      title: `${catName.get(cst.cat) || cst.cat} · ${cst.color || ''} · ${cst.main || ''}（${cst.id}）`,
+      thumb: `${base}/costume/thumbs/${cst.id}.webp`,
+      full: `${base}/costume/img/${cst.id}.webp`,
+    }));
+    const data = { base, faces, costumes };
+    this.openCatalogCache = { at: Date.now(), data };
+    return data;
+  }
+
+  /** 导入开源图鉴原图 → 压成参考图规格 → backend/output/gallery/ → 返回 /static/gallery/<id>.jpg
+   *  存储三重保障（11-09 用户要求着重检查，face 全库原图合计 4.53GB 不能照搬）：
+   *  ① 导入即压缩到 ≤1024px JPEG（参考图链路本来就会压到该规格，原图分辨率无用），单张 2.1MB → ~150KB
+   *  ② 同图重复导入秒回（按 id 落盘覆盖，零下载）
+   *  ③ gallery 目录 500MB 总量上限，超限拒绝并提示清理 */
+  async importOpenImage(userId: number, dto: { url: string; id?: string }) {
+    const raw = String(dto?.url || '').trim();
+    let u: URL;
+    try { u = new URL(raw); } catch { throw new BadRequestException('无效的图片 URL'); }
+    const allowed = ['hruiccc.github.io', 'ai-portrait-gallery.pages.dev'];
+    if (!/^https?:$/.test(u.protocol) || !allowed.includes(u.hostname)) {
+      throw new BadRequestException('仅允许导入开源图鉴域名下的图片');
+    }
+    const extMatch = u.pathname.match(/\.(png|jpe?g|webp)$/i);
+    if (!extMatch) throw new BadRequestException('仅支持 png / jpg / webp');
+    const id = (String(dto?.id || path.basename(u.pathname, extMatch[0])).replace(/[^\w.-]/g, '').slice(0, 60)) || `img_${Date.now()}`;
+    const destDir = path.resolve(process.cwd(), 'output', 'gallery');
+    fs.mkdirSync(destDir, { recursive: true });
+    const dest = path.join(destDir, `${id}.jpg`);
+
+    // ② 去重：已导入过直接返回，零下载
+    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
+      return { url: `/static/gallery/${id}.jpg`, bytes: fs.statSync(dest).size, id, cached: true };
+    }
+
+    // ③ 配额：gallery 目录总量上限
+    const existing = fs.existsSync(destDir) ? fs.readdirSync(destDir) : [];
+    const totalBytes = existing.reduce((s, f) => {
+      try { return s + fs.statSync(path.join(destDir, f)).size; } catch { return s; }
+    }, 0);
+    if (totalBytes > 500 * 1024 * 1024) {
+      throw new BadRequestException(
+        `开源图库本地缓存已达 ${(totalBytes / 1024 / 1024).toFixed(0)}MB（上限 500MB），请先清理 backend/output/gallery/ 下的旧图再导入`);
+    }
+
+    // ① 下载原图到临时文件 → ffmpeg 压成 ≤1024px JPEG → 删临时原图
+    const tmp = path.join(destDir, `.${id}_${Date.now()}.raw`);
+    await assertSafeRemoteUrl(raw);
+    await downloadToFile(raw, tmp, { maxBytes: 25 * 1024 * 1024, timeoutMs: 60000 });
+    try {
+      if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new BadRequestException('下载失败，请重试');
+      await execFileAsync(this.ffmpegBin(),
+        ['-y', '-v', 'quiet', '-i', tmp, '-vf', 'scale=1024:-2', '-q:v', '5', '-frames:v', '1', dest],
+        { timeout: 90000 });
+    } finally {
+      try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch { /* ignore */ }
+    }
+    if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) throw new BadRequestException('图片处理失败，请重试');
+    return { url: `/static/gallery/${id}.jpg`, bytes: fs.statSync(dest).size, id };
+  }
+
   // ---------- 阶段 1：剧情大纲 → 人物识别 ----------
 
   async generateOutline(userId: number, id: number, dto: { idea?: string }) {
@@ -377,27 +487,75 @@ export class ComicStudioService {
   }
 
   /** 为一个人物生成 4 个图像块任务，完成后由 status() 自动拼版 */
-  async generateCharacterSheet(userId: number, id: number, dto: { characterId: string }) {
+  /**
+   * 生成 / 重生成设定本块。V2 修订（11-09，方案 §16.1）：
+   * - 默认只重建「未完成或失败」的块，已成功块原样保留（url/task_id/status 不动，不重复扣费）
+   * - 可用 dto.blocks 显式指定要重建的块
+   * - 块 url 变化时清空 sheet_url，由 status() 自动重新拼版
+   */
+  async generateCharacterSheet(userId: number, id: number, dto: { characterId: string; blocks?: string[] }) {
     const p = await this.owned(userId, id);
     const chars = this.parseChars(p);
     const c = chars.find((x) => x.id === dto.characterId);
     if (!c) throw new NotFoundException('人物不存在');
     if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
     if (!c.prompt) throw new BadRequestException('请先生成人设提示词');
-    c.blocks = [];
-    c.sheet_url = undefined;
-    for (const b of SHEET_BLOCKS) {
+    if (!c.blocks?.length) c.blocks = SHEET_BLOCKS.map((b) => ({ key: b.key, status: 'pending' }));
+
+    const wanted = Array.isArray(dto.blocks) && dto.blocks.length
+      ? SHEET_BLOCKS.filter((b) => dto.blocks!.includes(b.key))
+      : SHEET_BLOCKS.filter((b) => {
+          const item = c.blocks!.find((x) => x.key === b.key);
+          return !item || item.status !== 'completed' || !item.url;
+        });
+    if (!wanted.length) {
+      return { characterId: c.id, created: 0, kept: c.blocks.length, message: '所有块均已完成，无需重生成' };
+    }
+
+    let created = 0;
+    for (const b of wanted) {
+      const item = c.blocks.find((x) => x.key === b.key)!;
+      item.source = 'generated';
+      item.status = 'processing';
+      item.url = undefined;
+      item.error_msg = undefined;
       const taskId = await this.generateService.createSheetBlockTask(userId, {
         prompt: this.blockPrompt(p, c, b.key),
         model: p.model,
         image_size: p.image_size,
         ratio: '1:1',
       }, { comicProjectId: p.id, characterId: c.id, block: b.key });
-      c.blocks.push({ key: b.key, task_id: taskId, status: 'processing' });
+      item.task_id = taskId;
+      created++;
     }
+    // 块内容变了 → 旧拼版作废，由 status() 重新拼版
+    c.sheet_url = undefined;
     p.sheet_status = 'generating';
     await this.saveChars(p, chars);
-    return { characterId: c.id, blocks: c.blocks.length };
+    return { characterId: c.id, created, kept: c.blocks.length - created, blocks: c.blocks.length };
+  }
+
+  /** 块级素材来源（方案 §16.2）：用现成图（/static/ 路径）替换某块，0 次生成、0 积分 */
+  async setBlockAsset(userId: number, id: number, dto: { characterId: string; block: string; assetUrl: string }) {
+    const p = await this.owned(userId, id);
+    const chars = this.parseChars(p);
+    const c = chars.find((x) => x.id === dto.characterId);
+    if (!c) throw new NotFoundException('人物不存在');
+    if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
+    if (!SHEET_BLOCKS.some((b) => b.key === dto.block)) throw new BadRequestException('未知的设定本区块');
+    const url = String(dto.assetUrl || '').trim();
+    if (!this.localImage(url)) throw new BadRequestException('素材图不可用（需 /static/ 路径且文件已存在）');
+    if (!c.blocks?.length) c.blocks = SHEET_BLOCKS.map((b) => ({ key: b.key, status: 'pending' }));
+    const item = c.blocks.find((x) => x.key === dto.block)!;
+    item.source = 'library';
+    item.asset_url = url;
+    item.url = url;
+    item.status = 'completed';
+    item.task_id = undefined;
+    item.error_msg = undefined;
+    c.sheet_url = undefined; // 待重新拼版
+    await this.saveChars(p, chars);
+    return { characterId: c.id, block: dto.block, url, source: 'library' };
   }
 
   private localImage(url: string): string | null {
@@ -405,6 +563,13 @@ export class ComicStudioService {
     const resolved = url.startsWith('/static/') ? resolveSafeStaticPath(url) : null;
     const candidate = resolved || path.resolve(process.cwd(), 'output', path.basename(url));
     return fs.existsSync(candidate) ? candidate : null;
+  }
+
+  private ffmpegBin(): string {
+    return process.env.FFMPEG_PATH
+      || (process.platform === 'win32'
+        ? path.resolve(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe')
+        : 'ffmpeg');
   }
 
   /** 4 个 1:1 图像块 → ffmpeg xstack 拼成 1536×1536 设定本；文字档案不烧进图（归排版层） */
@@ -417,14 +582,12 @@ export class ComicStudioService {
     const outDir = path.resolve(process.cwd(), 'output', `comic-${p.id}`);
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     const out = path.join(outDir, `sheet_${c.id}.png`);
-    const ffmpegBin = process.env.FFMPEG_PATH
-      || (process.platform === 'win32' ? path.resolve(process.cwd(), 'tools', 'ffmpeg', 'ffmpeg.exe') : 'ffmpeg');
     const inputs: string[] = [];
     for (const f of files) inputs.push('-i', f as string);
     const filters = files.map((_, i) =>
       `[${i}:v]scale=768:768:force_original_aspect_ratio=decrease,pad=768:768:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`).join(';');
     const complex = `${filters};[v0][v1][v2][v3]xstack=inputs=4:layout=0_0|768_0|0_768|768_768[out]`;
-    await execFileAsync(ffmpegBin,
+    await execFileAsync(this.ffmpegBin(),
       ['-y', '-v', 'quiet', ...inputs, '-filter_complex', complex, '-map', '[out]', '-frames:v', '1', out],
       { timeout: 90000 });
     return fs.existsSync(out) ? `/static/comic-${p.id}/sheet_${c.id}.png` : null;
@@ -643,11 +806,24 @@ export class ComicStudioService {
           } catch { /* 等下次 */ }
         }
       }
-      if (!c.sheet_url && c.blocks.every((b) => b.url)) {
-        try {
-          const url = await this.assembleSheet(p, c);
-          if (url) { c.sheet_url = url; dirtyChars = true; }
-        } catch (e: any) { this.logger.warn(`设定本拼版失败 ${c.id}: ${e.message}`); }
+      // 拼版防风暴（2026-11-09 风险审查 P0-1）：in-flight 去重 + 失败 90s 退避。
+      // 没有这层时，前端 3s 轮询 × 90s ffmpeg 超时会堆出 ~30 个并发 ffmpeg，1.6GB 生产机必 OOM。
+      const lockKey = `${p.id}:${c.id}`;
+      if (!c.sheet_url && c.blocks.every((b) => b.url)
+          && !this.sheetJobs.has(lockKey)
+          && Date.now() - (this.sheetFailAt.get(lockKey) || 0) > 90_000) {
+        const job = this.assembleSheet(p, c)
+          .then((url) => {
+            if (url) { c.sheet_url = url; dirtyChars = true; }
+            this.sheetFailAt.delete(lockKey);
+          })
+          .catch((e: any) => {
+            this.logger.warn(`设定本拼版失败 ${c.id}（90s 内不再自动重试）: ${e.message}`);
+            this.sheetFailAt.set(lockKey, Date.now());
+          })
+          .finally(() => this.sheetJobs.delete(lockKey));
+        this.sheetJobs.set(lockKey, job);
+        await job;
       }
     }
 
@@ -746,7 +922,7 @@ export class ComicStudioService {
       }
       archive.append(JSON.stringify(panelSpec, null, 2), { name: 'panel-spec.json' });
       archive.append(JSON.stringify({ ...manifest, included_images: included }, null, 2), { name: 'manifest.json' });
-      void archive.finalize();
+      archive.finalize().catch((e: any) => reject(e));
     });
 
     p.export_url = `/static/comic-${p.id}/${zipName}`;

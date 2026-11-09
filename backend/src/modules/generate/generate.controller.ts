@@ -99,6 +99,12 @@ export class GenerateController {
     return this.generateService.retryTask(req.user.id, id);
   }
 
+  /** 一键清理当前用户全部失败任务（单次最多 500 条，超出再点一次） */
+  @Post('tasks/delete-failed')
+  deleteFailedTasks(@Req() req) {
+    return this.generateService.deleteFailedTasks(req.user.id);
+  }
+
   @Delete('tasks/:id')
   deleteTask(@Req() req, @Param('id', ParseIntPipe) id: number) {
     return this.generateService.deleteTask(req.user.id, id);

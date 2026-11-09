@@ -4,7 +4,9 @@ import { AdminService } from '../modules/admin/admin.service';
 import { ModelConfigService } from '../modules/admin/model-config.service';
 import { DistributedLockService } from '../common/services/distributed-lock.service';
 import axios, { AxiosInstance } from 'axios';
-import { execSync, execFileSync } from 'child_process';
+import { execSync, execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsyncP = promisify(execFile);
 import * as fs from 'fs';
 import * as path from 'path';
 import { assertSafeRemoteUrl, resolveSafeStaticPath } from '../common/utils/safe-download.util';
@@ -1648,7 +1650,7 @@ export class AIServiceUtil {
   }
 
   /** Generate a placeholder video locally using FFmpeg (public for fallback use) */
-  generatePlaceholderVideo(options: VideoGenerationOptions): string {
+  async generatePlaceholderVideo(options: VideoGenerationOptions): Promise<string> {
     const outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
     const outputPath = path.join(outputDir, `placeholder_video_${Date.now()}.mp4`);
@@ -1661,21 +1663,21 @@ export class AIServiceUtil {
       // If imageUrl is a local file, use it; otherwise generate test pattern
       const safeImg = options.imageUrl ? resolveSafeStaticPath(options.imageUrl) : null;
       if (safeImg && fs.existsSync(safeImg)) {
-        execFileSync(
+        await execFileAsyncP(
           'ffmpeg',
           ['-y', '-loop', '1', '-i', safeImg, '-t', String(dur), '-r', '24', '-vf', `scale=${resStr}`,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', outputPath],
-          { timeout: 15000, stdio: 'pipe' },
+          { timeout: 15000 },
         );
         this.logger.log(`Placeholder video created from image (${resStr}, ${dur}s): ${outputPath}`);
         return outputPath;
       } else {
         // Generate test pattern video
-        execFileSync(
+        await execFileAsyncP(
           'ffmpeg',
           ['-y', '-f', 'lavfi', '-i', `testsrc=duration=${dur}:size=${resStr}:rate=24`,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', outputPath],
-          { timeout: 15000, stdio: 'pipe' },
+          { timeout: 15000 },
         );
         this.logger.log(`Placeholder test-pattern video created (${resStr}, ${dur}s): ${outputPath}`);
         return outputPath;
@@ -1691,7 +1693,7 @@ export class AIServiceUtil {
    * Emergency fallback: generate a bare-minimum video when everything else fails.
    * Uses the simplest possible ffmpeg command to guarantee a valid output file.
    */
-  generateEmergencyPlaceholder(resolution: string, duration: number, ratio?: string): string {
+  async generateEmergencyPlaceholder(resolution: string, duration: number, ratio?: string): Promise<string> {
     const outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
     const outputPath = path.join(outputDir, `emergency_${Date.now()}.mp4`);
@@ -1700,11 +1702,11 @@ export class AIServiceUtil {
 
     try {
       // Generate a colored test card with text — very simple, very reliable
-      execFileSync(
+      await execFileAsyncP(
           'ffmpeg',
           ['-y', '-f', 'lavfi', '-i', `color=c=0x7C3AED:s=${width}x${height}:d=${duration}:r=24`,
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28', '-pix_fmt', 'yuv420p', outputPath],
-          { timeout: 15000, stdio: 'pipe' },
+          { timeout: 15000 },
         );
       this.logger.log(`Emergency placeholder created: ${outputPath}`);
       return outputPath;
@@ -1712,11 +1714,11 @@ export class AIServiceUtil {
       // Absolute last resort — create a minimal valid mp4 via ffmpeg's most basic command
       this.logger.error(`Emergency placeholder failed: ${err.message}`);
       try {
-        execFileSync(
+        await execFileAsyncP(
           'ffmpeg',
           ['-y', '-f', 'lavfi', '-i', 'color=c=0x000000:s=320x240:d=1:r=1',
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35', outputPath],
-          { timeout: 10000, stdio: 'pipe' },
+          { timeout: 10000 },
         );
         return outputPath;
       } catch {
@@ -2973,7 +2975,7 @@ ${strictRules[strictness]}
       // Generate a single-frame PNG image with a gradient-like colored background
       execSync(
         `ffmpeg -y -f lavfi -i "color=c=0x7C3AED:s=${width}x${height}:d=0.1" -frames:v 1 "${outputPath}"`,
-        { timeout: 10000, stdio: 'pipe' },
+        { timeout: 10000 },
       );
       this.logger.log(`Placeholder image created: ${outputPath}`);
       return outputPath;
@@ -2983,7 +2985,7 @@ ${strictRules[strictness]}
       try {
         execSync(
           `ffmpeg -y -f lavfi -i "color=c=0x7c3aed:s=${width}x${height}:d=0.1" -frames:v 1 "${fallbackPath}"`,
-          { timeout: 10000, stdio: 'pipe' },
+          { timeout: 10000 },
         );
         return fallbackPath;
       } catch {

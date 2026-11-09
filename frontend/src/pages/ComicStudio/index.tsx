@@ -75,6 +75,8 @@ export default function ComicStudioPage() {
   const [progress, setProgress] = useState<any>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
+  /** 块级素材图输入：key = `${characterId}:${block}` */
+  const [assetInputs, setAssetInputs] = useState<Record<string, string>>({});
 
   const loadProjects = useCallback(async () => {
     try {
@@ -225,15 +227,40 @@ export default function ComicStudioPage() {
   };
 
   // ---------- 阶段 3 ----------
-  const genSheet = async (characterId: string) => {
+  /** 重生成：默认只重建未完成/失败的块；传 blocks 时只重建指定块（成功块原样保留，不重复扣费） */
+  const genSheet = async (characterId: string, blocks?: string[]) => {
     if (!guard()) return;
     setLoading(true);
     try {
-      await api.post(`/api/comic-studio/${projectId}/sheets/generate`, { characterId });
-      message.success('设定本 4 个图像块已开始生成，页面会自动刷新');
+      const { data } = await api.post(`/api/comic-studio/${projectId}/sheets/generate`, { characterId, blocks });
+      if (data.created === 0) {
+        message.info(data.message || '所有块均已完成，无需重生成');
+      } else {
+        message.success(`已重建 ${data.created} 个块，保留 ${data.kept} 个已完成块（拼版会自动刷新）`);
+      }
       setStep(2);
     } catch (e: any) { message.error(e?.response?.data?.message || '设定本生成失败'); }
     finally { setLoading(false); }
+  };
+
+  const regenBlock = async (characterId: string, block: string) => {
+    if (!guard()) return;
+    try {
+      await api.post(`/api/comic-studio/${projectId}/sheets/generate`, { characterId, blocks: [block] });
+      message.success(`「${BLOCK_LABELS[block] || block}」已单独重新生成`);
+      setStep(2);
+    } catch (e: any) { message.error(e?.response?.data?.message || '重生成失败'); }
+  };
+
+  /** 块级素材来源：直接用现成图（/static/ 路径），0 次生成 0 积分 */
+  const applyBlockAsset = async (characterId: string, block: string, assetUrl: string) => {
+    if (!guard()) return;
+    if (!assetUrl?.trim()) { message.warning('先填素材图路径'); return; }
+    try {
+      await api.put(`/api/comic-studio/${projectId}/sheets/block-asset`, { characterId, block, assetUrl });
+      message.success(`「${BLOCK_LABELS[block] || block}」已换用现成素材图（0 积分）`);
+      setStep(2);
+    } catch (e: any) { message.error(e?.response?.data?.message || '应用失败'); }
   };
 
   const toggleLock = async (characterId: string, locked: boolean) => {
@@ -472,7 +499,7 @@ export default function ComicStudioPage() {
                   <Col xs={24} md={12} key={c.id}>
                     <Card size="small" title={<Space><Tag color={c.locked ? 'success' : 'default'}>{c.name}</Tag>{c.locked ? <Tag color="success">已锁定</Tag> : <Tag>未锁定</Tag>}</Space>}
                       extra={<Space>
-                        <Button size="small" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>生成 / 重生成</Button>
+                        <Button size="small" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>重生成未完成块</Button>
                         <Button size="small" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url}
                           onClick={() => toggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>
                       </Space>}>
@@ -483,12 +510,20 @@ export default function ComicStudioPage() {
                             : <div style={{ aspectRatio: '1/1', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12 }}>设定本拼版中…</div>}
                         </Col>
                         <Col span={14}>
-                          <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
                             {(c.blocks || []).map((b: any) => (
-                              <Space key={b.key} size={6}>
+                              <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                 <Tag color={STATUS_TAG[b.status || 'pending']?.color}>{STATUS_TAG[b.status || 'pending']?.label}</Tag>
                                 <Text type="secondary" style={{ fontSize: 12 }}>{BLOCK_LABELS[b.key] || b.key}</Text>
-                              </Space>
+                                {b.source === 'library' && <Tag color="geekblue">素材图</Tag>}
+                                <Button size="small" type="link" style={{ padding: 0, height: 18 }} disabled={c.locked}
+                                  onClick={() => regenBlock(c.id, b.key)}>重生成</Button>
+                                <Input size="small" placeholder="/static/素材图.jpg（可选）" style={{ width: 120 }}
+                                  value={assetInputs[`${c.id}:${b.key}`] || ''}
+                                  onChange={(e) => setAssetInputs((s) => ({ ...s, [`${c.id}:${b.key}`]: e.target.value }))} />
+                                <Button size="small" disabled={c.locked}
+                                  onClick={() => applyBlockAsset(c.id, b.key, assetInputs[`${c.id}:${b.key}`] || '')}>应用</Button>
+                              </div>
                             ))}
                             {!c.blocks?.length && <Text type="secondary">尚未生成</Text>}
                           </Space>

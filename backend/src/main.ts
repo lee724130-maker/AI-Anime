@@ -44,6 +44,20 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT ?? 3000;
+
+  // 进程级兜底（2026-11-09 风险审查 P0-2）：Node 22 默认 unhandledRejection=throw，
+  // 任何漏 catch 的 Promise 都会杀进程。这里只记日志：
+  // - unhandledRejection：只记录，不退出（保持服务可用）
+  // - uncaughtException：记录后退出，交给 pm2 重启（状态已不可信）
+  const bootLog = app.get(WINSTON_MODULE_NEST_PROVIDER);
+  process.on('unhandledRejection', (reason: any) => {
+    bootLog.error(`[unhandledRejection] ${reason?.stack || reason}`);
+  });
+  process.on('uncaughtException', (err: Error) => {
+    bootLog.error(`[uncaughtException] ${err.stack || err.message}`);
+    process.exit(1);
+  });
+
   // 开关机钩子：pm2 restart / SIGTERM 会触发各 service 的 onModuleDestroy，及时停掉
   // 心跳定时器、@Interval 定时任务与 Redis 连接，避免停机瞬间还在写库。
   // 注意：关机路径**不**做任务结清（来不及、且容易写半截）；进程重启遗留的 processing

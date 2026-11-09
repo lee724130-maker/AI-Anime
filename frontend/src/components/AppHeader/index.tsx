@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Button, Typography, Space, Avatar, Drawer } from 'antd';
 import {
   DashboardOutlined, ThunderboltOutlined, FireOutlined, LayoutOutlined,
-  ScissorOutlined, VideoCameraOutlined, DatabaseOutlined, PictureOutlined, MenuOutlined,
+  ScissorOutlined, VideoCameraOutlined, DatabaseOutlined, PictureOutlined, CloudDownloadOutlined, MenuOutlined,
   MoonOutlined, SunOutlined, WalletOutlined, UserOutlined, LogoutOutlined,
 } from '@ant-design/icons';
 import { useAuthStore } from '../../stores/authStore';
@@ -52,6 +52,7 @@ export default function AppHeader() {
     ...(user?.role === 'admin' ? [{ key: '/editor', label: '剪辑', icon: <ScissorOutlined /> }] : []),
     { key: '/drama', label: '短剧工作室', icon: <VideoCameraOutlined /> },
     { key: '/comic-studio', label: '漫画工作室', icon: <PictureOutlined /> },
+    { key: '/open-gallery', label: '开源图片', icon: <CloudDownloadOutlined /> },
     { key: '/global-assets', label: '大资产库', icon: <DatabaseOutlined /> },
   ];
 
