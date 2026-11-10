@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Button, Card, Tabs, Select, Input, Space, Typography, Tag, Alert,
   Row, Col, Image, Pagination, message, Spin, Empty, Tooltip,
 } from 'antd';
-import { ArrowLeftOutlined, CopyOutlined, DownloadOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, DownloadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 
 const { Title, Text } = Typography;
@@ -78,6 +78,51 @@ export default function OpenGalleryPage() {
 
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
+  // antd v5/v6 的 Tabs 传入 items 后，JSX children 会被忽略；内容必须放在 items[].children。
+  const galleryContent = loading ? <Spin style={{ display: 'block', margin: '60px auto' }} />
+    : pageItems.length === 0 ? <Empty description="没有匹配的图片" />
+      : (
+        <>
+          <Row gutter={[12, 12]}>
+            {pageItems.map((item) => (
+              <Col key={`${item.kind}-${item.id}`} xs={12} sm={8} md={6} lg={4}>
+                <Card size="small" hoverable
+                  cover={
+                    <Image
+                      alt={item.title}
+                      src={getUrl(item.thumb)}
+                      preview={{ src: getUrl(item.full) }}
+                      style={{ aspectRatio: '2/3', objectFit: 'cover', width: '100%' }}
+                    />
+                  }>
+                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                    <Tooltip title={item.title}>
+                      <Text ellipsis style={{ fontSize: 12 }}>{item.title}</Text>
+                    </Tooltip>
+                    <Text type="secondary" style={{ fontSize: 11 }} ellipsis>{item.id}</Text>
+                    {imported[item.id] && (
+                      <Tag color="success" style={{ fontSize: 11, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {imported[item.id]}
+                      </Tag>
+                    )}
+                    <Button size="small" block icon={<DownloadOutlined />}
+                      loading={busyId === item.id}
+                      onClick={() => importImage(item)}>
+                      导入并复制路径
+                    </Button>
+                  </Space>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <Pagination current={page} pageSize={PAGE_SIZE} total={filtered.length}
+              onChange={(p) => { setPage(p); window.scrollTo({ top: 0 }); }}
+              showSizeChanger={false} showTotal={(t) => `共 ${t} 张`} />
+          </div>
+        </>
+      );
+
   /** 导入原图到本地 /static/gallery/，并复制路径到剪贴板 */
   const importImage = async (item: GalleryItem) => {
     setBusyId(item.id);
@@ -116,9 +161,9 @@ export default function OpenGalleryPage() {
           activeKey={tab}
           onChange={(k) => { setTab(k as any); setPage(1); }}
           items={[
-            { key: 'face', label: `人脸（${faces.filter((x) => x.kind === 'face').length}）` },
-            { key: 'styling', label: `造型（${faces.filter((x) => x.kind === 'styling').length}）` },
-            { key: 'costume', label: `服装（${costumes.length}）` },
+            { key: 'face', label: `人脸（${faces.filter((x) => x.kind === 'face').length}）`, children: galleryContent },
+            { key: 'styling', label: `造型（${faces.filter((x) => x.kind === 'styling').length}）`, children: galleryContent },
+            { key: 'costume', label: `服装（${costumes.length}）`, children: galleryContent },
           ]}
           tabBarExtraContent={
             <Space>
@@ -134,51 +179,7 @@ export default function OpenGalleryPage() {
                 onSearch={(v) => { setQuery(v); setPage(1); }} />
             </Space>
           }
-        >
-          {loading ? <Spin style={{ display: 'block', margin: '60px auto' }} />
-            : pageItems.length === 0 ? <Empty description="没有匹配的图片" />
-              : (
-                <>
-                  <Row gutter={[12, 12]}>
-                    {pageItems.map((item) => (
-                      <Col key={`${item.kind}-${item.id}`} xs={12} sm={8} md={6} lg={4}>
-                        <Card size="small" hoverable
-                          cover={
-                            <Image
-                              alt={item.title}
-                              src={getUrl(item.thumb)}
-                              preview={{ src: getUrl(item.full) }}
-                              style={{ aspectRatio: '2/3', objectFit: 'cover', width: '100%' }}
-                            />
-                          }>
-                          <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                            <Tooltip title={item.title}>
-                              <Text ellipsis style={{ fontSize: 12 }}>{item.title}</Text>
-                            </Tooltip>
-                            <Text type="secondary" style={{ fontSize: 11 }} ellipsis>{item.id}</Text>
-                            {imported[item.id] && (
-                              <Tag color="success" style={{ fontSize: 11, maxWidth: '100%' }} ellipsis>
-                                {imported[item.id]}
-                              </Tag>
-                            )}
-                            <Button size="small" block icon={<DownloadOutlined />}
-                              loading={busyId === item.id}
-                              onClick={() => importImage(item)}>
-                              导入并复制路径
-                            </Button>
-                          </Space>
-                        </Card>
-                      </Col>
-                    ))}
-                  </Row>
-                  <div style={{ marginTop: 16, textAlign: 'center' }}>
-                    <Pagination current={page} pageSize={PAGE_SIZE} total={filtered.length}
-                      onChange={(p) => { setPage(p); window.scrollTo({ top: 0 }); }}
-                      showSizeChanger={false} showTotal={(t) => `共 ${t} 张`} />
-                  </div>
-                </>
-              )}
-        </Tabs>
+        />
       </Card>
     </div>
   );

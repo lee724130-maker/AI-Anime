@@ -14,7 +14,13 @@ import { CreditsService } from '../credits/credits.service';
 import { downloadToFile } from '../../common/utils/safe-download.util';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as archiver from 'archiver';
+// archiver v8 为纯 ESM：只导出 ZipArchive 类，不再导出 archiver('zip', opts) 工厂函数。
+// 兼容写法：v8 用 new ZipArchive(opts)，旧版(v5/v6)回退到工厂函数。
+const archiverModule = require('archiver');
+function newZipArchive(options: any): any {
+  const ZipArchive = archiverModule.ZipArchive;
+  return typeof ZipArchive === 'function' ? new ZipArchive(options) : archiverModule('zip', options);
+}
 import type { Response } from 'express';
 
 @Injectable()
@@ -580,7 +586,7 @@ export class VideoService {
     if (userTasks.length === 0) throw new NotFoundException('没有可下载的已完成视频');
 
     const outputDir = path.resolve(process.cwd(), 'output');
-    const archive = archiver('zip', { zlib: { level: 5 } });
+    const archive = newZipArchive({ zlib: { level: 5 } });
 
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="videos_${Date.now()}.zip"`);

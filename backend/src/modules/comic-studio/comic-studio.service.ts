@@ -15,7 +15,13 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const archiver = require('archiver');
+// archiver v8 为纯 ESM：只导出 ZipArchive 类，不再导出 archiver('zip', opts) 工厂函数。
+// 兼容写法：v8 用 new ZipArchive(opts)，旧版(v5/v6)回退到工厂函数，避免依赖版本漂移再次导致 500。
+const archiverModule = require('archiver');
+function newZipArchive(options: any): any {
+  const ZipArchive = archiverModule.ZipArchive;
+  return typeof ZipArchive === 'function' ? new ZipArchive(options) : archiverModule('zip', options);
+}
 const execFileAsync = promisify(execFile);
 
 /** 两种画风的固定文本块，全片逐字复用 */
@@ -906,7 +912,7 @@ export class ComicStudioService {
 
     await new Promise<void>((resolve, reject) => {
       const output = fs.createWriteStream(zipPath);
-      const archive = archiver('zip', { zlib: { level: 6 } });
+      const archive = newZipArchive({ zlib: { level: 6 } });
       output.on('close', () => resolve());
       output.on('error', reject);
       archive.on('error', reject);

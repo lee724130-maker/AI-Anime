@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Button, Card, Steps, Form, Input, InputNumber, Select, Space, Typography,
@@ -442,7 +442,7 @@ export default function ComicStudioPage() {
               </Form>
               {projectId && (
                 <>
-                  <Divider orientation="left" plain>剧情大纲（模型生成，可人工改写）</Divider>
+                  <Divider titlePlacement="left" plain>剧情大纲（模型生成，可人工改写）</Divider>
                   <TextArea rows={6} value={outline} onChange={(e) => setOutline(e.target.value)} placeholder="点下方按钮生成，或直接粘贴现成大纲" />
                   <Space style={{ marginTop: 12 }}>
                     <Button icon={<ThunderboltOutlined />} onClick={genOutline}>生成剧情大纲</Button>
