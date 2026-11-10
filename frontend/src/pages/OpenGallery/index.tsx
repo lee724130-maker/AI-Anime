@@ -147,14 +147,14 @@ export default function OpenGalleryPage() {
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
           <Title level={3} style={{ margin: 0 }}>开源图片</Title>
-          <Tag color="purple">RuiC-PoseAtlas · CC0 · 共 {faces.length + costumes.length} 张</Tag>
+          <Tag color="purple">共 {faces.length + costumes.length} 张素材</Tag>
         </Space>
         <Button onClick={() => navigate('/comic-studio')}>去角色设定本</Button>
       </Space>
 
       <Alert type="info" showIcon style={{ marginBottom: 16 }}
         message="选图 → 导入 → 粘贴到设定本"
-        description="点「导入并复制路径」会把原图下载到本项目的 /static/gallery/ 并自动复制路径；然后到 漫画工作室 → 角色设定本，把路径粘进对应图像块的「素材图」输入框点「应用」（0 积分）。图片来源 RuiC-PoseAtlas（人脸/造型）与 AI Model Face Database（CC0 1.0），可自由使用。" />
+        description="点「导入并复制路径」会把原图下载到本项目的 /static/gallery/ 并自动复制路径；然后到 漫画工作室 → 角色设定本，把路径粘进对应图像块的「素材图」输入框点「应用」（0 积分）。素材可自由使用。" />
 
       <Card>
         <Tabs
