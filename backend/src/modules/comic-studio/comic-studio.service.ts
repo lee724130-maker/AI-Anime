@@ -293,11 +293,25 @@ export class ComicStudioService {
   private sheetFailAt = new Map<string, number>();
 
   /**
-   * 开源图鉴目录：人脸 1499（face 893 / styling 606）+ 服装 1407，CC0。
+   * 姿势库安全口径（2026-11-10 用户拍板「153 安全子集」后再收紧）：
+   * 只取 full_std(全身标准系) / upper(上半身) 两个系列，并排除成人向类目，
+   * 实际保留 98 个姿势 × 5 角度 = 490 张图。
+   * poses.json 全库 288 姿势含 full_sexy / duo 及「正常位/后入位/骑乘位」等类目，禁止整库接入。
+   */
+  private static readonly POSE_SAFE_SERIES = ['full_std', 'upper'];
+  private static readonly POSE_BLOCK_CATEGORIES = [
+    '性感・大胆系', '挤胸・强调事业线系', '贴脸系',
+    '正常位（传教士）', '后入位', '坐位', '背向坐位', '骑乘位', '侧卧位',
+    '面对面坐位', '立位贴身', '坐位贴身', '贴身',
+  ];
+
+  /**
+   * 开源图鉴目录：人脸 1499（face 893 / styling 606）+ 服装 1407 + 姿势安全子集 490，CC0。
    * 数据契约（实测）：faces.images[].{id,sec,hair,style,thumb_remote,full_remote}、
-   * costumes.costumes[].{id,cat,group,color,main,tags,thumb,image}。
+   * costumes.costumes[].{id,cat,group,color,main,tags,thumb,image}、
+   * poses.poses[].{id,series,category,no,names,variants[].{angle,thumb,full}}。
    * URL 策略（实测 200/404）：face 原图必须走 full_remote（pages.dev），仓库路径 404；
-   * costume 原图与全部缩略图走 github.io 仓库路径。
+   * costume 原图与全部缩略图、pose 缩略图(thumbs/*.jpg)与原图(img/*.png)均走 github.io 仓库根路径。
    */
   async getOpenCatalog() {
     if (this.openCatalogCache && Date.now() - this.openCatalogCache.at < 3600_000) {
@@ -309,15 +323,17 @@ export class ComicStudioService {
     if (fs.existsSync(cacheFile)) {
       try {
         const j = JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
-        if (Date.now() - j.at < 3600_000) raw = j;
+        // 旧缓存没有 poses 字段 → 视为过期，强制重拉（否则姿势 tab 为空）
+        if (j.poses && Date.now() - j.at < 3600_000) raw = j;
       } catch { /* 坏缓存重新拉 */ }
     }
     if (!raw) {
-      const [f, cst] = await Promise.all([
+      const [f, cst, pose] = await Promise.all([
         axios.get(`${base}/data/faces.json`, { timeout: 30000 }),
         axios.get(`${base}/data/costumes.json`, { timeout: 30000 }),
+        axios.get(`${base}/data/poses.json`, { timeout: 30000 }),
       ]);
-      raw = { at: Date.now(), faces: f.data, costumes: cst.data };
+      raw = { at: Date.now(), faces: f.data, costumes: cst.data, poses: pose.data };
       fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
       fs.writeFileSync(cacheFile, JSON.stringify(raw));
     }
@@ -337,7 +353,29 @@ export class ComicStudioService {
       thumb: `${base}/costume/thumbs/${cst.id}.webp`,
       full: `${base}/costume/img/${cst.id}.webp`,
     }));
-    const data = { base, faces, costumes };
+    // 姿势：按安全系列 + 类目白名单过滤，展开每个角度为一张可选素材
+    const poseRaw = raw.poses || {};
+    const seriesName = new Map((poseRaw.series || []).map((s: any) => [s.key, s.short?.zh || s.names?.zh || s.key]));
+    const angleName = new Map((poseRaw.angles || []).map((a: any) => [a.key, a.names?.zh || a.key]));
+    const poses: any[] = [];
+    for (const p of (poseRaw.poses || [])) {
+      if (!ComicStudioService.POSE_SAFE_SERIES.includes(p.series)) continue;
+      if (ComicStudioService.POSE_BLOCK_CATEGORIES.includes(p.category)) continue;
+      for (const v of (p.variants || [])) {
+        poses.push({
+          kind: 'pose',
+          id: `${p.id}_${v.angle}`,
+          poseId: p.id, no: p.no || '',
+          series: p.series, seriesName: seriesName.get(p.series) || p.series,
+          category: p.category || '',
+          angle: v.angle, angleName: angleName.get(v.angle) || v.angle,
+          title: `${p.names?.zh || p.id} · ${angleName.get(v.angle) || v.angle}（${p.no || p.id}）`,
+          thumb: `${base}/${v.thumb}`,
+          full: `${base}/${v.full}`,
+        });
+      }
+    }
+    const data = { base, faces, costumes, poses };
     this.openCatalogCache = { at: Date.now(), data };
     return data;
   }

@@ -13,7 +13,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null | undefined) => (p ? (p.startsWith('http') ? p : API_BASE + p) : '');
 
 interface GalleryItem {
-  kind: 'face' | 'styling' | 'costume';
+  kind: 'face' | 'styling' | 'costume' | 'pose';
   id: string;
   title: string;
   hair?: string;
@@ -21,6 +21,12 @@ interface GalleryItem {
   color?: string;
   main?: string;
   tags?: string[];
+  series?: string;
+  seriesName?: string;
+  category?: string;
+  angle?: string;
+  angleName?: string;
+  no?: string;
   thumb: string;
   full: string;
 }
@@ -32,9 +38,13 @@ export default function OpenGalleryPage() {
   const [loading, setLoading] = useState(false);
   const [faces, setFaces] = useState<GalleryItem[]>([]);
   const [costumes, setCostumes] = useState<GalleryItem[]>([]);
-  const [tab, setTab] = useState<'face' | 'styling' | 'costume'>('face');
+  const [poses, setPoses] = useState<GalleryItem[]>([]);
+  const [tab, setTab] = useState<'face' | 'styling' | 'costume' | 'pose'>('face');
   const [hair, setHair] = useState<string | undefined>();
   const [cat, setCat] = useState<string | undefined>();
+  const [poseSeries, setPoseSeries] = useState<string | undefined>();
+  const [poseCat, setPoseCat] = useState<string | undefined>();
+  const [poseAngle, setPoseAngle] = useState<string | undefined>();
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [imported, setImported] = useState<Record<string, string>>({});
@@ -46,6 +56,7 @@ export default function OpenGalleryPage() {
       .then(({ data }) => {
         setFaces(data.faces || []);
         setCostumes(data.costumes || []);
+        setPoses(data.poses || []);
       })
       .catch((e) => message.error(e?.response?.data?.message || '图鉴目录加载失败'))
       .finally(() => setLoading(false));
@@ -59,22 +70,40 @@ export default function OpenGalleryPage() {
     () => [...new Map(costumes.map((x) => [x.catName, true])).keys()].map((c) => ({ value: c, label: c })),
     [costumes],
   );
+  const poseSeriesOptions = useMemo(
+    () => [...new Map(poses.map((x) => [x.series, x.seriesName])).entries()].map(([value, label]) => ({ value, label: label || value })),
+    [poses],
+  );
+  const poseCatOptions = useMemo(
+    () => [...new Set(poses.map((x) => x.category).filter(Boolean))].map((c) => ({ value: c, label: c })),
+    [poses],
+  );
+  const poseAngleOptions = useMemo(
+    () => [...new Map(poses.map((x) => [x.angle, x.angleName])).entries()].map(([value, label]) => ({ value, label: label || value })),
+    [poses],
+  );
 
   const pool = useMemo(() => {
     if (tab === 'costume') return costumes;
+    if (tab === 'pose') return poses;
     return faces.filter((x) => (tab === 'face' ? x.kind === 'face' : x.kind === 'styling'));
-  }, [tab, faces, costumes]);
+  }, [tab, faces, costumes, poses]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return pool.filter((x) => {
-      if (tab !== 'costume' && hair && x.hair !== hair) return false;
-      if (tab === 'costume' && cat && x.catName !== cat) return false;
+      if (tab === 'pose') {
+        if (poseSeries && x.series !== poseSeries) return false;
+        if (poseCat && x.category !== poseCat) return false;
+        if (poseAngle && x.angle !== poseAngle) return false;
+      } else if (tab === 'costume') {
+        if (cat && x.catName !== cat) return false;
+      } else if (hair && x.hair !== hair) return false;
       if (!q) return true;
-      const hay = [x.id, x.title, x.hair, x.catName, x.color, x.main, ...(x.tags || [])].join(' ').toLowerCase();
+      const hay = [x.id, x.title, x.hair, x.catName, x.color, x.main, x.category, x.angleName, x.no, ...(x.tags || [])].join(' ').toLowerCase();
       return hay.includes(q);
     });
-  }, [pool, hair, cat, query, tab]);
+  }, [pool, hair, cat, query, tab, poseSeries, poseCat, poseAngle]);
 
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -147,7 +176,7 @@ export default function OpenGalleryPage() {
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
           <Title level={3} style={{ margin: 0 }}>开源图片</Title>
-          <Tag color="purple">共 {faces.length + costumes.length} 张素材</Tag>
+          <Tag color="purple">共 {faces.length + costumes.length + poses.length} 张素材</Tag>
         </Space>
         <Button onClick={() => navigate('/comic-studio')}>去角色设定本</Button>
       </Space>
@@ -159,15 +188,26 @@ export default function OpenGalleryPage() {
       <Card>
         <Tabs
           activeKey={tab}
-          onChange={(k) => { setTab(k as any); setPage(1); }}
+          onChange={(k) => { setTab(k as any); setPage(1); setPoseSeries(undefined); setPoseCat(undefined); setPoseAngle(undefined); }}
           items={[
             { key: 'face', label: `人脸（${faces.filter((x) => x.kind === 'face').length}）`, children: galleryContent },
             { key: 'styling', label: `造型（${faces.filter((x) => x.kind === 'styling').length}）`, children: galleryContent },
             { key: 'costume', label: `服装（${costumes.length}）`, children: galleryContent },
+            { key: 'pose', label: `姿势（${poses.length}）`, children: galleryContent },
           ]}
           tabBarExtraContent={
-            <Space>
-              {tab !== 'costume' && (
+            <Space wrap>
+              {tab === 'pose' && (
+                <>
+                  <Select allowClear placeholder="系列" style={{ width: 120 }} options={poseSeriesOptions}
+                    value={poseSeries} onChange={(v) => { setPoseSeries(v); setPage(1); }} />
+                  <Select allowClear placeholder="动作类目" style={{ width: 130 }} options={poseCatOptions}
+                    value={poseCat} onChange={(v) => { setPoseCat(v); setPage(1); }} />
+                  <Select allowClear placeholder="角度" style={{ width: 100 }} options={poseAngleOptions}
+                    value={poseAngle} onChange={(v) => { setPoseAngle(v); setPage(1); }} />
+                </>
+              )}
+              {tab !== 'costume' && tab !== 'pose' && (
                 <Select allowClear placeholder="发型" style={{ width: 130 }} options={hairOptions}
                   value={hair ?? undefined} onChange={(v) => { setHair(v); setPage(1); }} />
               )}
@@ -175,7 +215,7 @@ export default function OpenGalleryPage() {
                 <Select allowClear placeholder="季节/类目" style={{ width: 130 }} options={catOptions}
                   value={cat ?? undefined} onChange={(v) => { setCat(v); setPage(1); }} />
               )}
-              <Input.Search allowClear placeholder="搜索编号 / 颜色 / 关键词" style={{ width: 220 }}
+              <Input.Search allowClear placeholder="搜索编号 / 类目 / 关键词" style={{ width: 220 }}
                 onSearch={(v) => { setQuery(v); setPage(1); }} />
             </Space>
           }
