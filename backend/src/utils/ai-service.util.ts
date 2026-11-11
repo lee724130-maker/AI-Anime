@@ -874,7 +874,68 @@ export class AIServiceUtil {
    * - 图生图/多图合成：extra_body.image 数组（两款都支持；2026-11-05 图片生图片接入）
    * - response_format 必须放在 extra_body 内，不能放顶层
    */
+  // === Agnes 账号级串行锁 + 429 退避重试（2026-11-11 P0 修复）===
+  // Agnes 账号级串行（约 4~5 分钟/张），并发打必秒级 429。用 promise 链把所有 Agnes
+  // 生图调用排队串行；链上任务成败都不卡死后续调用。AIServiceUtil 为单例，锁全局共享。
+  private agnesSerial: Promise<unknown> = Promise.resolve();
+
+  private withAgnesSerial<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.agnesSerial.then(() => fn(), () => fn());
+    this.agnesSerial = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  /** 单张图对 Agnes 的 POST：遇 429/503/网络抖动按指数退避重试（最多 4 次 ≈ 5 分钟）；
+   *  内容安全立即抛 noRetry；其他 4xx（鉴权等）不重试直接上抛。 */
+  private async postAgnesWithRetry(
+    apiKey: string,
+    body: Record<string, unknown>,
+    model: string,
+    idx: number,
+    maxAttempts = 4,
+  ): Promise<string> {
+    let lastErr: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await axios.post(
+          AGNES_IMAGE_ENDPOINT,
+          body,
+          { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
+        );
+        const url = res.data?.data?.[0]?.url;
+        if (!url) throw new Error('Agnes 返回体里没有图片');
+        return url;
+      } catch (err: any) {
+        lastErr = err;
+        const status = err.response?.status;
+        const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message || '';
+        if (/sensitive|policy|illegal|violate|security|inappropriate|内容安全|违规/i.test(String(msg))) {
+          const e: any = new Error('提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述');
+          e.noRetry = true;
+          throw e;
+        }
+        const retryable = status === 429 || status === 503 || !status;
+        if (!retryable || attempt >= maxAttempts) {
+          this.logger.warn(`Agnes ${model} 图片#${idx} 失败（HTTP ${status || 'ERR'}，已尝试 ${attempt} 次）: ${msg}`);
+          throw err;
+        }
+        const backoff = Math.min(160, 20 * 2 ** (attempt - 1)) * 1000;
+        this.logger.warn(`Agnes ${model} 图片#${idx} 限流(HTTP ${status || 'ERR'})，第 ${attempt} 次重试前等待 ${backoff / 1000}s`);
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    throw lastErr || new Error('Agnes 重试耗尽');
+  }
+
+  /** 公共入口：经串行锁调用（346/373/408 三处均通过此入口） */
   private async generateImageWithAgnes(
+    apiKey: string,
+    options: ImageGenerationOptions,
+  ): Promise<string[]> {
+    return this.withAgnesSerial(() => this.generateImageWithAgnesImpl(apiKey, options));
+  }
+
+  private async generateImageWithAgnesImpl(
     apiKey: string,
     options: ImageGenerationOptions,
   ): Promise<string[]> {
@@ -890,36 +951,24 @@ export class AIServiceUtil {
     for (const model of models) {
       const urls: string[] = [];
       for (let i = 0; i < count; i++) {
+        const body: Record<string, unknown> = {
+          model,
+          prompt: options.prompt,
+          size,
+          ratio,
+          n: 1,
+          // 官方要求：文生图不带 image；图生图/多图合成才带，且 response_format 必须在 extra_body 内
+          extra_body: {
+            response_format: 'url',
+            ...(options.referenceImages?.length ? { image: options.referenceImages } : {}),
+          },
+        };
         try {
-          const body: Record<string, unknown> = {
-            model,
-            prompt: options.prompt,
-            size,
-            ratio,
-            n: 1,
-            // 官方要求：文生图不带 image；图生图/多图合成才带，且 response_format 必须在 extra_body 内
-            extra_body: {
-              response_format: 'url',
-              ...(options.referenceImages?.length ? { image: options.referenceImages } : {}),
-            },
-          };
-          const res = await axios.post(
-            AGNES_IMAGE_ENDPOINT,
-            body,
-            { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
-          );
-          const url = res.data?.data?.[0]?.url;
-          if (!url) throw new Error('Agnes 返回体里没有图片');
+          const url = await this.postAgnesWithRetry(apiKey, body, model, i + 1);
           urls.push(url);
         } catch (err: any) {
           lastError = err;
-          const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message;
-          this.logger.warn(`Agnes ${model} image ${i + 1}/${count} failed (HTTP ${err.response?.status || 'ERR'}): ${msg}`);
-          if (/sensitive|policy|illegal|violate|security|inappropriate|内容安全|违规/i.test(String(msg))) {
-            const e: any = new Error('提示词未通过内容安全审核，请避免使用真实公众人物姓名，改用角色描述');
-            e.noRetry = true;
-            throw e;
-          }
+          if (err?.noRetry) throw err; // 内容安全：立即向上抛，不换模型
           break; // 换下一个模型
         }
       }
