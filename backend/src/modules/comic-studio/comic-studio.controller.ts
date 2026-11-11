@@ -93,6 +93,12 @@ export class ComicStudioController {
     return this.service.setBlockAsset(req.user.id, id, body);
   }
 
+  /** 块级参考图：把某块绑定一张大资产库图片作为 i2i 参考（不直接生成，等生成设定本时按图生图） */
+  @Put(':id/sheets/block-reference')
+  setBlockReference(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    return this.service.setBlockReference(req.user.id, id, body);
+  }
+
   /** V2 阶段 3：LLM 一次性生成完整分格脚本 */
   @Post(':id/script')
   generateScript(@Req() req, @Param('id', ParseIntPipe) id: number, @Body() body: any) {

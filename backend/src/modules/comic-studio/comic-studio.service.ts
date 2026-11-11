@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import { ComicProject } from './comic-project.entity';
 import { GenerationTask } from '../task/generation-task.entity';
 import { Character } from '../character/character.entity';
@@ -84,11 +84,13 @@ const DEFAULT_SCRIPT_TEMPLATE = `你是一位资深漫画编剧，同时熟悉 A
 
 现在输出 JSON：`;
 
-/** 角色设定本的 4 个图像块（推荐 B：分块生成 + 后端 ffmpeg 拼版，文字归排版层） */
+/** 角色设定本的图像块（推荐 B：分块生成 + 后端 ffmpeg 拼版，文字归排版层）。
+ *  默认 7 块：正面头像/三视图/表情组/局部特写/人物服装/姿势/造型。
+ *  每块可独立绑定大资产库参考图（i2i），见 setBlockReference 与 blockPrompt。 */
 const SHEET_BLOCKS = [
   {
     key: 'portrait', label: '正面头像',
-    prompt: 'A clean character reference sheet: ONE large front-facing head-and-shoulders portrait of {{persona}} Centered, neutral expression, both eyes visible, even front light, plain light grey backdrop. {{style}}',
+    prompt: 'A clean character reference sheet: ONE large front-facing head-and-shoulders portrait of {{persona}} Centered, neutral expression, both eyes visible, even front light, plain light grey backdrop. Framed from the shoulders up ONLY, NO full body, NO legs, NO lower body, NO wide shot. {{style}}',
   },
   {
     key: 'three_view', label: '三视图',
@@ -96,11 +98,23 @@ const SHEET_BLOCKS = [
   },
   {
     key: 'expressions', label: '表情组',
-    prompt: 'Expression reference sheet with FIVE head portraits in one horizontal row of the SAME character: neutral, gentle smile, shy, upset, angry. {{persona}} Identical face, hairstyle and outfit in all five. {{style}}',
+    prompt: 'Expression reference sheet with FIVE head-and-shoulders portraits (cropped at chest) in one horizontal row of the SAME character: neutral, gentle smile, shy, upset, angry. {{persona}} Identical face, hairstyle and outfit in all five. NO full body, NO legs, NO lower body. {{style}}',
   },
   {
     key: 'details', label: '局部特写',
     prompt: 'Detail reference sheet with FOUR close-up panels of the SAME character: eyes and face detail, hair ornament, collar and upper garment fabric, shoes and lower garment. {{persona}} {{style}}',
+  },
+  {
+    key: 'costume', label: '人物服装',
+    prompt: 'Costume reference sheet of the SAME character showing the full outfit: top, bottom, shoes, outerwear and accessories, each clearly visible. {{persona}} Same character, identical face and hairstyle. Neutral standing pose, plain light grey backdrop. {{style}}',
+  },
+  {
+    key: 'pose', label: '姿势',
+    prompt: 'Pose reference sheet: full-body dynamic standing pose of the SAME character, front-facing, clearly showing body lines and weight distribution. {{persona}} Same character, identical outfit. Plain light grey backdrop. {{style}}',
+  },
+  {
+    key: 'styling', label: '造型',
+    prompt: 'Styling reference sheet of the SAME character focusing on hairstyle and overall look: head-and-shoulders portrait showing hair shape, colour and styling plus signature accessories. {{persona}} Same character. Plain light grey backdrop. {{style}}',
   },
 ];
 
@@ -116,7 +130,7 @@ export interface ComicCharacter {
   accessories?: string;
   signature?: string;
   prompt?: string;
-  blocks?: Array<{ key: string; source?: 'generated' | 'library'; task_id?: number; url?: string; status?: string; asset_url?: string; error_msg?: string }>;
+  blocks?: Array<{ key: string; source?: 'generated' | 'library'; task_id?: number; url?: string; status?: string; asset_url?: string; error_msg?: string; reference_image?: string; reference_asset_id?: number }>;
   sheet_url?: string;
   locked?: boolean;
 }
@@ -273,7 +287,7 @@ export class ComicStudioService {
   async listCharacters(userId: number) {
     const [chars, assets] = await Promise.all([
       this.characterRepo.find({ where: { user_id: userId }, take: 100 }),
-      this.assetRepo.find({ where: { user_id: userId, type: 'character' }, take: 100 }),
+      this.assetRepo.find({ where: { user_id: userId, type: 'character', source_type: Not('open_gallery') }, take: 100 }),
     ]);
     return [
       ...chars.map((c) => ({ key: `character:${c.id}`, source: 'character', id: c.id, name: c.name,
@@ -385,7 +399,7 @@ export class ComicStudioService {
    *  ① 导入即压缩到 ≤1024px JPEG（参考图链路本来就会压到该规格，原图分辨率无用），单张 2.1MB → ~150KB
    *  ② 同图重复导入秒回（按 id 落盘覆盖，零下载）
    *  ③ gallery 目录 500MB 总量上限，超限拒绝并提示清理 */
-  async importOpenImage(userId: number, dto: { url: string; id?: string }) {
+  async importOpenImage(userId: number, dto: { url: string; id?: string; kind?: string; title?: string }) {
     const raw = String(dto?.url || '').trim();
     let u: URL;
     try { u = new URL(raw); } catch { throw new BadRequestException('无效的图片 URL'); }
@@ -399,36 +413,69 @@ export class ComicStudioService {
     const destDir = path.resolve(process.cwd(), 'output', 'gallery');
     fs.mkdirSync(destDir, { recursive: true });
     const dest = path.join(destDir, `${id}.jpg`);
+    const url = `/static/gallery/${id}.jpg`;
 
     // ② 去重：已导入过直接返回，零下载
+    let cached = false;
     if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
-      return { url: `/static/gallery/${id}.jpg`, bytes: fs.statSync(dest).size, id, cached: true };
+      cached = true;
+    } else {
+      // ③ 配额：gallery 目录总量上限
+      const existing = fs.existsSync(destDir) ? fs.readdirSync(destDir) : [];
+      const totalBytes = existing.reduce((s, f) => {
+        try { return s + fs.statSync(path.join(destDir, f)).size; } catch { return s; }
+      }, 0);
+      if (totalBytes > 500 * 1024 * 1024) {
+        throw new BadRequestException(
+          `开源图库本地缓存已达 ${(totalBytes / 1024 / 1024).toFixed(0)}MB（上限 500MB），请先清理 backend/output/gallery/ 下的旧图再导入`);
+      }
+
+      // ① 下载原图到临时文件 → ffmpeg 压成 ≤1024px JPEG → 删临时原图
+      const tmp = path.join(destDir, `.${id}_${Date.now()}.raw`);
+      await assertSafeRemoteUrl(raw);
+      await downloadToFile(raw, tmp, { maxBytes: 25 * 1024 * 1024, timeoutMs: 60000 });
+      try {
+        if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new BadRequestException('下载失败，请重试');
+        await execFileAsync(this.ffmpegBin(),
+          ['-y', '-v', 'quiet', '-i', tmp, '-vf', 'scale=1024:-2', '-q:v', '5', '-frames:v', '1', dest],
+          { timeout: 90000 });
+      } finally {
+        try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch { /* ignore */ }
+      }
+      if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) throw new BadRequestException('图片处理失败，请重试');
     }
 
-    // ③ 配额：gallery 目录总量上限
-    const existing = fs.existsSync(destDir) ? fs.readdirSync(destDir) : [];
-    const totalBytes = existing.reduce((s, f) => {
-      try { return s + fs.statSync(path.join(destDir, f)).size; } catch { return s; }
-    }, 0);
-    if (totalBytes > 500 * 1024 * 1024) {
-      throw new BadRequestException(
-        `开源图库本地缓存已达 ${(totalBytes / 1024 / 1024).toFixed(0)}MB（上限 500MB），请先清理 backend/output/gallery/ 下的旧图再导入`);
-    }
+    // 同步到大资产库：每张导入的开源图都建一条 GlobalAsset（tag=类别，source_type=open_gallery），
+    // 供 comic-studio 设定本「应用大资产」挑选器按 tag 检索。幂等：同一 image_url 只建一条。
+    const assetId = await this.ensureGalleryAsset(userId, {
+      id, url, kind: String(dto?.kind || '').trim(), title: String(dto?.title || '').trim(),
+    });
 
-    // ① 下载原图到临时文件 → ffmpeg 压成 ≤1024px JPEG → 删临时原图
-    const tmp = path.join(destDir, `.${id}_${Date.now()}.raw`);
-    await assertSafeRemoteUrl(raw);
-    await downloadToFile(raw, tmp, { maxBytes: 25 * 1024 * 1024, timeoutMs: 60000 });
+    return { url, bytes: fs.statSync(dest).size, id, assetId, cached };
+  }
+
+  /** 幂等地把一张开源导入图登记进大资产库（按 image_url 去重），失败仅告警不阻断导入 */
+  private async ensureGalleryAsset(userId: number, info: { id: string; url: string; kind: string; title: string }): Promise<number | null> {
     try {
-      if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new BadRequestException('下载失败，请重试');
-      await execFileAsync(this.ffmpegBin(),
-        ['-y', '-v', 'quiet', '-i', tmp, '-vf', 'scale=1024:-2', '-q:v', '5', '-frames:v', '1', dest],
-        { timeout: 90000 });
-    } finally {
-      try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch { /* ignore */ }
+      const existing = await this.assetRepo.findOne({ where: { image_url: info.url, user_id: userId } });
+      if (existing) return existing.id;
+      const tag = (['face', 'styling', 'costume', 'pose'].includes(info.kind) ? info.kind : 'open');
+      const asset = this.assetRepo.create({
+        user_id: userId,
+        type: 'character',
+        name: info.title || info.id,
+        description: `开源图鉴导入（${tag}）`,
+        image_url: info.url,
+        tags: tag,
+        status: 'completed',
+        source_type: 'open_gallery',
+      });
+      const saved = await this.assetRepo.save(asset);
+      return saved.id;
+    } catch (err: any) {
+      this.logger.warn(`ensureGalleryAsset failed for ${info.url}: ${err?.message || err}`);
+      return null;
     }
-    if (!fs.existsSync(dest) || fs.statSync(dest).size === 0) throw new BadRequestException('图片处理失败，请重试');
-    return { url: `/static/gallery/${id}.jpg`, bytes: fs.statSync(dest).size, id };
   }
 
   // ---------- 阶段 1：剧情大纲 → 人物识别 ----------
@@ -517,17 +564,23 @@ export class ComicStudioService {
     return this.getById(userId, id);
   }
 
-  private blockPrompt(p: ComicProject, c: ComicCharacter, key: string): string {
-    const block = SHEET_BLOCKS.find((b) => b.key === key);
-    if (!block) throw new BadRequestException('未知的设定本区块');
+  private blockPrompt(p: ComicProject, c: ComicCharacter, block: { key: string; prompt: string }, item?: { reference_image?: string }): string {
     const persona = c.prompt || this.personaText(c);
     const style = p.style_block || STYLE_BLOCKS[p.style_mode];
-    return [
-      'Create a clean CHARACTER PROFILE reference sheet panel.',
-      block.prompt.replace(/\{\{persona\}\}/g, persona).replace(/\{\{style\}\}/g, style),
-      '[CONSISTENCY] Same face, same hairstyle, same outfit in every view. No outfit change, no second character.',
-      '[HARD NEGATIVE] NO Chinese text, NO random letters, NO captions, NO watermark, NO mannequin lines, NO joints, plain neutral backdrop, even lighting.',
-    ].join('\n');
+    const base = block.prompt.replace(/\{\{persona\}\}/g, persona).replace(/\{\{style\}\}/g, style);
+    const lines = ['Create a clean CHARACTER PROFILE reference sheet panel.', base];
+    if (item?.reference_image) {
+      // i2i：参考图已携带身份/服装/姿势，避免重复描述造成冲突（尤其禁止重新引入姿势约束，见 R7）
+      lines.push('[REFERENCE IMAGE] Use the attached reference image as the basis for this character: adopt its EXACT face, hairstyle, outfit and pose. Reproduce the same identity and styling. Do NOT re-describe or alter the face/outfit/pose.');
+      if (block.key === 'pose') {
+        // 姿势块：参考图即目标姿势，不写任何额外姿势/动作约束，防止压不住参考姿势
+        lines.push('[POSE] Copy the exact pose from the reference image. Add no new pose instructions.');
+      }
+    } else {
+      lines.push('[CONSISTENCY] Same face, same hairstyle, same outfit in every view. No outfit change, no second character.');
+    }
+    lines.push('[HARD NEGATIVE] NO Chinese text, NO random letters, NO captions, NO watermark, NO mannequin lines, NO joints, NO stone tablets, NO engraved or inscribed text, NO signage with writing, plain neutral backdrop, even lighting.');
+    return lines.join('\n');
   }
 
   /** 为一个人物生成 4 个图像块任务，完成后由 status() 自动拼版 */
@@ -564,7 +617,8 @@ export class ComicStudioService {
       item.url = undefined;
       item.error_msg = undefined;
       const taskId = await this.generateService.createSheetBlockTask(userId, {
-        prompt: this.blockPrompt(p, c, b.key),
+        prompt: this.blockPrompt(p, c, b, item),
+        images: item.reference_image ? [item.reference_image] : undefined,
         model: p.model,
         image_size: p.image_size,
         ratio: '1:1',
@@ -602,6 +656,55 @@ export class ComicStudioService {
     return { characterId: c.id, block: dto.block, url, source: 'library' };
   }
 
+  /** 块级参考图（本次改造核心）：把某块绑定一张大资产库图片作为 i2i 参考，不立即生成，
+   *  等待 generateCharacterSheet 时按图生图。支持直接传 referenceImage(本地 /static/ 路径) 或 assetId(查 GlobalAsset)。 */
+  async setBlockReference(userId: number, id: number, dto: { characterId: string; block: string; referenceImage?: string; assetId?: number; clear?: boolean }) {
+    const p = await this.owned(userId, id);
+    const chars = this.parseChars(p);
+    const c = chars.find((x) => x.id === dto.characterId);
+    if (!c) throw new NotFoundException('人物不存在');
+    if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
+    if (!SHEET_BLOCKS.some((b) => b.key === dto.block)) throw new BadRequestException('未知的设定本区块');
+    if (!c.blocks?.length) c.blocks = SHEET_BLOCKS.map((b) => ({ key: b.key, status: 'pending' }));
+    const item = c.blocks.find((x) => x.key === dto.block)!;
+
+    // 移除参考图（不立即生成，等下次生成设定本时按原流程重建）
+    if (dto.clear) {
+      item.reference_image = undefined;
+      item.reference_asset_id = undefined;
+      item.status = 'pending';
+      item.url = undefined;
+      item.asset_url = undefined;
+      item.task_id = undefined;
+      item.error_msg = undefined;
+      c.sheet_url = undefined;
+      await this.saveChars(p, chars);
+      return { characterId: c.id, block: dto.block, cleared: true };
+    }
+
+    let referenceImage = String(dto.referenceImage || '').trim();
+    let assetId = typeof dto.assetId === 'number' ? dto.assetId : undefined;
+    if (!referenceImage && assetId) {
+      const asset = await this.assetRepo.findOne({ where: { id: assetId, user_id: userId } });
+      if (!asset || !asset.image_url) throw new BadRequestException('大资产不存在或没有图片');
+      referenceImage = asset.image_url;
+    }
+    if (!referenceImage) throw new BadRequestException('请提供参考图（referenceImage 或 assetId）');
+    if (!this.localImage(referenceImage)) throw new BadRequestException('参考图不可用（需本地 /static/ 路径且文件已存在）');
+
+    // 绑定参考图后，旧生成结果作废，等待按图生图重建
+    item.reference_image = referenceImage;
+    item.reference_asset_id = assetId;
+    item.status = 'pending';
+    item.url = undefined;
+    item.asset_url = undefined;
+    item.task_id = undefined;
+    item.error_msg = undefined;
+    c.sheet_url = undefined; // 待重新拼版
+    await this.saveChars(p, chars);
+    return { characterId: c.id, block: dto.block, reference_image: referenceImage, reference_asset_id: assetId, status: 'pending' };
+  }
+
   private localImage(url: string): string | null {
     if (!url) return null;
     const resolved = url.startsWith('/static/') ? resolveSafeStaticPath(url) : null;
@@ -616,21 +719,39 @@ export class ComicStudioService {
         : 'ffmpeg');
   }
 
-  /** 4 个 1:1 图像块 → ffmpeg xstack 拼成 1536×1536 设定本；文字档案不烧进图（归排版层） */
+  /** 设定本图像块拼版：支持 1~N 块动态网格（默认 7 块）。
+   *  网格：cols = min(4, ceil(sqrt(n)))，rows = ceil(n/cols)，输出约 1536×1536；
+   *  缺块则返回 null 等下次补齐。不足整网格的空位用纯色填充，保持拼版稳定。文字不烧进图（归排版层）。 */
   private async assembleSheet(p: ComicProject, c: ComicCharacter): Promise<string | null> {
+    const n = SHEET_BLOCKS.length;
     const files = SHEET_BLOCKS.map((b) => {
       const item = c.blocks?.find((x) => x.key === b.key);
       return item?.url ? this.localImage(item.url) : null;
     });
     if (files.some((f) => !f)) return null;
+    const cols = Math.min(4, Math.ceil(Math.sqrt(n)));
+    const rows = Math.ceil(n / cols);
+    const tile = Math.floor(1536 / cols);
     const outDir = path.resolve(process.cwd(), 'output', `comic-${p.id}`);
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
     const out = path.join(outDir, `sheet_${c.id}.png`);
+
     const inputs: string[] = [];
-    for (const f of files) inputs.push('-i', f as string);
-    const filters = files.map((_, i) =>
-      `[${i}:v]scale=768:768:force_original_aspect_ratio=decrease,pad=768:768:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`).join(';');
-    const complex = `${filters};[v0][v1][v2][v3]xstack=inputs=4:layout=0_0|768_0|0_768|768_768[out]`;
+    const filterParts: string[] = [];
+    for (let s = 0; s < rows * cols; s++) {
+      if (s < n) {
+        inputs.push('-i', files[s] as string);
+      } else {
+        inputs.push('-f', 'lavfi', '-i', `color=c=0x1a1a1a:s=${tile}x${tile}`);
+      }
+      filterParts.push(`[${s}:v]scale=${tile}:${tile}:force_original_aspect_ratio=decrease,pad=${tile}:${tile}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${s}]`);
+    }
+    const layout = Array.from({ length: rows * cols }, (_, s) => {
+      const col = s % cols, row = Math.floor(s / cols);
+      return `${col * tile}_${row * tile}`;
+    }).join('|');
+    const vInputs = Array.from({ length: rows * cols }, (_, s) => `[v${s}]`).join('');
+    const complex = `${filterParts.join(';')};${vInputs}xstack=inputs=${rows * cols}:layout=${layout}[out]`;
     await execFileAsync(this.ffmpegBin(),
       ['-y', '-v', 'quiet', ...inputs, '-filter_complex', complex, '-map', '[out]', '-frames:v', '1', out],
       { timeout: 90000 });
@@ -740,7 +861,7 @@ export class ComicStudioService {
       `[SCENE ANCHOR] ${p.scene_anchor || 'plain pale studio backdrop, soft even light'}. Keep identical across all pages.`,
       `[CONTINUITY] ${panel.continuity || 'continuing from the previous page'}. Do not restate the whole scene.`,
       `[THIS PANEL] Action: ${panel.action || 'standing naturally'}. Expression: ${panel.expression || 'neutral'}. Framing: ${panel.camera || 'medium full-body shot'}.`,
-      '[HARD NEGATIVE] ONE single finished image of the depicted character(s). NO Chinese text, NO speech bubbles, NO captions, NO collage, NO triptych, NO split panels, NO multiple scenes, NO extra figures, NO outfit change, NO mannequin lines.',
+      '[HARD NEGATIVE] ONE single finished image of the depicted character(s). NO Chinese text, NO speech bubbles, NO captions, NO collage, NO triptych, NO split panels, NO multiple scenes, NO extra figures, NO outfit change, NO mannequin lines, NO stone tablets, NO engraved or inscribed text.',
     ].join('\n');
   }
 
@@ -818,13 +939,15 @@ export class ComicStudioService {
     }
     const tasks = await this.taskRepo.find({ where: { id: In(ids) } });
     const byId = new Map(tasks.map((t) => [t.id, t]));
-    let dirtySpec = false, dirtyChars = false;
+    let dirtySpec = false, dirtyChars = false, dirtyProject = false;
+    const per = await this.generateService.quoteImageCost(p.image_size);
 
     for (const panel of spec.panels) {
       if (!panel.task_id) continue;
       const t = byId.get(panel.task_id);
       if (!t) continue;
       const st = t.status === 'completed' ? 'completed' : t.status === 'failed' ? 'failed' : 'processing';
+      const wasFailed = panel.status === 'failed';
       if (panel.status !== st) { panel.status = st; dirtySpec = true; }
       if (st === 'completed' && !panel.output_url && t.output_data) {
         try {
@@ -832,7 +955,13 @@ export class ComicStudioService {
           if (Array.isArray(arr) && arr[0]?.url) { panel.output_url = arr[0].url; dirtySpec = true; }
         } catch { /* 等下次 */ }
       }
-      if (st === 'failed' && t.error_msg) panel.error_msg = t.error_msg;
+      if (st === 'failed' && t.error_msg) { panel.error_msg = t.error_msg; dirtySpec = true; }
+      // P1-2：失败任务已退款，total_credits 按成功数回退，避免展示口径含失败扣费
+      if (st === 'failed' && !wasFailed) {
+        const cost = (t.credit_cost && t.credit_cost > 0) ? t.credit_cost : per;
+        p.total_credits = Math.max(0, (p.total_credits || 0) - cost);
+        dirtyProject = true;
+      }
     }
 
     for (const c of chars) {
@@ -849,6 +978,8 @@ export class ComicStudioService {
             if (Array.isArray(arr) && arr[0]?.url) { b.url = arr[0].url; dirtyChars = true; }
           } catch { /* 等下次 */ }
         }
+        // P1-1：设定本块失败也要回填 error_msg（剧情页已有，块此前漏了）
+        if (st === 'failed' && t.error_msg) { b.error_msg = t.error_msg; dirtyChars = true; }
       }
       // 拼版防风暴（2026-11-09 风险审查 P0-1）：in-flight 去重 + 失败 90s 退避。
       // 没有这层时，前端 3s 轮询 × 90s ffmpeg 超时会堆出 ~30 个并发 ffmpeg，1.6GB 生产机必 OOM。
@@ -873,6 +1004,7 @@ export class ComicStudioService {
 
     if (dirtySpec) await this.saveSpec(p, spec);
     if (dirtyChars) await this.saveChars(p, chars);
+    if (dirtyProject) await this.repo.save(p);
     const all = spec.panels.filter((x) => x.task_id);
     const done = all.filter((x) => x.status === 'completed').length;
     const failed = all.filter((x) => x.status === 'failed').length;

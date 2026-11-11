@@ -156,7 +156,7 @@ export default function OpenGalleryPage() {
   const importImage = async (item: GalleryItem) => {
     setBusyId(item.id);
     try {
-      const { data } = await api.post('/api/comic-studio/open-gallery/import', { url: item.full, id: item.id });
+      const { data } = await api.post('/api/comic-studio/open-gallery/import', { url: item.full, id: item.id, kind: item.kind, title: item.title });
       const localPath = data.url;
       setImported((s) => ({ ...s, [item.id]: localPath }));
       try {

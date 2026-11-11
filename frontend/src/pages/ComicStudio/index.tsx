@@ -3,10 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import {
   Button, Card, Steps, Form, Input, InputNumber, Select, Space, Typography,
   Table, Tag, Alert, Progress, Row, Col, Image, Divider, Tooltip, message, Empty, Spin,
+  Modal, Tabs, List,
 } from 'antd';
 import {
   PlusOutlined, ArrowLeftOutlined, ThunderboltOutlined, CheckOutlined,
   ReloadOutlined, DownloadOutlined, SwapOutlined, LockOutlined, UnlockOutlined,
+  PictureOutlined, DeleteOutlined, CloudDownloadOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -39,6 +41,13 @@ const STEPS = [
 
 const BLOCK_LABELS: Record<string, string> = {
   portrait: '正面头像', three_view: '三视图', expressions: '表情组', details: '局部特写',
+  costume: '人物服装', pose: '姿势', styling: '造型',
+};
+
+/** 每个设定本块对应的参考图类别（用于在大资产库/开源图鉴里按 tag 筛选） */
+const BLOCK_REF_TAG: Record<string, string> = {
+  portrait: 'face', three_view: 'face', expressions: 'face', details: 'face',
+  costume: 'costume', pose: 'pose', styling: 'styling',
 };
 
 const STATUS_TAG: Record<string, { color: string; label: string }> = {
@@ -75,8 +84,8 @@ export default function ComicStudioPage() {
   const [progress, setProgress] = useState<any>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
-  /** 块级素材图输入：key = `${characterId}:${block}` */
-  const [assetInputs, setAssetInputs] = useState<Record<string, string>>({});
+  /** 设定本块「应用大资产」挑选器状态 */
+  const [picker, setPicker] = useState<{ characterId: string; block: string; kind: string } | null>(null);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -252,15 +261,23 @@ export default function ComicStudioPage() {
     } catch (e: any) { message.error(e?.response?.data?.message || '重生成失败'); }
   };
 
-  /** 块级素材来源：直接用现成图（/static/ 路径），0 次生成 0 积分 */
-  const applyBlockAsset = async (characterId: string, block: string, assetUrl: string) => {
+  /** 块级参考图：把某块绑定一张大资产库图片作为 i2i 参考（不直接生成，等生成设定本时按图生图） */
+  const applyReference = async (characterId: string, block: string, assetId: number, referenceImage?: string) => {
     if (!guard()) return;
-    if (!assetUrl?.trim()) { message.warning('先填素材图路径'); return; }
     try {
-      await api.put(`/api/comic-studio/${projectId}/sheets/block-asset`, { characterId, block, assetUrl });
-      message.success(`「${BLOCK_LABELS[block] || block}」已换用现成素材图（0 积分）`);
-      setStep(2);
+      await api.put(`/api/comic-studio/${projectId}/sheets/block-reference`, { characterId, block, assetId, referenceImage });
+      message.success(`「${BLOCK_LABELS[block] || block}」已绑定参考图，生成时将按图生图`);
+      if (projectId) await openProject(projectId);
     } catch (e: any) { message.error(e?.response?.data?.message || '应用失败'); }
+  };
+
+  const clearReference = async (characterId: string, block: string) => {
+    if (!guard()) return;
+    try {
+      await api.put(`/api/comic-studio/${projectId}/sheets/block-reference`, { characterId, block, clear: true });
+      message.success(`已移除「${BLOCK_LABELS[block] || block}」的参考图`);
+      if (projectId) await openProject(projectId);
+    } catch (e: any) { message.error(e?.response?.data?.message || '移除失败'); }
   };
 
   const toggleLock = async (characterId: string, locked: boolean) => {
@@ -493,7 +510,7 @@ export default function ComicStudioPage() {
             <div>
               <Alert type="info" showIcon style={{ marginBottom: 12 }}
                 message="角色设定本 = 角色一致性的唯一基准"
-                description="每个人物分 4 个图像块生成（正面头像 / FRONT·SIDE·BACK 三视图 / 5 连表情 / 服饰局部特写），后端自动拼成一张 CHARACTER PROFILE；档案文字不烧进图（Agnes 渲染中文会崩）。确认无误后锁定，锁定后每一页都会用这张图当身份参考。" />
+                description="每个人物分 7 个图像块生成（正面头像 / 三视图 / 表情组 / 局部特写 / 人物服装 / 姿势 / 造型），后端自动拼成一张 CHARACTER PROFILE；档案文字不烧进图（Agnes 渲染中文会崩）。每块都能「应用大资产」：从大资产库或开源图鉴挑一张人脸/服装/姿势/造型图作为参考，生成时按图生图（i2i）。确认无误后锁定，锁定后每一页都会用这张图当身份参考。" />
               <Row gutter={[12, 12]}>
                 {characters.map((c) => (
                   <Col xs={24} md={12} key={c.id}>
@@ -515,14 +532,21 @@ export default function ComicStudioPage() {
                               <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                                 <Tag color={STATUS_TAG[b.status || 'pending']?.color}>{STATUS_TAG[b.status || 'pending']?.label}</Tag>
                                 <Text type="secondary" style={{ fontSize: 12 }}>{BLOCK_LABELS[b.key] || b.key}</Text>
-                                {b.source === 'library' && <Tag color="geekblue">素材图</Tag>}
+                                {b.reference_image && (
+                                  <Image src={getUrl(b.reference_image)} width={28} height={28}
+                                    style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #d9d9d9' }} />
+                                )}
+                                {b.reference_asset_id ? <Tag color="purple">参考图</Tag> : (b.source === 'library' && <Tag color="geekblue">素材图</Tag>)}
                                 <Button size="small" type="link" style={{ padding: 0, height: 18 }} disabled={c.locked}
                                   onClick={() => regenBlock(c.id, b.key)}>重生成</Button>
-                                <Input size="small" placeholder="/static/素材图.jpg（可选）" style={{ width: 120 }}
-                                  value={assetInputs[`${c.id}:${b.key}`] || ''}
-                                  onChange={(e) => setAssetInputs((s) => ({ ...s, [`${c.id}:${b.key}`]: e.target.value }))} />
-                                <Button size="small" disabled={c.locked}
-                                  onClick={() => applyBlockAsset(c.id, b.key, assetInputs[`${c.id}:${b.key}`] || '')}>应用</Button>
+                                <Button size="small" type="link" style={{ padding: 0, height: 18 }} disabled={c.locked}
+                                  icon={<AppstoreOutlined />}
+                                  onClick={() => setPicker({ characterId: c.id, block: b.key, kind: BLOCK_REF_TAG[b.key] || 'open' })}>应用大资产</Button>
+                                {b.reference_image && (
+                                  <Button size="small" type="link" danger style={{ padding: 0, height: 18 }} disabled={c.locked}
+                                    icon={<DeleteOutlined />}
+                                    onClick={() => clearReference(c.id, b.key)}>移除</Button>
+                                )}
                               </div>
                             ))}
                             {!c.blocks?.length && <Text type="secondary">尚未生成</Text>}
@@ -637,7 +661,116 @@ export default function ComicStudioPage() {
             </div>
           )}
         </Spin>
+        <BlockAssetPicker
+          open={!!picker}
+          characterId={picker?.characterId || ''}
+          block={picker?.block || ''}
+          blockLabel={BLOCK_LABELS[picker?.block || ''] || picker?.block || ''}
+          kind={picker?.kind || 'open'}
+          projectId={projectId}
+          onClose={() => setPicker(null)}
+          onApplied={async (assetId, referenceImage) => { if (picker) await applyReference(picker.characterId, picker.block, assetId, referenceImage); }}
+        />
       </Card>
     </div>
+  );
+}
+
+/** 设定本块「应用大资产」挑选器：从大资产库(按 tag 过滤) 或 开源图鉴 选一张参考图，i2i 生成时作为参考 */
+function BlockAssetPicker(props: {
+  open: boolean; characterId: string; block: string; blockLabel: string; kind: string;
+  projectId: number | null;
+  onClose: () => void;
+  onApplied: (assetId: number, referenceImage: string) => void;
+}) {
+  const { open, blockLabel, kind, projectId, onClose, onApplied } = props;
+  const [tab, setTab] = useState('lib');
+  const [lib, setLib] = useState<any[]>([]);
+  const [catalog, setCatalog] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelected(null); setTab('lib'); setCatalog(null); setLib([]);
+    (async () => {
+      setLoading(true);
+      try {
+        const [libRes, catRes] = await Promise.all([
+          api.get(`/api/global-assets?tag=${kind}&limit=60`),
+          api.get('/api/comic-studio/open-gallery'),
+        ]);
+        setLib(libRes.data.items || []);
+        setCatalog(catRes.data);
+      } catch { message.error('加载素材库失败'); }
+      finally { setLoading(false); }
+    })();
+  }, [open, kind]);
+
+  let catItems: any[] = [];
+  if (catalog) {
+    if (kind === 'costume') catItems = catalog.costumes || [];
+    else if (kind === 'pose') catItems = catalog.poses || [];
+    else catItems = (catalog.faces || []).filter((f: any) => f.kind === kind);
+  }
+
+  const thumbUrl = (u: string) => (u ? (u.startsWith('http') ? u : API_BASE + u) : '');
+
+  const importAndApply = async (item: any) => {
+    if (!projectId) return;
+    setBusyId(item.id);
+    try {
+      const { data } = await api.post('/api/comic-studio/open-gallery/import', { url: item.full, id: item.id, kind: item.kind, title: item.title });
+      onApplied(data.assetId, data.url);
+      onClose();
+    } catch (e: any) { message.error(e?.response?.data?.message || '导入失败'); }
+    finally { setBusyId(null); }
+  };
+
+  const confirmLib = async () => {
+    if (selected == null) { message.warning('请选择一张大资产图'); return; }
+    const asset = lib.find((a) => a.id === selected);
+    onApplied(selected, asset?.image_url || '');
+    onClose();
+  };
+
+  const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, maxHeight: 360, overflowY: 'auto' };
+
+  return (
+    <Modal open={open} title={`为「${blockLabel}」选择参考图`} onCancel={onClose} width={780}
+      okText="应用所选" okButtonProps={{ disabled: tab !== 'lib' || selected == null }}
+      onOk={tab === 'lib' ? confirmLib : undefined}>
+      <Tabs activeKey={tab} onChange={setTab} items={[
+        {
+          key: 'lib', label: '我的资产库',
+          children: loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> :
+            lib.length ? (
+              <div style={gridStyle}>
+                {lib.map((a) => (
+                  <div key={a.id} onClick={() => setSelected(a.id)}
+                    style={{ cursor: 'pointer', border: selected === a.id ? '2px solid #1677ff' : '1px solid #eee', borderRadius: 6, overflow: 'hidden' }}>
+                    <Image src={thumbUrl(a.image_url)} width="100%" height={90} style={{ objectFit: 'cover' }} preview={false} />
+                    <div style={{ fontSize: 11, padding: '2px 4px', color: '#555', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <Empty description="资产库还没有该类参考图，去「开源图鉴」导入" />,
+        },
+        {
+          key: 'open', label: '开源图鉴',
+          children: loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> :
+            <div style={gridStyle}>
+              {catItems.map((it: any) => (
+                <div key={it.id} style={{ border: '1px solid #eee', borderRadius: 6, overflow: 'hidden' }}>
+                  <Image src={thumbUrl(it.thumb || it.full)} width="100%" height={90} style={{ objectFit: 'cover' }} preview={false} />
+                  <Button size="small" block loading={busyId === it.id} onClick={() => importAndApply(it)}>导入并应用</Button>
+                </div>
+              ))}
+              {!catItems.length && <Empty description="该类别暂无开源图" />}
+            </div>,
+        },
+      ]} />
+    </Modal>
   );
 }

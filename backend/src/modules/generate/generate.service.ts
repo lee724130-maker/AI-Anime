@@ -315,16 +315,17 @@ export class GenerateService implements OnModuleDestroy {
   }
 
   /**
-   * V2 角色设定本的 4 个图像块是文生图（无参考图），用独立入口建任务：
-   * 复用同一套计费/任务/队列/落盘/退款，只是不套剧情页的拼版负面词。
+   * V2 角色设定本的图像块生成入口：复用与剧情页同一套计费/任务/队列/落盘/退款。
+   * 不传 images → 纯文生图；传入 images → 按图生图（i2i），逻辑由 normalizeI2I 统一处理。
    */
   async createSheetBlockTask(userId: number, dto: {
     prompt: string;
+    images?: string[];
     model?: string;
     image_size?: string;
     ratio?: string;
   }, meta: { comicProjectId: number; characterId: string; block: string }): Promise<number> {
-    const normalized = this.normalizeI2I({ ...dto, images: [] }, false);
+    const normalized = this.normalizeI2I({ ...dto, images: Array.isArray(dto.images) ? dto.images : [] }, false);
     return this.launchI2ITask(userId, normalized, 'comic_sheet', meta);
   }
 
