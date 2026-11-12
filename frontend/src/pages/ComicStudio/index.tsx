@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Button, Card, Steps, Form, Input, InputNumber, Select, Space, Typography,
   Table, Tag, Alert, Progress, Row, Col, Image, Divider, Tooltip, message, Empty, Spin,
@@ -8,7 +8,7 @@ import {
 import {
   PlusOutlined, ArrowLeftOutlined, ThunderboltOutlined, CheckOutlined,
   ReloadOutlined, DownloadOutlined, SwapOutlined, LockOutlined, UnlockOutlined,
-  PictureOutlined, DeleteOutlined, CloudDownloadOutlined, AppstoreOutlined,
+  DeleteOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 
@@ -57,6 +57,28 @@ const STATUS_TAG: Record<string, { color: string; label: string }> = {
   failed: { color: 'error', label: '失败' },
 };
 
+/** 7 个图像块的固定顺序（4 必选 + 3 可选，与后端 SHEET_BLOCKS 一致） */
+const BLOCK_KEYS = Object.keys(BLOCK_LABELS);
+/** 必选 4 块：齐了即可拼版 / 锁定 / 进入下一步；其余 3 块为可选生成项 */
+const REQUIRED_KEYS = ['portrait', 'three_view', 'expressions', 'details'];
+const OPTIONAL_KEYS = BLOCK_KEYS.filter((k) => !REQUIRED_KEYS.includes(k));
+
+/** 块显示状态：有成品图（生成结果或已应用的大资产图）即为「完成」，兼容旧数据与中间态 */
+const blockStatus = (b: any): string => (b?.url ? 'completed' : (b?.status || 'pending'));
+/** 块当前可展示的图：成品图优先，其次已绑定的参考图 */
+const blockImage = (b: any): string => b?.url || b?.reference_image || b?.asset_url || '';
+/** 角色摘要用的正面头像：portrait 块 → 设定本拼版 → 空 */
+const portraitImage = (c: any): string => {
+  const p = (c?.blocks || []).find((b: any) => b.key === 'portrait');
+  return blockImage(p) || c?.sheet_url || '';
+};
+const blockDone = (c: any, k: string): boolean => {
+  const b = (c?.blocks || []).find((x: any) => x.key === k);
+  return !!b?.url;
+};
+const doneRequired = (c: any): number => REQUIRED_KEYS.filter((k) => blockDone(c, k)).length;
+const doneOptional = (c: any): number => OPTIONAL_KEYS.filter((k) => blockDone(c, k)).length;
+
 const DEFAULT_FORM = {
   title: '我的漫画',
   idea: '',
@@ -71,6 +93,8 @@ const DEFAULT_FORM = {
 
 export default function ComicStudioPage() {
   const navigate = useNavigate();
+  /** 项目 id 存在 URL 里：/comic-studio/:id 为项目页，/comic-studio 为新建/列表主页 */
+  const { id: routeId } = useParams();
   const [form] = Form.useForm();
   const [projects, setProjects] = useState<any[]>([]);
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -80,12 +104,19 @@ export default function ComicStudioPage() {
   const [outline, setOutline] = useState('');
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [estimate, setEstimate] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [exportUrl, setExportUrl] = useState<string | null>(null);
+  /** 生成前预检结果（审格步骤用，后端 startGeneration 也会复用同一份做硬门控） */
+  const [preflight, setPreflight] = useState<any>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
   /** 设定本块「应用大资产」挑选器状态 */
   const [picker, setPicker] = useState<{ characterId: string; block: string; kind: string } | null>(null);
+  /** 角色详情弹窗：只存 id，内容由 characters 派生，保证 3s 轮询能实时刷新弹窗 */
+  const [detailCharId, setDetailCharId] = useState<string | null>(null);
+  const detailChar = characters.find((c) => c.id === detailCharId) || null;
+  /** 分格脚本：正在为第几格（panels 下标）从大资产库挑选姿势参考图 */
+  const [posePicker, setPosePicker] = useState<number | null>(null);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -104,12 +135,19 @@ export default function ComicStudioPage() {
     setPanels(data.spec?.panels || []);
     setExportUrl(data.export_url || null);
     form.setFieldsValue({ ...DEFAULT_FORM, ...data, idea: '' });
-    if (data.sheet_status === 'locked') setStep(3);
-    else if (data.characters_status === 'confirmed') setStep(2);
-    else if (data.outline_status === 'confirmed' || data.outline) setStep(1);
-    else setStep(0);
-    if (data.status === 'generating') setStep(5);
-    if (data.status === 'completed') setStep(6);
+    let target = 0;
+    if (data.sheet_status === 'locked') target = 3;
+    else if (data.characters_status === 'confirmed') target = 2;
+    else if (data.outline_status === 'confirmed' || data.outline) target = 1;
+    if (data.status === 'generating') target = 5;
+    if (data.status === 'completed') target = 6;
+    // 刷新后优先恢复上次所在步骤（按项目 id 隔离），否则才按项目进度推导；
+    // 审格步骤没有任何项目状态可推导，不这么做刷新必丢。
+    try {
+      const saved = Number(sessionStorage.getItem(`comicStudioStep:${data.id}`));
+      if (Number.isInteger(saved) && saved >= 0 && saved < STEPS.length) target = saved;
+    } catch { /* ignore */ }
+    setStep(target);
     setConfirmed(false);
   }, [form]);
 
@@ -118,16 +156,39 @@ export default function ComicStudioPage() {
     try {
       const { data } = await api.get(`/api/comic-studio/${id}`);
       applyProject(data);
+      // 把当前项目写进 URL（replace 避免每次内部刷新都堆一条历史记录）
+      navigate(`/comic-studio/${id}`, { replace: true });
     } catch (e: any) { message.error(e?.response?.data?.message || '项目读取失败'); }
     finally { setLoading(false); }
-  }, [applyProject]);
+  }, [applyProject, navigate]);
 
-  const refreshEstimate = useCallback(async (id: number) => {
+  /** 刷新 / 直接访问 /comic-studio/:id 时，自动打开 URL 里的项目，而不是掉回新建页。
+   *  只在 URL 中的 id 变化时执行；projectId 变化不反过来重新拉取。 */
+  useEffect(() => {
+    const id = Number(routeId);
+    if (!Number.isInteger(id) || id <= 0 || id === projectId) return;
+    void openProject(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId]);
+
+  const refreshPreflight = useCallback(async (id: number) => {
+    setPreflightLoading(true);
     try {
-      const { data } = await api.get(`/api/comic-studio/${id}/estimate`);
-      setEstimate(data);
-    } catch { setEstimate(null); }
+      const { data } = await api.get(`/api/comic-studio/${id}/preflight`);
+      setPreflight(data);
+    } catch { setPreflight(null); }
+    finally { setPreflightLoading(false); }
   }, []);
+
+  /** 进入审格步骤就拉一次预检；确认状态只在预检通过时才允许保持 */
+  useEffect(() => { if (step === 4 && projectId) refreshPreflight(projectId); }, [step, projectId, refreshPreflight]);
+  useEffect(() => { if (preflight && !preflight.canGenerate) setConfirmed(false); }, [preflight]);
+
+  /** 记住每个项目当前所在步骤，刷新后由 applyProject 恢复 */
+  useEffect(() => {
+    if (!projectId) return;
+    try { sessionStorage.setItem(`comicStudioStep:${projectId}`, String(step)); } catch { /* ignore */ }
+  }, [step, projectId]);
 
   /** 设定本生成中 / 剧情图生成中，3 秒轮询回填 */
   useEffect(() => {
@@ -245,7 +306,7 @@ export default function ComicStudioPage() {
       if (data.created === 0) {
         message.info(data.message || '所有块均已完成，无需重生成');
       } else {
-        message.success(`已重建 ${data.created} 个块，保留 ${data.kept} 个已完成块（拼版会自动刷新）`);
+        message.success(`已补生成 ${data.created} 个必选块（可选块不自动生成，拼版会自动刷新）`);
       }
       setStep(2);
     } catch (e: any) { message.error(e?.response?.data?.message || '设定本生成失败'); }
@@ -256,17 +317,17 @@ export default function ComicStudioPage() {
     if (!guard()) return;
     try {
       await api.post(`/api/comic-studio/${projectId}/sheets/generate`, { characterId, blocks: [block] });
-      message.success(`「${BLOCK_LABELS[block] || block}」已单独重新生成`);
+      message.success(`「${BLOCK_LABELS[block] || block}」已提交生成（生成会消耗积分，完成后自动拼版）`);
       setStep(2);
     } catch (e: any) { message.error(e?.response?.data?.message || '重生成失败'); }
   };
 
-  /** 块级参考图：把某块绑定一张大资产库图片作为 i2i 参考（不直接生成，等生成设定本时按图生图） */
+  /** 应用大资产：图片直接成为该块成品图（0 生图 0 积分），同时保留为 i2i 参考供「重生成」 */
   const applyReference = async (characterId: string, block: string, assetId: number, referenceImage?: string) => {
     if (!guard()) return;
     try {
       await api.put(`/api/comic-studio/${projectId}/sheets/block-reference`, { characterId, block, assetId, referenceImage });
-      message.success(`「${BLOCK_LABELS[block] || block}」已绑定参考图，生成时将按图生图`);
+      message.success(`「${BLOCK_LABELS[block] || block}」已应用为成品图（无需生图）`);
       if (projectId) await openProject(projectId);
     } catch (e: any) { message.error(e?.response?.data?.message || '应用失败'); }
   };
@@ -275,7 +336,7 @@ export default function ComicStudioPage() {
     if (!guard()) return;
     try {
       await api.put(`/api/comic-studio/${projectId}/sheets/block-reference`, { characterId, block, clear: true });
-      message.success(`已移除「${BLOCK_LABELS[block] || block}」的参考图`);
+      message.success(`已移除「${BLOCK_LABELS[block] || block}」的图像，恢复待生成`);
       if (projectId) await openProject(projectId);
     } catch (e: any) { message.error(e?.response?.data?.message || '移除失败'); }
   };
@@ -314,7 +375,6 @@ export default function ComicStudioPage() {
       const { data } = await api.put(`/api/comic-studio/${projectId}/panels`, { panels: next });
       setPanels(data.spec?.panels || []);
       setProject(data);
-      await refreshEstimate(projectId!);
       setStep(4);
       message.success('分格已保存');
     } catch (e: any) { message.error(e?.response?.data?.message || '保存失败'); }
@@ -397,8 +457,22 @@ export default function ComicStudioPage() {
       render: (_: any, r: any, i: number) => <Input size="small" value={r.camera} onChange={(e) => patchPanel(i, 'camera', e.target.value)} /> },
     { title: '复用组', key: 'reuse_group', width: 100,
       render: (_: any, r: any, i: number) => <Input size="small" value={r.reuse_group} onChange={(e) => patchPanel(i, 'reuse_group', e.target.value)} /> },
-    { title: '姿势图', key: 'pose_ref', width: 130,
-      render: (_: any, r: any, i: number) => <Input size="small" value={r.pose_ref} placeholder="/static/... 可选" onChange={(e) => patchPanel(i, 'pose_ref', e.target.value)} /> },
+    { title: '姿势图（大资产）', key: 'pose_ref', width: 150,
+      render: (_: any, r: any, i: number) => (
+        <Space direction="vertical" size={2} style={{ width: '100%' }}>
+          {r.pose_ref
+            ? <Image src={getUrl(r.pose_ref)} width={44} height={44} preview={false}
+                style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #d9d9d9' }} />
+            : null}
+          <Button size="small" block icon={<AppstoreOutlined />} onClick={() => setPosePicker(i)}>
+            {r.pose_ref ? '更换姿势图' : '应用大资产'}
+          </Button>
+          {r.pose_ref
+            ? <Button size="small" type="link" danger block style={{ padding: 0, height: 18 }}
+                onClick={() => patchPanel(i, 'pose_ref', '')}>清除</Button>
+            : null}
+        </Space>
+      ) },
     { title: '旁白 / 台词（排版层）', key: 'text', width: 210,
       render: (_: any, r: any, i: number) => (
         <Space direction="vertical" size={2} style={{ width: '100%' }}>
@@ -421,9 +495,9 @@ export default function ComicStudioPage() {
         <Space wrap>
           <Select style={{ width: 240 }} placeholder="切换已有项目" allowClear
             value={projectId ?? undefined}
-            onChange={(v) => { if (v) openProject(v as number); else { setProjectId(null); setProject(null); setCharacters([]); setPanels([]); setOutline(''); setStep(0); form.resetFields(); } }}
+            onChange={(v) => { if (v) openProject(v as number); else { setProjectId(null); setProject(null); setCharacters([]); setPanels([]); setOutline(''); setStep(0); form.resetFields(); navigate('/comic-studio', { replace: true }); } }}
             options={projects.map((p) => ({ value: p.id, label: `${p.title}（${p.style_mode === 'anime' ? '动漫' : '真人'} · ${p.panel_count || 0} 格）` }))} />
-          <Button icon={<PlusOutlined />} onClick={() => { setProjectId(null); setProject(null); setCharacters([]); setPanels([]); setOutline(''); setStep(0); setEstimate(null); setExportUrl(null); form.setFieldsValue(DEFAULT_FORM); }}>新建</Button>
+          <Button icon={<PlusOutlined />} onClick={() => { setProjectId(null); setProject(null); setCharacters([]); setPanels([]); setOutline(''); setStep(0); setExportUrl(null); form.setFieldsValue(DEFAULT_FORM); navigate('/comic-studio', { replace: true }); }}>新建</Button>
         </Space>
       </Space>
 
@@ -432,8 +506,21 @@ export default function ComicStudioPage() {
         description="角色由模型从剧情里识别并生成设定本，锁定后作为每一页唯一的身份基准；文字层（旁白/气泡/分支卡）仍交给剪辑应用排版层，底图不含中文。" />
 
       <Card>
-        <Steps current={step} onChange={(s) => { if (!projectId && s > 0) { message.info('先保存项目'); return; } setStep(s); }}
-          items={STEPS} style={{ marginBottom: 24 }} />
+        <Steps current={step} onChange={(s) => {
+          if (!projectId && s > 0) { message.info('先保存项目'); return; }
+          // 不能靠点步骤条绕过审格直接进生图 / 交付
+          if (s > step && s >= 5) {
+            if (s === 5 && !(preflight?.canGenerate && confirmed)) {
+              message.warning('请先在「审格 · 门控与用量」通过预检并确认，才能进入生成');
+              return;
+            }
+            if (s === 6 && (!panels.length || panels.some((p: any) => p.status === 'processing' || p.status === 'pending'))) {
+              message.warning('还有未完成的格，请等生成结束或重生成失败格');
+              return;
+            }
+          }
+          setStep(s);
+        }} items={STEPS} style={{ marginBottom: 24 }} />
 
         <Spin spinning={loading}>
           {/* 0 立项与大纲 */}
@@ -510,58 +597,49 @@ export default function ComicStudioPage() {
             <div>
               <Alert type="info" showIcon style={{ marginBottom: 12 }}
                 message="角色设定本 = 角色一致性的唯一基准"
-                description="每个人物分 7 个图像块生成（正面头像 / 三视图 / 表情组 / 局部特写 / 人物服装 / 姿势 / 造型），后端自动拼成一张 CHARACTER PROFILE；档案文字不烧进图（Agnes 渲染中文会崩）。每块都能「应用大资产」：从大资产库或开源图鉴挑一张人脸/服装/姿势/造型图作为参考，生成时按图生图（i2i）。确认无误后锁定，锁定后每一页都会用这张图当身份参考。" />
+                description="必选 4 块：正面头像 / 三视图 / 表情组 / 局部特写——这 4 块齐了就能自动拼版、锁定并进入下一步。可选 3 块：人物服装 / 姿势 / 造型，不默认生成、不阻塞流程，需要时在详情弹窗里单独生成，生成后会自动拼进设定本。「应用大资产」可把大资产库/开源图鉴的图直接作为该块成品（0 生图 0 积分）。" />
               <Row gutter={[12, 12]}>
-                {characters.map((c) => (
-                  <Col xs={24} md={12} key={c.id}>
-                    <Card size="small" title={<Space><Tag color={c.locked ? 'success' : 'default'}>{c.name}</Tag>{c.locked ? <Tag color="success">已锁定</Tag> : <Tag>未锁定</Tag>}</Space>}
-                      extra={<Space>
-                        <Button size="small" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>重生成未完成块</Button>
-                        <Button size="small" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url}
-                          onClick={() => toggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>
-                      </Space>}>
-                      <Row gutter={8}>
-                        <Col span={10}>
-                          {c.sheet_url
-                            ? <Image alt="角色设定本" src={getUrl(c.sheet_url)} style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
-                            : <div style={{ aspectRatio: '1/1', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12 }}>设定本拼版中…</div>}
-                        </Col>
-                        <Col span={14}>
-                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                            {(c.blocks || []).map((b: any) => (
-                              <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                                <Tag color={STATUS_TAG[b.status || 'pending']?.color}>{STATUS_TAG[b.status || 'pending']?.label}</Tag>
-                                <Text type="secondary" style={{ fontSize: 12 }}>{BLOCK_LABELS[b.key] || b.key}</Text>
-                                {b.reference_image && (
-                                  <Image src={getUrl(b.reference_image)} width={28} height={28}
-                                    style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #d9d9d9' }} />
-                                )}
-                                {b.reference_asset_id ? <Tag color="purple">参考图</Tag> : (b.source === 'library' && <Tag color="geekblue">素材图</Tag>)}
-                                <Button size="small" type="link" style={{ padding: 0, height: 18 }} disabled={c.locked}
-                                  onClick={() => regenBlock(c.id, b.key)}>重生成</Button>
-                                <Button size="small" type="link" style={{ padding: 0, height: 18 }} disabled={c.locked}
-                                  icon={<AppstoreOutlined />}
-                                  onClick={() => setPicker({ characterId: c.id, block: b.key, kind: BLOCK_REF_TAG[b.key] || 'open' })}>应用大资产</Button>
-                                {b.reference_image && (
-                                  <Button size="small" type="link" danger style={{ padding: 0, height: 18 }} disabled={c.locked}
-                                    icon={<DeleteOutlined />}
-                                    onClick={() => clearReference(c.id, b.key)}>移除</Button>
-                                )}
-                              </div>
-                            ))}
-                            {!c.blocks?.length && <Text type="secondary">尚未生成</Text>}
-                          </Space>
-                        </Col>
-                      </Row>
-                    </Card>
-                  </Col>
-                ))}
+                {characters.map((c) => {
+                  const done = doneRequired(c);
+                  const opt = doneOptional(c);
+                  const total = REQUIRED_KEYS.length;
+                  const failed = (c.blocks || []).filter((b: any) => b.status === 'failed' && !b.url).length;
+                  const cover = portraitImage(c);
+                  return (
+                    <Col xs={24} sm={12} md={8} xl={6} key={c.id}>
+                      <Card size="small" hoverable
+                        title={<Space size={4}><Text strong ellipsis style={{ maxWidth: 110, fontSize: 13 }}>{c.name}</Text>{c.locked ? <Tag color="success">已锁定</Tag> : <Tag>未锁定</Tag>}</Space>}
+                        extra={<Button size="small" type="link" icon={<AppstoreOutlined />} onClick={() => setDetailCharId(c.id)}>详情</Button>}
+                        cover={cover
+                          ? <div onClick={() => setDetailCharId(c.id)} style={{ cursor: 'pointer' }}>
+                              <Image alt={c.name} src={getUrl(cover)} preview={false}
+                                style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
+                            </div>
+                          : <div onClick={() => setDetailCharId(c.id)}
+                              style={{ aspectRatio: '1/1', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}>暂无正面头像 · 点详情应用</div>}
+                        actions={[
+                          <Button size="small" type="link" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>补生成必选块</Button>,
+                          <Button size="small" type="link" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url} onClick={() => toggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>,
+                        ]}>
+                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <Text type="secondary" style={{ fontSize: 12 }}>必选 {done}/{total} · 可选 {opt}/{OPTIONAL_KEYS.length}</Text>
+                          <Progress percent={Math.round(done / total * 100)} size="small" showInfo={false} />
+                          {failed > 0 && (
+                            <Button block size="small" type="link" danger style={{ padding: 0, height: 20 }}
+                              onClick={() => setDetailCharId(c.id)}>{failed} 块生成失败 · 点此重试</Button>
+                          )}
+                          <Button block size="small" onClick={() => setDetailCharId(c.id)}>查看图像块详情</Button>
+                        </Space>
+                      </Card>
+                    </Col>
+                  );
+                })}
               </Row>
               <div style={{ marginTop: 16, textAlign: 'right' }}>
                 <Button onClick={() => setStep(1)}>返回改人设</Button>
                 <Button type="primary" disabled={!allLocked} onClick={() => setStep(3)}>全部已锁定，去生成分格</Button>
               </div>
-              {!allLocked && <Text type="secondary" style={{ display: 'block', textAlign: 'right', marginTop: 6, fontSize: 12 }}>需所有人物都生成并锁定设定本</Text>}
+              {!allLocked && <Text type="secondary" style={{ display: 'block', textAlign: 'right', marginTop: 6, fontSize: 12 }}>需所有人物的 4 个必选块完成并锁定设定本</Text>}
             </div>
           )}
 
@@ -583,27 +661,49 @@ export default function ComicStudioPage() {
             </div>
           )}
 
-          {/* 4 审格 */}
+          {/* 4 审格 · 门控与用量（生成前预检） */}
           {step === 4 && (
             <div>
-              <Title level={5}>生成前确认</Title>
-              <Paragraph type="secondary">同一「复用组」的格只生成 1 张底图，其余格复制同图，仅文字层不同。</Paragraph>
-              {estimate ? (
-                <Row gutter={12} style={{ marginBottom: 16 }}>
-                  <Col><Card size="small"><Text type="secondary">总格数</Text><Title level={3} style={{ margin: 0 }}>{estimate.page_count}</Title></Card></Col>
-                  <Col><Card size="small"><Text type="secondary">需生成底图</Text><Title level={3} style={{ margin: 0 }}>{estimate.base_count}</Title></Card></Col>
-                  <Col><Card size="small"><Text type="secondary">单张积分</Text><Title level={3} style={{ margin: 0 }}>{estimate.per_image_credits}</Title></Card></Col>
-                  <Col><Card size="small"><Text type="secondary">预计总积分</Text><Title level={3} style={{ margin: 0, color: '#c2410c' }}>{estimate.total_credits}</Title></Card></Col>
-                </Row>
-              ) : <Spin />}
+              <Title level={5}>审格 · 门控与用量（生成前预检）</Title>
+              <Paragraph type="secondary">同一「复用组」的格只生成 1 张底图，其余格复制同图，仅文字层不同。下面逐项确认前面几步的设定与「能否正确生成」，有「未通过」项时无法开始生图。</Paragraph>
+              <Spin spinning={preflightLoading}>
+                {preflight ? (
+                  <>
+                    <Row gutter={12} style={{ marginBottom: 12 }}>
+                      <Col><Card size="small"><Text type="secondary">总格数</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.page_count}</Title></Card></Col>
+                      <Col><Card size="small"><Text type="secondary">需生成底图</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.base_count}</Title></Card></Col>
+                      <Col><Card size="small"><Text type="secondary">单张积分</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.per_image_credits}</Title></Card></Col>
+                      <Col><Card size="small"><Text type="secondary">预计消耗</Text><Title level={3} style={{ margin: 0, color: '#c2410c' }}>{preflight.estimate.total_credits}</Title></Card></Col>
+                      <Col><Card size="small"><Text type="secondary">当前余额</Text><Title level={3} style={{ margin: 0, color: preflight.deficit ? '#dc2626' : '#16a34a' }}>{preflight.balance}</Title></Card></Col>
+                    </Row>
+                    <Alert type={preflight.canGenerate ? 'success' : 'error'} showIcon style={{ marginBottom: 12 }}
+                      message={preflight.canGenerate ? '预检通过，可以开始生成' : `预检未通过：${(preflight.checks || []).filter((c: any) => c.level === 'error' && !c.ok).length} 项必须处理后才能生成`}
+                      description={preflight.deficit ? `积分还差 ${preflight.deficit} 分，请先充值` : undefined} />
+                    <List size="small" bordered style={{ marginBottom: 12 }} dataSource={preflight.checks || []}
+                      renderItem={(c: any) => (
+                        <List.Item>
+                          <Space wrap size={6}>
+                            <Tag color={c.ok ? 'success' : (c.level === 'error' ? 'error' : 'warning')}>
+                              {c.ok ? '通过' : (c.level === 'error' ? '未通过' : '提醒')}
+                            </Tag>
+                            <Text>{c.label}</Text>
+                            {c.detail && <Text type="secondary" style={{ fontSize: 12 }}>{c.detail}</Text>}
+                          </Space>
+                        </List.Item>
+                      )} />
+                  </>
+                ) : <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>}
+              </Spin>
               <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="底图不含任何中文文字"
                 description="旁白、台词、气泡、分支卡全部留给剪辑应用 /comic 排版层。提示词已固定注入禁分镜 / 禁拼图 / 禁多余人物 / 禁换装。" />
-              <Space>
-                <Button onClick={() => setConfirmed(!confirmed)} icon={<CheckOutlined />} type={confirmed ? 'primary' : 'default'}>
+              <Space wrap>
+                <Button onClick={() => setConfirmed(!confirmed)} icon={<CheckOutlined />}
+                  disabled={!preflight?.canGenerate} type={confirmed ? 'primary' : 'default'}>
                   {confirmed ? '已确认分格与设定本' : '点此确认分格与设定本'}
                 </Button>
-                <Button type="primary" disabled={!confirmed} loading={loading} onClick={startGeneration}>开始生成底图</Button>
+                <Button type="primary" disabled={!confirmed || !preflight?.canGenerate} loading={loading} onClick={startGeneration}>开始生成底图</Button>
                 <Button onClick={() => setStep(3)}>返回改分格</Button>
+                <Button onClick={() => projectId && refreshPreflight(projectId)} loading={preflightLoading}>重新检查</Button>
               </Space>
             </div>
           )}
@@ -632,7 +732,10 @@ export default function ComicStudioPage() {
                   </Col>
                 ))}
               </Row>
-              <div style={{ marginTop: 16, textAlign: 'right' }}><Button type="primary" onClick={() => setStep(6)}>查看交付</Button></div>
+              <div style={{ marginTop: 16, textAlign: 'right' }}>
+                <Button type="primary" disabled={!panels.length || panels.some((p: any) => p.status === 'processing' || p.status === 'pending')}
+                  onClick={() => setStep(6)}>查看交付</Button>
+              </div>
             </div>
           )}
 
@@ -661,6 +764,16 @@ export default function ComicStudioPage() {
             </div>
           )}
         </Spin>
+        <CharacterDetailModal
+          open={!!detailChar}
+          character={detailChar}
+          onClose={() => setDetailCharId(null)}
+          onRegen={regenBlock}
+          onPick={(characterId, block, kind) => setPicker({ characterId, block, kind })}
+          onClear={clearReference}
+          onGenSheet={(characterId) => genSheet(characterId)}
+          onToggleLock={toggleLock}
+        />
         <BlockAssetPicker
           open={!!picker}
           characterId={picker?.characterId || ''}
@@ -671,12 +784,110 @@ export default function ComicStudioPage() {
           onClose={() => setPicker(null)}
           onApplied={async (assetId, referenceImage) => { if (picker) await applyReference(picker.characterId, picker.block, assetId, referenceImage); }}
         />
+        <BlockAssetPicker
+          open={posePicker !== null}
+          characterId=""
+          block=""
+          blockLabel={`第 ${posePicker !== null ? (panels[posePicker]?.page_no ?? posePicker + 1) : 1} 格姿势图`}
+          kind="pose"
+          projectId={projectId}
+          onClose={() => setPosePicker(null)}
+          onApplied={(_assetId, imageUrl) => {
+            if (posePicker !== null && imageUrl) patchPanel(posePicker, 'pose_ref', imageUrl);
+            setPosePicker(null);
+          }}
+        />
       </Card>
     </div>
   );
 }
 
-/** 设定本块「应用大资产」挑选器：从大资产库(按 tag 过滤) 或 开源图鉴 选一张参考图，i2i 生成时作为参考 */
+/** 角色详情弹窗：摘要卡片只放正面头像 + 名字 + 详情键，7 个图像块（4 必选 + 3 可选）集中在这里网格展示。
+ *  character 由页面 characters state 派生，3s 轮询刷新时弹窗内容会同步更新。 */
+function CharacterDetailModal(props: {
+  open: boolean;
+  character: any | null;
+  onClose: () => void;
+  onRegen: (characterId: string, block: string) => void;
+  onPick: (characterId: string, block: string, kind: string) => void;
+  onClear: (characterId: string, block: string) => void;
+  onGenSheet: (characterId: string) => void;
+  onToggleLock: (characterId: string, locked: boolean) => void;
+}) {
+  const { open, character: c, onClose, onRegen, onPick, onClear, onGenSheet, onToggleLock } = props;
+  const done = doneRequired(c);
+  const opt = doneOptional(c);
+  const total = REQUIRED_KEYS.length;
+  return (
+    <Modal open={open && !!c} title={c ? `「${c.name}」· 角色设定本（必选 ${done}/${total} · 可选 ${opt}/${OPTIONAL_KEYS.length}）` : '角色设定本'}
+      onCancel={onClose} width={1000} footer={null}>
+      {c && (
+        <>
+          <Space wrap align="start" style={{ marginBottom: 12 }}>
+            {c.sheet_url
+              ? <Image alt="设定本拼版" src={getUrl(c.sheet_url)} width={72} height={72} style={{ objectFit: 'cover', borderRadius: 6 }} />
+              : <div style={{ width: 72, height: 72, background: '#f3f4f6', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 11, textAlign: 'center' }}>拼版待齐</div>}
+            <Space direction="vertical" size={2}>
+              <Text type="secondary" style={{ fontSize: 12 }}>4 个必选块齐了即自动拼版并解锁「锁定」。可选块不默认生成：点每块的「生成」单独生成，失败块用「重试生成」，生成后自动拼进设定本；已锁定后仍可重试可选块，必选块需先解锁。「应用大资产」的图片直接作为成品，0 生图 0 积分。</Text>
+              <Space wrap>
+                <Button size="small" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => onGenSheet(c.id)}>补生成必选块</Button>
+                <Button size="small" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url}
+                  onClick={() => onToggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>
+              </Space>
+            </Space>
+          </Space>
+          <Row gutter={[12, 12]}>
+            {BLOCK_KEYS.map((key) => {
+              const b: any = (c.blocks || []).find((x: any) => x.key === key) || {};
+              const st = blockStatus(b);
+              const img = blockImage(b);
+              const optional = OPTIONAL_KEYS.includes(key);
+              // 锁定后身份基准（必选 4 块）不可动，但失败/未完成的可选块仍允许生成与替换
+              const canEdit = !c.locked || optional;
+              return (
+                <Col xs={12} sm={8} md={6} key={key}>
+                  <Card size="small"
+                    title={<Text style={{ fontSize: 12 }}>{BLOCK_LABELS[key]}</Text>}
+                    extra={<Tag color={STATUS_TAG[st]?.color}>{STATUS_TAG[st]?.label}</Tag>}
+                    cover={img
+                      ? <Image alt={BLOCK_LABELS[key]} src={getUrl(img)} style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
+                      : <div style={{ aspectRatio: '1/1', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12 }}>暂无图像</div>}>
+                    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                      <Space size={2} wrap>
+                        <Tag color={OPTIONAL_KEYS.includes(key) ? 'default' : 'blue'}>{OPTIONAL_KEYS.includes(key) ? '可选' : '必选'}</Tag>
+                        {b.reference_asset_id ? <Tag color="purple">大资产</Tag> : null}
+                        {b.source === 'generated' ? <Tag color="blue">已生成</Tag> : null}
+                        {b.source === 'library' && !b.reference_asset_id ? <Tag color="geekblue">素材图</Tag> : null}
+                        {b.error_msg ? <Tooltip title={b.error_msg}><Tag color="error">有错误</Tag></Tooltip> : null}
+                      </Space>
+                      <Space size={0} wrap>
+                        <Button size="small" type="link" style={{ padding: 0 }} disabled={!canEdit} icon={<AppstoreOutlined />}
+                          onClick={() => onPick(c.id, key, BLOCK_REF_TAG[key] || 'open')}>应用大资产</Button>
+                        <Button size="small" type="link" style={{ padding: 0 }}
+                          disabled={!canEdit || st === 'processing'} danger={st === 'failed'}
+                          title={canEdit ? '生成会调用模型并消耗积分' : '请先解锁后再重生成必选块'}
+                          icon={st === 'completed' || st === 'processing' ? <ReloadOutlined /> : <ThunderboltOutlined />}
+                          onClick={() => onRegen(c.id, key)}>
+                          {st === 'failed' ? '重试生成' : st === 'processing' ? '生成中…' : b.url ? '重生成' : '生成'}
+                        </Button>
+                        {b.reference_image && (
+                          <Button size="small" type="link" danger style={{ padding: 0 }} disabled={!canEdit}
+                            icon={<DeleteOutlined />} onClick={() => onClear(c.id, key)}>移除</Button>
+                        )}
+                      </Space>
+                    </Space>
+                  </Card>
+                </Col>
+              );
+            })}
+          </Row>
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/** 设定本块「应用大资产」挑选器：从大资产库(按 tag 过滤) 或 开源图鉴 选一张图，直接作为该块成品图 */
 function BlockAssetPicker(props: {
   open: boolean; characterId: string; block: string; blockLabel: string; kind: string;
   projectId: number | null;
@@ -738,7 +949,7 @@ function BlockAssetPicker(props: {
   const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, maxHeight: 360, overflowY: 'auto' };
 
   return (
-    <Modal open={open} title={`为「${blockLabel}」选择参考图`} onCancel={onClose} width={780}
+    <Modal open={open} title={`为「${blockLabel}」选择图像`} onCancel={onClose} width={780} zIndex={1200}
       okText="应用所选" okButtonProps={{ disabled: tab !== 'lib' || selected == null }}
       onOk={tab === 'lib' ? confirmLib : undefined}>
       <Tabs activeKey={tab} onChange={setTab} items={[
@@ -755,7 +966,7 @@ function BlockAssetPicker(props: {
                   </div>
                 ))}
               </div>
-            ) : <Empty description="资产库还没有该类参考图，去「开源图鉴」导入" />,
+            ) : <Empty description="资产库还没有该类图像，去「开源图鉴」导入" />,
         },
         {
           key: 'open', label: '开源图鉴',

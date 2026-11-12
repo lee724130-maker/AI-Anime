@@ -24,6 +24,9 @@ function newZipArchive(options: any): any {
 }
 const execFileAsync = promisify(execFile);
 
+/** 开源图鉴仓库根：目录 JSON、缩略图、以及人脸原图下载失败时的回退源共用 */
+const OPEN_GALLERY_BASE = 'https://hruiccc.github.io/RuiC-PoseAtlas';
+
 /** 两种画风的固定文本块，全片逐字复用 */
 const STYLE_BLOCKS: Record<string, string> = {
   live_action: 'Photorealistic photograph of one real person, natural skin texture, real fabric and hair detail, soft even studio light, plain clean backdrop, photographic depth of field. Not an illustration, not a painting, not 3D render.',
@@ -118,6 +121,12 @@ const SHEET_BLOCKS = [
   },
 ];
 
+/** 11-12 需求：只有这 4 块是必选生成项，齐了即可拼版 / 锁定 / 进入下一步。
+ *  其余 3 块（人物服装 / 姿势 / 造型）为可选，不默认生成、不阻塞流程；
+ *  用户可在详情弹窗里单独「重生成」或「应用大资产」，生成后动态加入拼版。 */
+const REQUIRED_BLOCK_KEYS = ['portrait', 'three_view', 'expressions', 'details'];
+const OPTIONAL_BLOCK_KEYS = SHEET_BLOCKS.map((b) => b.key).filter((k) => !REQUIRED_BLOCK_KEYS.includes(k));
+
 export interface ComicCharacter {
   id: string;
   name: string;
@@ -186,10 +195,26 @@ export class ComicStudioService {
 
   private parseChars(p: ComicProject): ComicCharacter[] {
     if (!p.characters) return [];
+    let chars: ComicCharacter[];
     try {
       const j = JSON.parse(p.characters);
-      return Array.isArray(j) ? j : (Array.isArray(j.characters) ? j.characters : []);
+      chars = Array.isArray(j) ? j : (Array.isArray(j.characters) ? j.characters : []);
     } catch { return []; }
+    // 11-12 兼容：旧版「应用大资产」只写 reference_image（status=pending、无 url），
+    // 新语义是「应用即成品」。读取时无损升级，避免历史项目刷新后仍显示「待生成」且无法拼版。
+    // 严格限定：无成品图 + 有参考图 + 无进行中任务 + 状态 pending/空 + 本地文件确实存在。
+    for (const c of chars) {
+      for (const b of ((c as any).blocks || [])) {
+        if (!b.url && b.reference_image && !b.task_id && (!b.status || b.status === 'pending')
+            && this.localImage(b.reference_image)) {
+          b.url = b.reference_image;
+          b.asset_url = b.reference_image;
+          b.source = 'library';
+          b.status = 'completed';
+        }
+      }
+    }
+    return chars;
   }
 
   private async saveSpec(p: ComicProject, spec: PanelSpec) {
@@ -200,6 +225,14 @@ export class ComicStudioService {
   private async saveChars(p: ComicProject, chars: ComicCharacter[]) {
     p.characters = JSON.stringify(chars);
     return this.repo.save(p);
+  }
+
+  /** 补齐 7 个图像块：早期项目只有 4 块，新 UI 会对 costume/pose/styling 操作，
+   *  不补齐会让 c.blocks.find(...) 返回 undefined 直接 500。按 SHEET_BLOCKS 顺序重建、保留已有块数据。 */
+  private ensureBlocks(c: ComicCharacter): any[] {
+    const cur: any[] = Array.isArray(c.blocks) ? c.blocks : [];
+    c.blocks = SHEET_BLOCKS.map((b) => cur.find((x) => x.key === b.key) || { key: b.key, status: 'pending' });
+    return c.blocks as any[];
   }
 
   private async owned(userId: number, id: number): Promise<ComicProject> {
@@ -331,7 +364,7 @@ export class ComicStudioService {
     if (this.openCatalogCache && Date.now() - this.openCatalogCache.at < 3600_000) {
       return this.openCatalogCache.data;
     }
-    const base = 'https://hruiccc.github.io/RuiC-PoseAtlas';
+    const base = OPEN_GALLERY_BASE;
     const cacheFile = path.resolve(process.cwd(), 'output', 'gallery-cache', 'catalog.json');
     let raw: any = null;
     if (fs.existsSync(cacheFile)) {
@@ -342,11 +375,20 @@ export class ComicStudioService {
       } catch { /* 坏缓存重新拉 */ }
     }
     if (!raw) {
-      const [f, cst, pose] = await Promise.all([
-        axios.get(`${base}/data/faces.json`, { timeout: 30000 }),
-        axios.get(`${base}/data/costumes.json`, { timeout: 30000 }),
-        axios.get(`${base}/data/poses.json`, { timeout: 30000 }),
+      const fetchCatalog = (cfg: any = {}) => Promise.all([
+        axios.get(`${base}/data/faces.json`, { timeout: 30000, ...cfg }),
+        axios.get(`${base}/data/costumes.json`, { timeout: 30000, ...cfg }),
+        axios.get(`${base}/data/poses.json`, { timeout: 30000, ...cfg }),
       ]);
+      let parts: Awaited<ReturnType<typeof fetchCatalog>>;
+      try {
+        parts = await fetchCatalog();
+      } catch (err: any) {
+        // 进程级代理失效时（本机 IDE 注入的 HTTP_PROXY 端口会随会话变化），退回直连再试一次
+        this.logger.warn(`开源目录走代理拉取失败，改直连重试: ${err?.message || err}`);
+        parts = await fetchCatalog({ proxy: false });
+      }
+      const [f, cst, pose] = parts;
       raw = { at: Date.now(), faces: f.data, costumes: cst.data, poses: pose.data };
       fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
       fs.writeFileSync(cacheFile, JSON.stringify(raw));
@@ -431,10 +473,32 @@ export class ComicStudioService {
       }
 
       // ① 下载原图到临时文件 → ffmpeg 压成 ≤1024px JPEG → 删临时原图
+      //    11-12 修复：绕开进程级代理、加整体截止时间、失败清半成品（原来下载抛错时 finally 根本进不去，
+      //    会在 gallery/ 下残留截断的 .raw）。face/styling 原图在 pages.dev 本机限速约 1KB/s 且无
+      //    Content-Length，超时后自动回退仓库内 400×500 webp 缩略图，保证可导入。
       const tmp = path.join(destDir, `.${id}_${Date.now()}.raw`);
-      await assertSafeRemoteUrl(raw);
-      await downloadToFile(raw, tmp, { maxBytes: 25 * 1024 * 1024, timeoutMs: 60000 });
+      const dlOpts = { maxBytes: 25 * 1024 * 1024, timeoutMs: 60000, bypassProxy: true, totalTimeoutMs: 15000 };
       try {
+        try {
+          await assertSafeRemoteUrl(raw);
+          await downloadToFile(raw, tmp, dlOpts);
+        } catch (primaryErr: any) {
+          const kind = String(dto?.kind || '').trim();
+          const fallback = ['face', 'styling'].includes(kind)
+            ? `${OPEN_GALLERY_BASE}/portrait/thumbs/${id}.webp`
+            : '';
+          if (!fallback) {
+            throw new BadRequestException(`开源图鉴图片下载失败：${primaryErr?.message || primaryErr}`);
+          }
+          this.logger.warn(`开源图鉴原图下载失败（${id}），回退缩略图: ${primaryErr?.message || primaryErr}`);
+          try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch { /* ignore */ }
+          await assertSafeRemoteUrl(fallback);
+          try {
+            await downloadToFile(fallback, tmp, dlOpts);
+          } catch (fallbackErr: any) {
+            throw new BadRequestException(`开源图鉴图片下载失败（原图与缩略图均失败）：${fallbackErr?.message || fallbackErr}`);
+          }
+        }
         if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) throw new BadRequestException('下载失败，请重试');
         await execFileAsync(this.ffmpegBin(),
           ['-y', '-v', 'quiet', '-i', tmp, '-vf', 'scale=1024:-2', '-q:v', '5', '-frames:v', '1', dest],
@@ -595,23 +659,31 @@ export class ComicStudioService {
     const chars = this.parseChars(p);
     const c = chars.find((x) => x.id === dto.characterId);
     if (!c) throw new NotFoundException('人物不存在');
-    if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
+    // 锁定后身份基准（必选 4 块）不可改；但允许补生成 / 重试失败的可选块，
+    // 否则已锁定的角色遇到服装/姿势/造型生成失败（如 429）就永远无法重试。
+    const onlyOptionalBlocks = Array.isArray(dto.blocks) && dto.blocks.length > 0
+      && dto.blocks.every((k) => OPTIONAL_BLOCK_KEYS.includes(k));
+    if (c.locked && !onlyOptionalBlocks) {
+      throw new BadRequestException('该设定本已锁定，重生成必选块前请先解锁（失败的可选块可直接重试）');
+    }
     if (!c.prompt) throw new BadRequestException('请先生成人设提示词');
-    if (!c.blocks?.length) c.blocks = SHEET_BLOCKS.map((b) => ({ key: b.key, status: 'pending' }));
+    this.ensureBlocks(c);
 
     const wanted = Array.isArray(dto.blocks) && dto.blocks.length
       ? SHEET_BLOCKS.filter((b) => dto.blocks!.includes(b.key))
       : SHEET_BLOCKS.filter((b) => {
+          // 可选块不默认生成，避免为服装/姿势/造型平白花积分；要生成请在弹窗里单独点「重生成」
+          if (!REQUIRED_BLOCK_KEYS.includes(b.key)) return false;
           const item = c.blocks!.find((x) => x.key === b.key);
           return !item || item.status !== 'completed' || !item.url;
         });
     if (!wanted.length) {
-      return { characterId: c.id, created: 0, kept: c.blocks.length, message: '所有块均已完成，无需重生成' };
+      return { characterId: c.id, created: 0, kept: c.blocks!.length, message: '4 个必选块均已完成，无需重生成（可选块可在详情弹窗单独生成）' };
     }
 
     let created = 0;
     for (const b of wanted) {
-      const item = c.blocks.find((x) => x.key === b.key)!;
+      const item = c.blocks!.find((x) => x.key === b.key)!;
       item.source = 'generated';
       item.status = 'processing';
       item.url = undefined;
@@ -630,7 +702,7 @@ export class ComicStudioService {
     c.sheet_url = undefined;
     p.sheet_status = 'generating';
     await this.saveChars(p, chars);
-    return { characterId: c.id, created, kept: c.blocks.length - created, blocks: c.blocks.length };
+    return { characterId: c.id, created, kept: c.blocks!.length - created, blocks: c.blocks!.length };
   }
 
   /** 块级素材来源（方案 §16.2）：用现成图（/static/ 路径）替换某块，0 次生成、0 积分 */
@@ -639,12 +711,12 @@ export class ComicStudioService {
     const chars = this.parseChars(p);
     const c = chars.find((x) => x.id === dto.characterId);
     if (!c) throw new NotFoundException('人物不存在');
-    if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
+    if (c.locked && !OPTIONAL_BLOCK_KEYS.includes(dto.block)) throw new BadRequestException('该设定本已锁定，修改必选块前请先解锁');
     if (!SHEET_BLOCKS.some((b) => b.key === dto.block)) throw new BadRequestException('未知的设定本区块');
     const url = String(dto.assetUrl || '').trim();
     if (!this.localImage(url)) throw new BadRequestException('素材图不可用（需 /static/ 路径且文件已存在）');
-    if (!c.blocks?.length) c.blocks = SHEET_BLOCKS.map((b) => ({ key: b.key, status: 'pending' }));
-    const item = c.blocks.find((x) => x.key === dto.block)!;
+    this.ensureBlocks(c);
+    const item = c.blocks!.find((x) => x.key === dto.block)!;
     item.source = 'library';
     item.asset_url = url;
     item.url = url;
@@ -656,22 +728,24 @@ export class ComicStudioService {
     return { characterId: c.id, block: dto.block, url, source: 'library' };
   }
 
-  /** 块级参考图（本次改造核心）：把某块绑定一张大资产库图片作为 i2i 参考，不立即生成，
-   *  等待 generateCharacterSheet 时按图生图。支持直接传 referenceImage(本地 /static/ 路径) 或 assetId(查 GlobalAsset)。 */
+  /** 块级「应用大资产」（11-12 语义调整）：选中的图**直接作为该块成品图**（0 次生成、0 积分），
+   *  状态立即为 completed 并可参与拼版/锁定；同时保留为 i2i 参考图，用户点「重生成」时按图重画。
+   *  支持直接传 referenceImage(本地 /static/ 路径) 或 assetId(查 GlobalAsset)。 */
   async setBlockReference(userId: number, id: number, dto: { characterId: string; block: string; referenceImage?: string; assetId?: number; clear?: boolean }) {
     const p = await this.owned(userId, id);
     const chars = this.parseChars(p);
     const c = chars.find((x) => x.id === dto.characterId);
     if (!c) throw new NotFoundException('人物不存在');
-    if (c.locked) throw new BadRequestException('该设定本已锁定，请先解锁');
+    if (c.locked && !OPTIONAL_BLOCK_KEYS.includes(dto.block)) throw new BadRequestException('该设定本已锁定，修改必选块前请先解锁');
     if (!SHEET_BLOCKS.some((b) => b.key === dto.block)) throw new BadRequestException('未知的设定本区块');
-    if (!c.blocks?.length) c.blocks = SHEET_BLOCKS.map((b) => ({ key: b.key, status: 'pending' }));
-    const item = c.blocks.find((x) => x.key === dto.block)!;
+    this.ensureBlocks(c);
+    const item = c.blocks!.find((x) => x.key === dto.block)!;
 
-    // 移除参考图（不立即生成，等下次生成设定本时按原流程重建）
+    // 移除已应用图片：该块恢复「待生成」，旧拼版作废
     if (dto.clear) {
       item.reference_image = undefined;
       item.reference_asset_id = undefined;
+      item.source = undefined;
       item.status = 'pending';
       item.url = undefined;
       item.asset_url = undefined;
@@ -692,17 +766,19 @@ export class ComicStudioService {
     if (!referenceImage) throw new BadRequestException('请提供参考图（referenceImage 或 assetId）');
     if (!this.localImage(referenceImage)) throw new BadRequestException('参考图不可用（需本地 /static/ 路径且文件已存在）');
 
-    // 绑定参考图后，旧生成结果作废，等待按图生图重建
+    // 应用的图即刻成为该块成品图：无需生图、无需花积分，7 块齐了就能拼版锁定。
+    // reference_image 仍保留，点「重生成」时 createSheetBlockTask 会带上它走 i2i 按图重画。
     item.reference_image = referenceImage;
     item.reference_asset_id = assetId;
-    item.status = 'pending';
-    item.url = undefined;
-    item.asset_url = undefined;
+    item.source = 'library';
+    item.asset_url = referenceImage;
+    item.url = referenceImage;
+    item.status = 'completed';
     item.task_id = undefined;
     item.error_msg = undefined;
-    c.sheet_url = undefined; // 待重新拼版
+    c.sheet_url = undefined; // 待重新拼版（由 status() 轮询触发）
     await this.saveChars(p, chars);
-    return { characterId: c.id, block: dto.block, reference_image: referenceImage, reference_asset_id: assetId, status: 'pending' };
+    return { characterId: c.id, block: dto.block, url: referenceImage, reference_image: referenceImage, reference_asset_id: assetId, status: 'completed' };
   }
 
   private localImage(url: string): string | null {
@@ -719,12 +795,17 @@ export class ComicStudioService {
         : 'ffmpeg');
   }
 
-  /** 设定本图像块拼版：支持 1~N 块动态网格（默认 7 块）。
-   *  网格：cols = min(4, ceil(sqrt(n)))，rows = ceil(n/cols)，输出约 1536×1536；
-   *  缺块则返回 null 等下次补齐。不足整网格的空位用纯色填充，保持拼版稳定。文字不烧进图（归排版层）。 */
+  /** 设定本图像块拼版：必选 4 块 + 已完成的可选块，动态网格（4 块=2×2、7 块=3×3）。
+   *  网格：cols = min(4, ceil(sqrt(n)))，rows = ceil(n/cols)，输出约 1536 宽；
+   *  必选块缺任一则不拼版（等补齐），可选块缺位直接跳过、不阻塞流程。
+   *  不足整网格的空位用纯色填充，保持拼版稳定。文字不烧进图（归排版层）。 */
   private async assembleSheet(p: ComicProject, c: ComicCharacter): Promise<string | null> {
-    const n = SHEET_BLOCKS.length;
-    const files = SHEET_BLOCKS.map((b) => {
+    const parts = SHEET_BLOCKS.filter((b) => {
+      const item = c.blocks?.find((x) => x.key === b.key);
+      return REQUIRED_BLOCK_KEYS.includes(b.key) || (OPTIONAL_BLOCK_KEYS.includes(b.key) && !!item?.url);
+    });
+    const n = parts.length;
+    const files = parts.map((b) => {
       const item = c.blocks?.find((x) => x.key === b.key);
       return item?.url ? this.localImage(item.url) : null;
     });
@@ -888,9 +969,100 @@ export class ComicStudioService {
     };
   }
 
+  /** 只读查询用户积分余额（不扣费），供生成前预检用 */
+  private async userCredits(userId: number): Promise<number> {
+    try {
+      const rows: any[] = await this.repo.manager.query('SELECT credits FROM users WHERE id = ?', [userId]);
+      return Number(rows?.[0]?.credits ?? 0) || 0;
+    } catch { return 0; }
+  }
+
+  /** 生成前预检（11-12）：把「审格 · 门控与用量」该检查的东西结构化返回。
+   *  startGeneration 会在建任务 / 扣费之前复用同一份结果做硬门控，
+   *  避免只靠前端 confirmed（刷新会丢、步骤条能绕过）就直接生图。 */
+  async preflight(userId: number, id: number) {
+    const p = await this.owned(userId, id);
+    const spec = this.parseSpec(p);
+    const chars = this.parseChars(p);
+    const groups = this.groupsOf(spec);
+    const per = await this.generateService.quoteImageCost(p.image_size);
+    const totalCredits = per * groups.length;
+    const balance = await this.userCredits(userId);
+    const checks: Array<{ key: string; label: string; ok: boolean; level: 'error' | 'warn'; detail?: string }> = [];
+    const add = (key: string, label: string, ok: boolean, level: 'error' | 'warn', detail?: string) =>
+      checks.push({ key, label, ok, level, detail });
+
+    // 前几步的设定确认
+    const outlineOk = p.outline_status === 'confirmed' || !!String(p.outline || '').trim();
+    add('outline', '剧情大纲已确认', outlineOk, 'error', outlineOk ? undefined : '回到「立项与大纲」生成并确认大纲');
+    const charsOk = chars.length > 0 && p.characters_status === 'confirmed';
+    add('characters', '人物与人设已确认', charsOk, 'error', charsOk ? undefined : (chars.length ? '回到「人物与人设」点「确认人物，去生成设定本」' : '尚未识别人物'));
+
+    // 设定本：所有出场人物必须锁定、拼版文件真实可读、4 个必选块齐
+    const involvedIds = [...new Set(spec.panels.flatMap((x) =>
+      (Array.isArray(x.characters) && x.characters.length ? x.characters : (chars.length ? [chars[0].id] : []))))];
+    const involved = involvedIds.map((cid) => chars.find((c) => c.id === cid)).filter((c): c is ComicCharacter => !!c);
+    const unlocked = involved.filter((c) => !c.locked || !c.sheet_url);
+    add('sheet_locked', '所有出场人物的设定本已生成并锁定', involved.length > 0 && unlocked.length === 0, 'error',
+      unlocked.length ? `未锁定：${unlocked.map((c) => c.name).join('、')}` : undefined);
+    const missingSheet = involved.filter((c) => c.sheet_url && !this.localImage(c.sheet_url));
+    add('sheet_files', '设定本拼版文件可读', missingSheet.length === 0, 'error',
+      missingSheet.length ? `拼版文件缺失：${missingSheet.map((c) => c.name).join('、')}` : undefined);
+    const incompleteRequired = involved.filter((c) => !REQUIRED_BLOCK_KEYS.every((k) => {
+      const b = (c.blocks || []).find((x) => x.key === k);
+      return !!b?.url;
+    }));
+    add('sheet_blocks', '设定本 4 个必选块齐全', incompleteRequired.length === 0, 'warn',
+      incompleteRequired.length ? `必选块未齐：${incompleteRequired.map((c) => c.name).join('、')}` : undefined);
+
+    // 分格脚本
+    const noChars = spec.panels.filter((x) => !Array.isArray(x.characters) || !x.characters.length);
+    add('panels', '分格脚本已保存且每格指定出场人物', spec.panels.length > 0 && noChars.length === 0, 'error',
+      spec.panels.length ? (noChars.length ? `第 ${noChars.map((x) => x.page_no).join('、')} 格缺出场人物` : undefined) : '尚未保存分格脚本');
+    const noFields = spec.panels.filter((x) => !String(x.action || '').trim() || !String(x.reuse_group || '').trim());
+    add('panel_fields', '每格动作与复用组完整', noFields.length === 0, 'warn',
+      noFields.length ? `第 ${noFields.map((x) => x.page_no).join('、')} 格缺动作或复用组（将使用默认值）` : undefined);
+
+    // 附加参考图：本地文件必须真实存在，外链只做格式判断（下载交给 normalizeI2I）
+    const refUrlOk = (u?: string) => {
+      const raw = String(u || '').trim();
+      if (!raw) return true;
+      if (/^https?:\/\//i.test(raw)) return true;
+      return !!this.localImage(raw);
+    };
+    const badRefs = [
+      ...spec.panels.filter((x) => !refUrlOk(x.pose_ref)).map((x) => `第${x.page_no}格姿势图`),
+      ...(!refUrlOk(p.costume_ref) ? ['项目服装参考图'] : []),
+    ];
+    add('refs', '附加参考图可读', badRefs.length === 0, 'error', badRefs.length ? `文件不存在：${badRefs.join('、')}` : undefined);
+
+    // 配置与余额
+    const modelOk = (AGNES_IMAGE_MODELS as readonly string[]).includes(p.model) && ['1K', '2K', '3K', '4K'].includes(String(p.image_size || '').toUpperCase());
+    add('model', '生图模型与尺寸配置有效', modelOk, 'warn', `模型 ${p.model} / 尺寸 ${p.image_size}`);
+    add('balance', '积分余额足够本次生成', balance >= totalCredits, 'error',
+      `余额 ${balance} / 需 ${totalCredits}${balance < totalCredits ? `，还差 ${totalCredits - balance}` : ''}`);
+
+    const canGenerate = !checks.some((c) => c.level === 'error' && !c.ok);
+    return {
+      canGenerate, checks,
+      estimate: {
+        page_count: spec.panels.length, base_count: groups.length,
+        per_image_credits: per, total_credits: totalCredits,
+        image_size: p.image_size, ratio: p.ratio, model: p.model,
+      },
+      balance, deficit: Math.max(0, totalCredits - balance), project_status: p.status,
+    };
+  }
+
   async startGeneration(userId: number, id: number) {
     const p = await this.owned(userId, id);
     if (p.status === 'generating') throw new BadRequestException('已在生成中');
+    // 11-12 硬门控：预检必须在创建任何生图任务（会扣积分）之前通过
+    const pf = await this.preflight(userId, id);
+    if (!pf.canGenerate) {
+      const first = pf.checks.find((c) => c.level === 'error' && !c.ok);
+      throw new BadRequestException(`生成前预检未通过：${first?.label}${first?.detail ? `（${first.detail}）` : ''}，请先到「审格 · 门控与用量」处理`);
+    }
     const spec = this.parseSpec(p);
     if (!spec.panels.length) throw new BadRequestException('请先生成并确认分格脚本');
     const chars = this.parseChars(p);
@@ -933,11 +1105,9 @@ export class ComicStudioService {
     const panelIds = spec.panels.map((x) => x.task_id).filter((x): x is number => !!x);
     const blockIds = chars.flatMap((c) => (c.blocks || []).map((b) => b.task_id)).filter((x): x is number => !!x);
     const ids = [...new Set([...panelIds, ...blockIds])];
-    if (!ids.length) {
-      return { project: p, panels: spec.panels, characters: chars,
-        progress: { total: spec.panels.length, completed: 0, failed: 0, processing: 0 } };
-    }
-    const tasks = await this.taskRepo.find({ where: { id: In(ids) } });
+    // 不能因为「没有任何生成任务」就提前 return：纯应用大资产图片的块没有 task_id，
+    // 但 7 块都齐时仍需走下面的 assembleSheet 拼版，否则 sheet_url 永远为空、无法锁定。
+    const tasks = ids.length ? await this.taskRepo.find({ where: { id: In(ids) } }) : [];
     const byId = new Map(tasks.map((t) => [t.id, t]));
     let dirtySpec = false, dirtyChars = false, dirtyProject = false;
     const per = await this.generateService.quoteImageCost(p.image_size);
@@ -984,7 +1154,12 @@ export class ComicStudioService {
       // 拼版防风暴（2026-11-09 风险审查 P0-1）：in-flight 去重 + 失败 90s 退避。
       // 没有这层时，前端 3s 轮询 × 90s ffmpeg 超时会堆出 ~30 个并发 ffmpeg，1.6GB 生产机必 OOM。
       const lockKey = `${p.id}:${c.id}`;
-      if (!c.sheet_url && c.blocks.every((b) => b.url)
+      // 11-12：只需 4 个必选块有成品图即可拼版 / 锁定；可选块缺位不阻塞进入下一步
+      const requiredReady = REQUIRED_BLOCK_KEYS.every((k) => {
+        const b = (c.blocks || []).find((x) => x.key === k);
+        return !!b?.url;
+      });
+      if (!c.sheet_url && requiredReady
           && !this.sheetJobs.has(lockKey)
           && Date.now() - (this.sheetFailAt.get(lockKey) || 0) > 90_000) {
         const job = this.assembleSheet(p, c)

@@ -30,7 +30,8 @@ const TITLES: Record<string, string> = {
 export default function PageTitle() {
   const { pathname } = useLocation();
   useEffect(() => {
-    const t = TITLES[pathname] || '';
+    // 详情页（如 /comic-studio/4）回退到一级路径的标题
+    const t = TITLES[pathname] || TITLES['/' + pathname.split('/')[1]] || '';
     document.title = t ? `${t} - AI 动漫短剧创作平台` : 'AI 动漫短剧创作平台';
   }, [pathname]);
   return null;

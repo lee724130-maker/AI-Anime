@@ -131,6 +131,8 @@ export default function App() {
               <Route path="/video/:id" element={<Shelled><VideoDetailPage /></Shelled>} />
               <Route path="/studio" element={<Shelled><StudioPage /></Shelled>} />
               <Route path="/comic-studio" element={<Shelled><UserLayout><ComicStudioPage /></UserLayout></Shelled>} />
+              {/* 项目页独立路径：刷新 / 分享链接都能直接回到该项目，不再回到新建页 */}
+              <Route path="/comic-studio/:id" element={<Shelled><UserLayout><ComicStudioPage /></UserLayout></Shelled>} />
               <Route path="/open-gallery" element={<Shelled><UserLayout><OpenGalleryPage /></UserLayout></Shelled>} />
               <Route path="/order" element={<Shelled><OrderPage /></Shelled>} />
               <Route path="/viral" element={<Shelled><UserLayout><ViralIndex /></UserLayout></Shelled>} />

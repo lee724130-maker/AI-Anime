@@ -35,6 +35,12 @@ export class ComicStudioController {
     return this.service.getById(req.user.id, id);
   }
 
+  /** 生成前预检：审格步骤的逐项检查 + 是否允许开始生成（服务端硬门控共用） */
+  @Get(':id/preflight')
+  preflight(@Req() req, @Param('id', ParseIntPipe) id: number) {
+    return this.service.preflight(req.user.id, id);
+  }
+
   @Post()
   create(@Req() req, @Body() body: any) {
     return this.service.create(req.user.id, body);

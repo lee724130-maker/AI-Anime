@@ -83,59 +83,99 @@ export async function assertSafeRemoteUrl(rawUrl: string): Promise<void> {
  * M4：禁用 axios 自动重定向，手动逐跳跟随（每跳重新过 assertSafeRemoteUrl），
  * 防止「首跳公网 → 302 跳内网」绕过 SSRF 检查。
  */
+export interface DownloadToFileOptions {
+  maxBytes?: number;
+  timeoutMs?: number;
+  maxRedirects?: number;
+  /** 仅用于可信白名单外链：忽略进程级 HTTP_PROXY/HTTPS_PROXY，直连目标主机。
+   *  实测本机 IDE 注入的代理端口会随会话变化（65077→65080），失效时 axios 直接 ECONNREFUSED。 */
+  bypassProxy?: boolean;
+  /** 整体墙钟截止时间（覆盖所有重定向跳与流式传输）。
+   *  axios 的 timeout 只约束「socket 空闲」，对方慢速滴流时会永久挂住；此值保证一定返回。 */
+  totalTimeoutMs?: number;
+}
+
 export async function downloadToFile(
   url: string,
   destPath: string,
-  opts?: { maxBytes?: number; timeoutMs?: number; maxRedirects?: number },
+  opts: DownloadToFileOptions = {},
 ): Promise<void> {
-  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
-  const maxRedirects = opts?.maxRedirects ?? 5;
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  const maxRedirects = opts.maxRedirects ?? 5;
+  const socketTimeout = opts.timeoutMs ?? 60000;
+  const deadline = opts.totalTimeoutMs ? Date.now() + opts.totalTimeoutMs : 0;
+  const slowError = () => new Error(
+    `下载总耗时超过 ${Math.round((opts.totalTimeoutMs || 0) / 1000)}s，已中止（对方服务器响应过慢）`,
+  );
+  const remainingTimeout = () => {
+    if (!deadline) return socketTimeout;
+    const left = deadline - Date.now();
+    if (left <= 0) throw slowError();
+    return Math.min(socketTimeout, left);
+  };
+
   let current = url;
-  for (let hop = 0; hop <= maxRedirects; hop++) {
-    await assertSafeRemoteUrl(current);
-    let resp;
-    try {
-      resp = await axios.get(current, {
+  try {
+    for (let hop = 0; hop <= maxRedirects; hop++) {
+      await assertSafeRemoteUrl(current);
+      const axiosCfg: any = {
         responseType: 'stream',
-        timeout: opts?.timeoutMs ?? 60000,
+        timeout: remainingTimeout(),
         maxRedirects: 0,
-        validateStatus: (s) => s >= 200 && s < 400,
-      });
-    } catch (err: any) {
-      // 3xx 且未启用自动跟随时 axios 会把响应当正常返回；真正网络错误在此抛出
-      throw err;
-    }
-    const status = resp.status;
-    if (status >= 300 && status < 400) {
-      const loc = resp.headers?.location;
-      try { (resp.data as any)?.destroy?.(); } catch { /* ignore */ }
-      if (!loc) throw new Error('重定向缺少 Location 头');
-      if (hop === maxRedirects) throw new Error('重定向次数超过上限');
-      current = new URL(loc, current).toString();
-      continue;
-    }
-    // 2xx：流式落盘
-    const stream: NodeJS.ReadableStream = resp.data;
-    const file = fs.createWriteStream(destPath);
-    let received = 0;
-    let rejected = false;
-    await new Promise<void>((resolve, reject) => {
-      stream.on('data', (chunk: Buffer) => {
-        received += chunk.length;
-        if (received > maxBytes && !rejected) {
-          rejected = true;
-          reject(new Error(`下载文件超过大小上限 ${Math.round(maxBytes / 1024 / 1024)}MB`));
+        validateStatus: (s: number) => s >= 200 && s < 400,
+      };
+      // proxy:false 显式绕过环境变量代理（axios 默认会读 HTTP_PROXY/HTTPS_PROXY）
+      if (opts.bypassProxy) axiosCfg.proxy = false;
+      const resp = await axios.get(current, axiosCfg);
+      const status = resp.status;
+      if (status >= 300 && status < 400) {
+        const loc = resp.headers?.location;
+        try { (resp.data as any)?.destroy?.(); } catch { /* ignore */ }
+        if (!loc) throw new Error('重定向缺少 Location 头');
+        if (hop === maxRedirects) throw new Error('重定向次数超过上限');
+        current = new URL(loc, current).toString();
+        continue;
+      }
+      // 2xx：流式落盘
+      const stream: NodeJS.ReadableStream = resp.data;
+      const file = fs.createWriteStream(destPath);
+      let received = 0;
+      let settled = false;
+      await new Promise<void>((resolve, reject) => {
+        let timer: NodeJS.Timeout | undefined;
+        const fail = (err: Error) => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          try { (stream as any).destroy?.(); } catch { /* ignore */ }
           try { file.destroy(); } catch { /* ignore */ }
-          try { (stream as any).destroy(); } catch { /* ignore */ }
+          reject(err);
+        };
+        if (deadline) {
+          const left = deadline - Date.now();
+          if (left <= 0) { fail(slowError()); return; }
+          timer = setTimeout(() => fail(slowError()), left);
         }
+        stream.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (received > maxBytes) fail(new Error(`下载文件超过大小上限 ${Math.round(maxBytes / 1024 / 1024)}MB`));
+        });
+        stream.on('error', (err) => fail(err));
+        file.on('error', (err) => fail(err));
+        file.on('finish', () => {
+          if (settled) return;
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve();
+        });
+        stream.pipe(file);
       });
-      stream.on('error', (err) => reject(err));
-      file.on('error', (err) => reject(err));
-      file.on('finish', () => resolve());
-      stream.pipe(file);
-    });
-    if (rejected) throw new Error('下载文件超过大小上限');
-    return;
+      return;
+    }
+    throw new Error('重定向次数超过上限');
+  } catch (err) {
+    // 失败时删掉半成品，避免残留截断文件被当成有效缓存复用
+    try { if (fs.existsSync(destPath)) fs.unlinkSync(destPath); } catch { /* ignore */ }
+    throw err;
   }
-  throw new Error('重定向次数超过上限');
 }
