@@ -166,8 +166,10 @@ export default function ComicStudioPage() {
     try {
       const { data } = await api.get(`/api/comic-studio/${id}`);
       applyProject(data);
-      // 把当前项目写进 URL（replace 避免每次内部刷新都堆一条历史记录）
-      navigate(`/comic-studio/${id}`, { replace: true });
+      // 从落地页点开项目 → push，保留落地页历史（浏览器回退能回到项目列表）；
+      // 已是项目 URL（直链 / 刷新 / 项目间切换）→ replace，避免反复堆历史。
+      const fromLanding = !routeId || !Number.isInteger(Number(routeId)) || Number(routeId) <= 0;
+      navigate(`/comic-studio/${id}`, { replace: !fromLanding });
     } catch (e: any) { message.error(e?.response?.data?.message || '项目读取失败'); }
     finally { setLoading(false); }
   }, [applyProject, navigate]);
@@ -178,15 +180,23 @@ export default function ComicStudioPage() {
     setOutline(''); setStep(0); setExportUrl(null); setCreating(false); setPreflight(null);
     form.resetFields();
     void loadProjects();
-    navigate('/comic-studio', { replace: true });
+    navigate('/comic-studio');
   }, [form, navigate, loadProjects]);
 
-  /** 刷新 / 直接访问 /comic-studio/:id 时，自动打开 URL 里的项目，而不是掉回新建页。
-   *  只在 URL 中的 id 变化时执行；projectId 变化不反过来重新拉取。 */
+  /** URL 里的 id 决定当前视图：
+   *  - 有合法 id → 打开对应项目（仅当 projectId 还未指向它时才拉取，避免重复请求）；
+   *  - 没有 id（浏览器回退到 /comic-studio）→ 清空项目态，让落地页正确接管。
+   *  否则 projectId 仍残留会使页面停在「工作页」，回退看起来像没生效。 */
   useEffect(() => {
     const id = Number(routeId);
-    if (!Number.isInteger(id) || id <= 0 || id === projectId) return;
-    void openProject(id);
+    if (Number.isInteger(id) && id > 0) {
+      if (id !== projectId) void openProject(id);
+    } else if (projectId !== null || project !== null || creating) {
+      setProjectId(null); setProject(null); setCharacters([]); setPanels([]);
+      setOutline(''); setStep(0); setExportUrl(null); setCreating(false); setPreflight(null);
+      form.resetFields();
+      void loadProjects();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeId]);
 
@@ -249,7 +259,7 @@ export default function ComicStudioPage() {
         await loadProjects();
         setCreating(false);
         message.success('项目已创建');
-        navigate(`/comic-studio/${data.id}`, { replace: true });
+        navigate(`/comic-studio/${data.id}`);
       }
     } catch (e: any) { message.error(e?.response?.data?.message || '保存失败'); }
     finally { setLoading(false); }
