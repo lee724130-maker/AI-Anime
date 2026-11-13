@@ -1056,7 +1056,12 @@ export class ComicStudioService {
 
   async startGeneration(userId: number, id: number) {
     const p = await this.owned(userId, id);
-    if (p.status === 'generating') throw new BadRequestException('已在生成中');
+    // 仅在「确有进行中任务」时拒绝重入，避免真实生成中重复扣费；
+    // 若是卡死的 generating（无进行中任务，例如 0 面板 / 任务已全部 terminal 但状态未翻回），允许恢复重入。
+    if (p.status === 'generating') {
+      const inflight = this.parseSpec(p).panels.some((x) => x.status === 'processing' && x.task_id);
+      if (inflight) throw new BadRequestException('已在生成中');
+    }
     // 11-12 硬门控：预检必须在创建任何生图任务（会扣积分）之前通过
     const pf = await this.preflight(userId, id);
     if (!pf.canGenerate) {
