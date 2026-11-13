@@ -57,6 +57,14 @@ const STATUS_TAG: Record<string, { color: string; label: string }> = {
   failed: { color: 'error', label: '失败' },
 };
 
+/** 项目整体状态映射（落地页卡片用） */
+const PROJECT_STATUS: Record<string, { color: string; label: string }> = {
+  draft: { color: 'default', label: '草稿' },
+  script_review: { color: 'processing', label: '大纲已定' },
+  generating: { color: 'processing', label: '生成中' },
+  completed: { color: 'success', label: '已完成' },
+};
+
 /** 7 个图像块的固定顺序（4 必选 + 3 可选，与后端 SHEET_BLOCKS 一致） */
 const BLOCK_KEYS = Object.keys(BLOCK_LABELS);
 /** 必选 4 块：齐了即可拼版 / 锁定 / 进入下一步；其余 3 块为可选生成项 */
@@ -117,6 +125,8 @@ export default function ComicStudioPage() {
   const detailChar = characters.find((c) => c.id === detailCharId) || null;
   /** 分格脚本：正在为第几格（panels 下标）从大资产库挑选姿势参考图 */
   const [posePicker, setPosePicker] = useState<number | null>(null);
+  /** 是否处于「新建项目」页（与项目列表页、工作页三者互斥） */
+  const [creating, setCreating] = useState(false);
 
   const loadProjects = useCallback(async () => {
     try {
@@ -161,6 +171,15 @@ export default function ComicStudioPage() {
     } catch (e: any) { message.error(e?.response?.data?.message || '项目读取失败'); }
     finally { setLoading(false); }
   }, [applyProject, navigate]);
+
+  /** 回到项目列表页：清空当前项目态并刷新列表，projectId 置空后落地页会接管渲染 */
+  const goLanding = useCallback(() => {
+    setProjectId(null); setProject(null); setCharacters([]); setPanels([]);
+    setOutline(''); setStep(0); setExportUrl(null); setCreating(false); setPreflight(null);
+    form.resetFields();
+    void loadProjects();
+    navigate('/comic-studio', { replace: true });
+  }, [form, navigate, loadProjects]);
 
   /** 刷新 / 直接访问 /comic-studio/:id 时，自动打开 URL 里的项目，而不是掉回新建页。
    *  只在 URL 中的 id 变化时执行；projectId 变化不反过来重新拉取。 */
@@ -219,12 +238,19 @@ export default function ComicStudioPage() {
     setLoading(true);
     try {
       const payload = { ...DEFAULT_FORM, ...values };
-      const { data } = projectId
-        ? await api.put(`/api/comic-studio/${projectId}`, payload)
-        : await api.post('/api/comic-studio', payload);
-      applyProject(data);
-      await loadProjects();
-      message.success('项目已保存');
+      if (projectId) {
+        const { data } = await api.put(`/api/comic-studio/${projectId}`, payload);
+        applyProject(data);
+        await loadProjects();
+        message.success('项目已保存');
+      } else {
+        const { data } = await api.post('/api/comic-studio', payload);
+        applyProject(data);
+        await loadProjects();
+        setCreating(false);
+        message.success('项目已创建');
+        navigate(`/comic-studio/${data.id}`, { replace: true });
+      }
     } catch (e: any) { message.error(e?.response?.data?.message || '保存失败'); }
     finally { setLoading(false); }
   };
@@ -484,22 +510,53 @@ export default function ComicStudioPage() {
 
   const pct = progress?.total ? Math.round(((progress.completed + progress.failed) / progress.total) * 100) : 0;
 
+  const projectSetupForm = (
+    <div>
+      <Form form={form} layout="vertical" initialValues={DEFAULT_FORM} onFinish={createOrUpdate}>
+        <Row gutter={16}>
+          <Col xs={24} md={12}><Form.Item name="title" label="项目名称" rules={[{ required: true, message: '请填写名称' }]}><Input /></Form.Item></Col>
+          <Col xs={24} md={12}><Form.Item name="style_mode" label="画风（真人 / 动漫）"><Select options={STYLE_OPTIONS} /></Form.Item></Col>
+        </Row>
+        <Form.Item name="idea" label="一句话灵感 / 题材" extra="模型会据此生成完整剧情大纲，不需要你先想好人物">
+          <TextArea rows={2} placeholder="例：被仙人选中的少女离村修行，多年后回乡，与当年送别的少年重逢……" />
+        </Form.Item>
+        <Row gutter={16}>
+          <Col xs={12} md={5}><Form.Item name="model" label="模型"><Select options={MODEL_OPTIONS} /></Form.Item></Col>
+          <Col xs={12} md={5}><Form.Item name="image_size" label="强度"><Select options={SIZE_OPTIONS} /></Form.Item></Col>
+          <Col xs={12} md={5}><Form.Item name="ratio" label="比例" extra="默认 2:3 对齐排版页"><Select options={RATIO_OPTIONS} /></Form.Item></Col>
+          <Col xs={12} md={5}><Form.Item name="page_count" label="页数"><InputNumber min={4} max={24} style={{ width: '100%' }} /></Form.Item></Col>
+          <Col xs={24} md={4}><Form.Item name="scene_anchor" label="场景锚点"><Input /></Form.Item></Col>
+        </Row>
+        <Form.Item name="costume_ref" label="附加服装参考图（可选，/static/...）"><Input placeholder="可留空；服装主要由人物人设逐件描述" /></Form.Item>
+        <Button type="primary" htmlType="submit" icon={<CheckOutlined />}>保存项目</Button>
+      </Form>
+      {projectId && (
+        <>
+          <Divider titlePlacement="left" plain>剧情大纲（模型生成，可人工改写）</Divider>
+          <TextArea rows={6} value={outline} onChange={(e) => setOutline(e.target.value)} placeholder="点下方按钮生成，或直接粘贴现成大纲" />
+          <Space style={{ marginTop: 12 }}>
+            <Button icon={<ThunderboltOutlined />} onClick={genOutline}>生成剧情大纲</Button>
+            <Button type="primary" icon={<CheckOutlined />} onClick={confirmOutline}>确认大纲，去识别人物</Button>
+          </Space>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto', padding: '20px 24px 60px' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
-          <Title level={3} style={{ margin: 0 }}>漫画工作室</Title>
-          <Tag color="purple">V2 · 角色设定本驱动</Tag>
-        </Space>
-        <Space wrap>
-          <Select style={{ width: 240 }} placeholder="切换已有项目" allowClear
-            value={projectId ?? undefined}
-            onChange={(v) => { if (v) openProject(v as number); else { setProjectId(null); setProject(null); setCharacters([]); setPanels([]); setOutline(''); setStep(0); form.resetFields(); navigate('/comic-studio', { replace: true }); } }}
-            options={projects.map((p) => ({ value: p.id, label: `${p.title}（${p.style_mode === 'anime' ? '动漫' : '真人'} · ${p.panel_count || 0} 格）` }))} />
-          <Button icon={<PlusOutlined />} onClick={() => { setProjectId(null); setProject(null); setCharacters([]); setPanels([]); setOutline(''); setStep(0); setExportUrl(null); form.setFieldsValue(DEFAULT_FORM); navigate('/comic-studio', { replace: true }); }}>新建</Button>
-        </Space>
-      </Space>
+      {projectId ? (
+        <>
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
+            <Space>
+              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+              <Title level={3} style={{ margin: 0 }}>漫画工作室</Title>
+              <Tag color="purple">V2 · 角色设定本驱动</Tag>
+            </Space>
+            <Space wrap>
+              <Button icon={<AppstoreOutlined />} onClick={goLanding}>项目列表</Button>
+            </Space>
+          </Space>
 
       <Alert type="info" showIcon style={{ marginBottom: 16 }}
         message="标准流程：大纲 → 识别人物 → 人设 → 角色设定本（锁定） → 逐页剧情图"
@@ -524,38 +581,7 @@ export default function ComicStudioPage() {
 
         <Spin spinning={loading}>
           {/* 0 立项与大纲 */}
-          {step === 0 && (
-            <div>
-              <Form form={form} layout="vertical" initialValues={DEFAULT_FORM} onFinish={createOrUpdate}>
-                <Row gutter={16}>
-                  <Col xs={24} md={12}><Form.Item name="title" label="项目名称" rules={[{ required: true, message: '请填写名称' }]}><Input /></Form.Item></Col>
-                  <Col xs={24} md={12}><Form.Item name="style_mode" label="画风（真人 / 动漫）"><Select options={STYLE_OPTIONS} /></Form.Item></Col>
-                </Row>
-                <Form.Item name="idea" label="一句话灵感 / 题材" extra="模型会据此生成完整剧情大纲，不需要你先想好人物">
-                  <TextArea rows={2} placeholder="例：被仙人选中的少女离村修行，多年后回乡，与当年送别的少年重逢……" />
-                </Form.Item>
-                <Row gutter={16}>
-                  <Col xs={12} md={5}><Form.Item name="model" label="模型"><Select options={MODEL_OPTIONS} /></Form.Item></Col>
-                  <Col xs={12} md={5}><Form.Item name="image_size" label="强度"><Select options={SIZE_OPTIONS} /></Form.Item></Col>
-                  <Col xs={12} md={5}><Form.Item name="ratio" label="比例" extra="默认 2:3 对齐排版页"><Select options={RATIO_OPTIONS} /></Form.Item></Col>
-                  <Col xs={12} md={5}><Form.Item name="page_count" label="页数"><InputNumber min={4} max={24} style={{ width: '100%' }} /></Form.Item></Col>
-                  <Col xs={24} md={4}><Form.Item name="scene_anchor" label="场景锚点"><Input /></Form.Item></Col>
-                </Row>
-                <Form.Item name="costume_ref" label="附加服装参考图（可选，/static/...）"><Input placeholder="可留空；服装主要由人物人设逐件描述" /></Form.Item>
-                <Button type="primary" htmlType="submit" icon={<CheckOutlined />}>保存项目</Button>
-              </Form>
-              {projectId && (
-                <>
-                  <Divider titlePlacement="left" plain>剧情大纲（模型生成，可人工改写）</Divider>
-                  <TextArea rows={6} value={outline} onChange={(e) => setOutline(e.target.value)} placeholder="点下方按钮生成，或直接粘贴现成大纲" />
-                  <Space style={{ marginTop: 12 }}>
-                    <Button icon={<ThunderboltOutlined />} onClick={genOutline}>生成剧情大纲</Button>
-                    <Button type="primary" icon={<CheckOutlined />} onClick={confirmOutline}>确认大纲，去识别人物</Button>
-                  </Space>
-                </>
-              )}
-            </div>
-          )}
+          {step === 0 && (<div>{projectSetupForm}</div>)}
 
           {/* 1 人物与人设 */}
           {step === 1 && (
@@ -798,6 +824,53 @@ export default function ComicStudioPage() {
           }}
         />
       </Card>
+      </>
+      ) : creating ? (
+        <>
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
+            <Space>
+              <Button icon={<ArrowLeftOutlined />} onClick={() => setCreating(false)} />
+              <Title level={3} style={{ margin: 0 }}>新建漫画项目</Title>
+            </Space>
+          </Space>
+          <Card style={{ maxWidth: 760, margin: '0 auto' }}>
+            {projectSetupForm}
+          </Card>
+        </>
+      ) : (
+        <>
+          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
+            <Space>
+              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+              <Title level={3} style={{ margin: 0 }}>我的漫画项目</Title>
+            </Space>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
+          </Space>
+          {projects.length === 0 ? (
+            <Empty description="还没有漫画项目，点击右上角「新建项目」开始" style={{ marginTop: 80 }}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
+            </Empty>
+          ) : (
+            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+              {projects.map((p) => (
+                <Col xs={24} sm={12} md={8} key={p.id}>
+                  <Card hoverable
+                    title={<Text strong ellipsis style={{ maxWidth: 200 }}>{p.title}</Text>}
+                    extra={<Tag color={PROJECT_STATUS[p.status]?.color || 'default'}>{PROJECT_STATUS[p.status]?.label || p.status}</Tag>}>
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Text type="secondary">画风：{p.style_mode === 'anime' ? '动漫' : '真人'}</Text>
+                      <Text type="secondary">分格：{p.panel_count || 0} 格</Text>
+                      {p.updated_at && <Text type="secondary">更新：{String(p.updated_at).slice(0, 16).replace('T', ' ')}</Text>}
+                    </Space>
+                    <Button type="primary" block style={{ marginTop: 12 }}
+                      onClick={(e) => { e.stopPropagation(); openProject(p.id); }}>打开项目</Button>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          )}
+        </>
+      )}
     </div>
   );
 }
