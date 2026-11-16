@@ -54,11 +54,24 @@ export default function HistoryTable({ pageSize = 8, showFilters = false, showPa
 
   useEffect(() => { fetch(); }, [fetch, refreshKey]);
 
-  // 有活跃任务（排队/生成中）时每 3 秒静默刷新，与生成页轮询保持同步
+  // 有活跃任务（排队/生成中）时每 3 秒静默刷新，与生成页轮询保持同步。
+  // 串行化：上一个请求未返回前不再发下一个（递归 setTimeout + in-flight 标志）。
   useEffect(() => {
     if (!active) return;
-    const timer = setInterval(() => fetch(true), 3000);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let inflight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      if (stopped || inflight) return;
+      inflight = true;
+      try { await fetch(true); } catch { /* ignore */ }
+      finally {
+        inflight = false;
+        if (!stopped) timer = setTimeout(tick, 3000);
+      }
+    };
+    void tick();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
   }, [active, fetch]);
 
   const handleRetry = async (id: number) => {

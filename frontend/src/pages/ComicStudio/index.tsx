@@ -221,11 +221,16 @@ export default function ComicStudioPage() {
     try { sessionStorage.setItem(`comicStudioStep:${projectId}`, String(step)); } catch { /* ignore */ }
   }, [step, projectId]);
 
-  /** 设定本生成中 / 剧情图生成中，3 秒轮询回填 */
+  /** 设定本生成中 / 剧情图生成中，3 秒轮询回填。
+   *  串行化：上一个请求未返回前不再发下一个，避免 status 接口慢时请求堆积打垮后端。 */
   useEffect(() => {
     if (!projectId || (step !== 2 && step !== 5)) return;
     let stopped = false;
+    let inflight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
+      if (stopped || inflight) return;
+      inflight = true;
       try {
         const { data } = await api.get(`/api/comic-studio/${projectId}/status`);
         if (stopped) return;
@@ -234,10 +239,13 @@ export default function ComicStudioPage() {
         setProgress(data.progress || null);
         if (data.project) setProject(data.project);
       } catch { /* ignore */ }
+      finally {
+        inflight = false;
+        if (!stopped) timer = setTimeout(tick, 3000);
+      }
     };
-    tick();
-    const timer = setInterval(tick, 3000);
-    return () => { stopped = true; clearInterval(timer); };
+    void tick();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
   }, [step, projectId]);
 
   const guard = () => {

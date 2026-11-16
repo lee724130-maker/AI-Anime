@@ -206,12 +206,25 @@ export default function GeneratePage() {
     api.get('/api/generate/tts-voices').then(({ data }) => setVoiceList(data || [])).catch(() => setVoiceList([]));
   }, [fetchHistory]);
 
-  // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新
+  // 自动轮询：有 pending/processing 任务或正在提交时，每 3 秒静默刷新。
+  // 串行化：上一个请求未返回前不再发下一个（递归 setTimeout + in-flight 标志）。
   const hasActiveTask = history.some(r => r.status === 'pending' || r.status === 'processing');
   useEffect(() => {
     if (!hasActiveTask && !loading) return;
-    const timer = setInterval(() => fetchHistory(), 3000);
-    return () => clearInterval(timer);
+    let stopped = false;
+    let inflight = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      if (stopped || inflight) return;
+      inflight = true;
+      try { await fetchHistory(); } catch { /* ignore */ }
+      finally {
+        inflight = false;
+        if (!stopped) timer = setTimeout(tick, 3000);
+      }
+    };
+    void tick();
+    return () => { stopped = true; if (timer) clearTimeout(timer); };
   }, [hasActiveTask, loading, fetchHistory]);
 
   const fetchGlobalAssets = useCallback(async (type: string) => {
