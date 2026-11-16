@@ -5,9 +5,17 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { join } from 'path';
 import * as fs from 'fs';
+import * as express from 'express';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // 自己接管 body parser：Express 默认 json 限制 100KB，长提示词/批量 URL 容易 413。
+  // 文件上传走 multer（不受此限制），这里的限制只针对 application/json 与表单字段。
+  const bodyLimit = process.env.BODY_JSON_LIMIT || '2mb';
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+  app.use(express.json({ limit: bodyLimit }));
+  app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 
   app.useLogger(app.get(WINSTON_MODULE_NEST_PROVIDER));
 

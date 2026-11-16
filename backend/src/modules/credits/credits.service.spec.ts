@@ -3,6 +3,11 @@ import { BadRequestException } from '@nestjs/common';
 import { getEntityManagerToken } from '@nestjs/typeorm';
 import { CreditsService } from './credits.service';
 
+// 单测不连真实 Redis；Redis 路径用注入的 mock client 覆盖
+jest.mock('redis', () => ({
+  createClient: jest.fn(() => { throw new Error('redis disabled in unit tests'); }),
+}));
+
 /**
  * CreditsService 单元测试 —— 资金核心：预扣 / 退款 / 去重 / 各模块定价。
  * 全部用 mock EntityManager，不连真实数据库、不花积分。
@@ -109,9 +114,54 @@ describe('CreditsService', () => {
 
     it('clearRefundKey 后允许再次退款（重试重扣场景）', async () => {
       await service.refund(16, 5, 'retry-key');
-      service.clearRefundKey('retry-key');
+      await service.clearRefundKey('retry-key');
       await service.refund(16, 5, 'retry-key');
       expect(em.query).toHaveBeenCalledTimes(2);
+    });
+
+    it('Redis 可用时同一 key 只退一次（跨实例去重）', async () => {
+      const set = jest.fn().mockResolvedValueOnce('OK').mockResolvedValueOnce(null);
+      const del = jest.fn().mockResolvedValue(1);
+      (service as any).redisClient = { set, del, on: jest.fn(), quit: jest.fn() };
+
+      await service.refund(16, 5, 'redis-key');
+      await service.refund(16, 5, 'redis-key');
+
+      expect(set).toHaveBeenCalledWith('refund:dedup:redis-key', '1', { NX: true, EX: 600 });
+      expect(em.query).toHaveBeenCalledTimes(1);
+    });
+
+    it('clearRefundKey 同时删除 Redis 标记', async () => {
+      const del = jest.fn().mockResolvedValue(1);
+      (service as any).redisClient = { set: jest.fn(), del, on: jest.fn(), quit: jest.fn() };
+
+      await service.clearRefundKey('redis-key');
+
+      expect(del).toHaveBeenCalledWith('refund:dedup:redis-key');
+    });
+
+    it('退款写库失败时释放去重标记，允许重试', async () => {
+      const del = jest.fn().mockResolvedValue(1);
+      (service as any).redisClient = {
+        set: jest.fn().mockResolvedValue('OK'), del, on: jest.fn(), quit: jest.fn(),
+      };
+      em.query.mockRejectedValueOnce(new Error('db down')).mockResolvedValue([]);
+
+      await expect(service.refund(16, 5, 'fail-key')).rejects.toThrow('db down');
+      expect(del).toHaveBeenCalledWith('refund:dedup:fail-key');
+
+      await service.refund(16, 5, 'fail-key');
+      expect(em.query).toHaveBeenCalledTimes(2);
+    });
+
+    it('Redis SET 抛错时降级为内存去重，不阻断退款', async () => {
+      const set = jest.fn().mockRejectedValue(new Error('redis down'));
+      (service as any).redisClient = { set, del: jest.fn(), on: jest.fn(), quit: jest.fn() };
+
+      await service.refund(16, 5, 'degraded-key');
+      await service.refund(16, 5, 'degraded-key');
+
+      expect(em.query).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -951,7 +951,7 @@ export class GenerateService implements OnModuleDestroy {
         throw new BadRequestException('积分不足，无法重试');
       }
       task.credits_charged = false;
-      this.creditsService.clearRefundKey(refundKey);
+      await this.creditsService.clearRefundKey(refundKey);
     }
     task.status = 'processing';
     task.error_msg = '';

@@ -521,7 +521,7 @@ export class VideoService {
       }
       task.credits_charged = true;
       // 清除上一轮失败的退款去重标记，保证本轮失败能正常退款
-      this.creditsService.clearRefundKey(`video_${task.id}`);
+      await this.creditsService.clearRefundKey(`video_${task.id}`);
     }
 
     await this.videoRepo.save(task);

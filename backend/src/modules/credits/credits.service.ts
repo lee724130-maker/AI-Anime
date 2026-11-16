@@ -1,6 +1,11 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
+import { createClient } from 'redis';
+
+/** 退款去重：key 前缀与 TTL（与内存降级保持一致，10 分钟） */
+const REFUND_DEDUP_PREFIX = 'refund:dedup:';
+const REFUND_DEDUP_TTL = 600;
 
 /**
  * 公共积分扣费服务（热门创作 / 短剧工作室共用）。
@@ -11,7 +16,56 @@ import { EntityManager } from 'typeorm';
 export class CreditsService {
   private readonly logger = new Logger(CreditsService.name);
 
+  /** Redis 去重（多实例共享）；连接失败时降级为进程内 Set */
+  private redisClient: any = null;
+  private redisConnecting: Promise<any | null> | null = null;
+  private readonly refundedKeys = new Set<string>();
+
   constructor(@InjectEntityManager() private readonly em: EntityManager) {}
+
+  private async redis(): Promise<any | null> {
+    if (this.redisClient) return this.redisClient;
+    if (this.redisConnecting) return this.redisConnecting;
+    this.redisConnecting = (async () => {
+      try {
+        const client = createClient({
+          url: `redis://${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}/${process.env.REDIS_DB || 0}`,
+          ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
+        });
+        client.on('error', () => { /* suppress connection noise */ });
+        await client.connect();
+        this.redisClient = client;
+        return client;
+      } catch {
+        this.logger.warn('[credits] Redis 不可用，退款去重降级为内存 Set');
+        return null;
+      } finally {
+        this.redisConnecting = null;
+      }
+    })();
+    return this.redisConnecting;
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (!this.redisClient) return;
+    try { await this.redisClient.quit(); } catch { /* ignore */ }
+    this.redisClient = null;
+  }
+
+  /** 内存降级路径的原子领取（含 10 分钟自动过期） */
+  private claimLocal(refundKey: string): boolean {
+    if (this.refundedKeys.has(refundKey)) return false;
+    this.refundedKeys.add(refundKey);
+    setTimeout(() => this.refundedKeys.delete(refundKey), REFUND_DEDUP_TTL * 1000);
+    return true;
+  }
+
+  /** 释放去重标记：清内存 + 删 Redis（退款写库失败时允许重试） */
+  private async releaseRefundKey(refundKey: string, redis: any | null): Promise<void> {
+    this.refundedKeys.delete(refundKey);
+    if (!redis) return;
+    try { await redis.del(`${REFUND_DEDUP_PREFIX}${refundKey}`); } catch { /* ignore */ }
+  }
 
   /** 读 system_configs 实时值，缺失/非法时返回默认值 */
   async getConfigInt(key: string, def: number): Promise<number> {
@@ -29,10 +83,10 @@ export class CreditsService {
 
   /**
    * 清除退款去重标记（M5）：任务重试重新预扣后，必须允许本次失败退款生效。
-   * refundedKeys 是进程内 Set，会挡住同一 key 的第二次退款。
+   * 同时清 Redis 与内存，保证多实例部署下其它实例也不会挡住本轮退款。
    */
-  clearRefundKey(refundKey: string): void {
-    this.refundedKeys.delete(refundKey);
+  async clearRefundKey(refundKey: string): Promise<void> {
+    await this.releaseRefundKey(refundKey, await this.redis());
   }
 
   /** 原子预扣积分，余额不足返回 false（不扣） */
@@ -47,21 +101,44 @@ export class CreditsService {
   }
 
   /** 失败退全款（refundKey 去重，防止同一失败被重复退款） */
-  private readonly refundedKeys = new Set<string>();
   async refund(userId: number, cost: number, refundKey?: string): Promise<void> {
     if (cost <= 0) return;
+    let redis: any = null;
+    let claimedViaRedis = false;
     if (refundKey) {
-      if (this.refundedKeys.has(refundKey)) {
-        this.logger.warn(`[credits] 重复退款拦截: key=${refundKey}, userId=${userId}, cost=${cost}`);
+      redis = await this.redis();
+      if (redis) {
+        try {
+          // SET NX EX 原子领取：只有拿到 key 的实例才执行退款
+          const res = await redis.set(`${REFUND_DEDUP_PREFIX}${refundKey}`, '1', {
+            NX: true, EX: REFUND_DEDUP_TTL,
+          });
+          if (res === 'OK') {
+            claimedViaRedis = true;
+          } else {
+            this.logger.warn(`[credits] 重复退款拦截(Redis): key=${refundKey}, userId=${userId}, cost=${cost}`);
+            return;
+          }
+        } catch {
+          // Redis 中途失效：退回内存去重，不阻断退款主流程
+          redis = null;
+        }
+      }
+      if (!claimedViaRedis && !this.claimLocal(refundKey)) {
+        this.logger.warn(`[credits] 重复退款拦截(内存): key=${refundKey}, userId=${userId}, cost=${cost}`);
         return;
       }
-      this.refundedKeys.add(refundKey);
-      setTimeout(() => this.refundedKeys.delete(refundKey), 600_000);
     }
-    await this.em.query(
-      'UPDATE users SET credits = credits + ? WHERE id = ?',
-      [cost, userId],
-    );
+    try {
+      await this.em.query(
+        'UPDATE users SET credits = credits + ? WHERE id = ?',
+        [cost, userId],
+      );
+    } catch (err) {
+      // 写库失败不能留下去重标记，否则后续重试永远退不了款
+      if (refundKey) await this.releaseRefundKey(refundKey, redis);
+      throw err;
+    }
     this.logger.log(`[credits] 退款: userId=${userId}, +${cost}积分, key=${refundKey || 'none'}`);
   }
 
