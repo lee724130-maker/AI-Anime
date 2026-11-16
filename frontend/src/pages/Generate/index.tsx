@@ -7,6 +7,7 @@ import {
 import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
+import { progressLabel } from '../../utils/progressLabel';
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
@@ -1057,7 +1058,10 @@ export default function GeneratePage() {
       return (
         <div style={{ padding: '20px 24px' }}>
           <Progress percent={task.progress || 5} status="active" />
-          <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>生成中，请稍候…（视频通常需要 1~3 分钟）</Text>
+          <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+            {progressLabel(task.progress || 5, task.type)}
+            {task.type === 'image' ? '（图片通常几十秒）' : '（视频通常需要 1~3 分钟）'}
+          </Text>
         </div>
       );
     }
