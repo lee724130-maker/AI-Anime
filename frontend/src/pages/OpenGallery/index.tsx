@@ -178,7 +178,13 @@ export default function OpenGalleryPage() {
           <Title level={3} style={{ margin: 0 }}>开源图片</Title>
           <Tag color="purple">共 {faces.length + costumes.length + poses.length} 张素材</Tag>
         </Space>
-        <Button onClick={() => navigate('/comic-studio')}>去角色设定本</Button>
+        <Button onClick={() => {
+          // §18 边界修复：优先回到最近打开的项目（角色设定本所在页），没记录过才回项目列表
+          let lastId = '';
+          try { lastId = localStorage.getItem('comicStudioLastProjectId') || ''; } catch { /* ignore */ }
+          navigate(lastId && Number.isInteger(Number(lastId)) && Number(lastId) > 0
+            ? `/comic-studio/${lastId}` : '/comic-studio');
+        }}>去角色设定本</Button>
       </Space>
 
       <Alert type="info" showIcon style={{ marginBottom: 16 }}

@@ -139,6 +139,8 @@ export default function ComicStudioPage() {
 
   const applyProject = useCallback((data: any) => {
     setProjectId(data.id);
+    // 记住最近打开的项目，供 OpenGallery「去角色设定本」直接返回（§18 边界修复）
+    try { localStorage.setItem('comicStudioLastProjectId', String(data.id)); } catch { /* ignore */ }
     setProject(data);
     setOutline(data.outline || '');
     setCharacters(data.character_list || []);
