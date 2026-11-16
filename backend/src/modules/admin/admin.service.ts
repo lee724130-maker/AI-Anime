@@ -879,6 +879,53 @@ export class AdminService {
     }
   }
 
+  /**
+   * output/ 磁盘占用概览（给管理后台磁盘面板用）。
+   * 纯 fs 只读统计，失败时返回空结构不影响 status 主流程。
+   * 按顶层子目录/前缀分组：comic-* 合并、gallery* 合并、其余按扩展名前 20 个文件统计总量。
+   */
+  private getOutputDiskUsage(): Record<string, any> {
+    const empty = { totalMB: 0, comicMB: 0, galleryMB: 0, fileCount: 0, dirs: [] as any[] };
+    try {
+      const outputDir = path.join(process.cwd(), 'output');
+      if (!fs.existsSync(outputDir)) return empty;
+      const sizeOf = (p: string): number => {
+        const st = fs.statSync(p);
+        if (st.isFile()) return st.size;
+        let sum = 0;
+        for (const name of fs.readdirSync(p)) {
+          try { sum += sizeOf(path.join(p, name)); } catch { /* ignore */ }
+        }
+        return sum;
+      };
+      const entries = fs.readdirSync(outputDir, { withFileTypes: true });
+      let total = 0, comic = 0, gallery = 0, fileCount = 0;
+      const dirs: any[] = [];
+      for (const e of entries) {
+        try {
+          const bytes = sizeOf(path.join(outputDir, e.name));
+          total += bytes;
+          if (e.isFile()) fileCount++;
+          if (e.isDirectory() && e.name.startsWith('comic-')) {
+            comic += bytes;
+            dirs.push({ name: e.name, mb: +(bytes / 1024 / 1024).toFixed(1) });
+          } else if (e.name.startsWith('gallery')) {
+            gallery += bytes;
+          }
+        } catch { /* ignore */ }
+      }
+      return {
+        totalMB: +(total / 1024 / 1024).toFixed(1),
+        comicMB: +(comic / 1024 / 1024).toFixed(1),
+        galleryMB: +(gallery / 1024 / 1024).toFixed(1),
+        fileCount,
+        dirs: dirs.sort((a, b) => b.mb - a.mb),
+      };
+    } catch {
+      return empty;
+    }
+  }
+
   async getServerStatus(isSuperAdmin?: boolean) {
     this.assertSuperAdmin(isSuperAdmin);
     const isWin = process.platform === 'win32';
@@ -899,6 +946,7 @@ export class AdminService {
         platform: process.platform,
         nodeVersion: process.version,
         memoryUsage: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        disk: this.getOutputDiskUsage(),
       };
     } catch (err) {
       throw new BadRequestException('获取状态失败: ' + err.message);

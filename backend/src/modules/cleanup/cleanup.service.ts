@@ -7,7 +7,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const TEMP_DIR_PREFIXES = ['viral_frames_', 'viral_analyze_', 'viral_gen_', 'viral_reg_', 'canvas_gen_', 'editor_gen_'];
-const STALE_FILE_EXT = /\.(mp4|webm|mov|mkv|jpg|jpeg|png|webp|gif|mp3|m4a|wav)$/i;
+const COMIC_DIR_PREFIX = 'comic-';             // 漫画工作室导出目录（comic-<id>/）
+const STALE_FILE_EXT = /\.(mp4|webm|mov|mkv|jpg|jpeg|png|webp|gif|mp3|m4a|wav|zip)$/i;
 const TEMP_DIR_AGE = 2 * 60 * 60 * 1000;      // temp dirs older than 2h (crash leftovers)
 const RESULT_FILE_AGE = 30 * 24 * 60 * 60 * 1000; // unreferenced result files older than 30 days
 /** 清理周期：每 6 小时一轮（与原裸 setInterval 一致） */
@@ -75,6 +76,12 @@ export class CleanupService {
         // 引用集合统一转小写存储，比较时同样转小写（Linux 文件系统大小写敏感）
         const lowerName = e.name.toLowerCase();
         if (e.isDirectory()) {
+          if (e.name.startsWith(COMIC_DIR_PREFIX)) {
+            // 漫画产物目录：逐个文件清理 30 天未修改且无引用的（sheet_*.png / export zip 被引用则保留），
+            // 文件清完后删空目录。绝不整目录 rm —— 里面可能同时有被引用的 sheet 图和过期 zip。
+            removed += this.cleanComicDir(fullPath, referenced.files, now);
+            continue;
+          }
           if (!TEMP_DIR_PREFIXES.some((p) => e.name.startsWith(p))) continue;
           if (referenced.dirs.has(lowerName)) continue; // referenced → never delete
           try {
@@ -104,6 +111,36 @@ export class CleanupService {
     } catch (err: any) {
       this.logger.warn(`output/ 清理失败: ${err.message}`);
     }
+  }
+
+  /**
+   * 清理单个 comic-<id>/ 目录：只删「30 天未修改 且 文件名不在引用集合」的产物。
+   * 被引用的 sheet_*.png（角色设定本基准）与 export zip（export_url）一律保留。
+   * 全部文件清完后删除空目录。返回清理的文件数。
+   */
+  private cleanComicDir(dirPath: string, referencedFiles: Set<string>, now: number): number {
+    let removed = 0;
+    try {
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue; // 只处理平铺文件，不递归子目录（comic 目录本就是平的）
+        const lower = entry.name.toLowerCase();
+        if (referencedFiles.has(lower)) continue; // 被 DB 引用 → 永不删
+        try {
+          const stat = fs.statSync(path.join(dirPath, entry.name));
+          if (now - stat.mtimeMs >= RESULT_FILE_AGE) {
+            fs.rmSync(path.join(dirPath, entry.name), { force: true });
+            removed++;
+            this.logger.log(`清理无引用漫画产物: ${path.basename(dirPath)}/${entry.name}`);
+          }
+        } catch { /* ignore */ }
+      }
+      // 文件都清完后，若目录空了也删掉
+      if (fs.readdirSync(dirPath).length === 0) {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+    } catch { /* ignore */ }
+    return removed;
   }
 
   /**
@@ -146,6 +183,10 @@ export class CleanupService {
       UNION SELECT avatar_url FROM characters WHERE avatar_url LIKE '%/static/%'
       UNION SELECT reference_image_anime FROM characters WHERE reference_image_anime LIKE '%/static/%'
       UNION SELECT reference_image_realistic FROM characters WHERE reference_image_realistic LIKE '%/static/%'
+      -- 漫画工作室产物：export_url 指向导出 zip，characters(JSON) 内含设定本 sheet_*.png。
+      -- 不收集这两项会在启用 comic-* 目录清理后误删活跃项目的设定本/导出包。
+      UNION SELECT export_url FROM comic_projects WHERE export_url LIKE '%/static/%'
+      UNION SELECT characters FROM comic_projects WHERE characters LIKE '%/static/%'
     `);
     for (const r of rows) {
       if (!r || !r.v) continue;
@@ -155,7 +196,7 @@ export class CleanupService {
         const dir = m.replace(/^.*\/(static\/)?/, '').replace(/\/$/, '').toLowerCase();
         if (dir) dirs.add(dir);
       }
-      const fileMs = String(r.v).match(/\/(?:static\/)?([^/\\"'\s\])]+\.(?:mp4|webm|mov|mkv|jpg|jpeg|png|webp|gif|mp3|m4a|wav))/gi);
+      const fileMs = String(r.v).match(/\/(?:static\/)?([^/\\"'\s\])]+\.(?:mp4|webm|mov|mkv|jpg|jpeg|png|webp|gif|mp3|m4a|wav|zip))/gi);
       if (fileMs) for (const m of fileMs) {
         const base = m.replace(/^.*\/(static\/)?/, '').toLowerCase();
         if (base) files.add(base);

@@ -208,6 +208,35 @@ export default function ServerPage() {
           )}
         </Card>
 
+        <Card title="磁盘占用（output/）" loading={statusLoading}>
+          {status?.disk ? (
+            <>
+              <Descriptions column={{ xs: 1, sm: 3 }} bordered size="small">
+                <Descriptions.Item label="总占用">{status.disk.totalMB} MB</Descriptions.Item>
+                <Descriptions.Item label="漫画产物 comic-*">{status.disk.comicMB} MB</Descriptions.Item>
+                <Descriptions.Item label="图鉴 gallery*">{status.disk.galleryMB} MB</Descriptions.Item>
+              </Descriptions>
+              {Array.isArray(status.disk.dirs) && status.disk.dirs.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <Text type="secondary" style={{ fontSize: 12 }}>各项目目录（由大到小）：</Text>
+                  <div style={{ marginTop: 6 }}>
+                    {status.disk.dirs.slice(0, 12).map((d: any) => (
+                      <Tag key={d.name} style={{ marginBottom: 6 }}>{d.name} · {d.mb} MB</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop: 10 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  共 {status.disk.fileCount} 个顶层文件。comic-* 中 30 天未修改且无引用的产物由后台定时清理（被设定本/导出包引用的文件永不删除）。
+                </Text>
+              </div>
+            </>
+          ) : (
+            <Text type="secondary">加载中或无数据…</Text>
+          )}
+        </Card>
+
         <Card title="文件清理">
           <Space wrap>
             <Button icon={<DeleteOutlined />} onClick={() => cleanup('output')}>
