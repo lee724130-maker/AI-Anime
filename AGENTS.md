@@ -1,5 +1,32 @@
 # 修复日志
 
+## 2026-11-17（前端质感改造·/generate 样板页 ✅ 已提交 GitHub，**生产暂不部署**（用户指示：还要继续改页面））
+
+> 起因：功能问题基本收敛，用户把重点转向布局与样式，目标「更高级更有质感」。约定＝`/dashboard` 不动，其余页面全改；先只改样板页 `/generate` 看方向，认可后再逐页铺开。用户拍板走 **B 方案（双栏工作台 + 令牌化）**，并授权本会话接手前端样式。
+
+### ✅ ① 廉价感的实测根因（不是观感推测）
+- 页面到处写 `background: 'var(--card)'`，但 `src/index.css` 只定义了 `--card-bg` / `--hover-bg`——**`--card` 与 `--hover` 从未定义过** → 卡片背景解析为空、整页透明贴底；暗色下 hover 回落到兜底浅灰 `#f5f5f5`，刺眼且跳色。headless 实测改造前 `getComputedStyle(document.documentElement)['--card'] = ''`（未定义），改造后 `= #151f2e`。
+- 版式根因：`75% / 25%` 内联两栏 + 参数行用 `Space` 配 `flex: '1 1 XXXpx'` 魔法数字 + 积分规则用整块 Alert 常驻 → 层级平、噪音大。
+
+### ✅ ② 改了什么（三层，全部只动「容器与观感」）
+- **令牌层** `src/styles/tokens.css`（`main.tsx` 引入）：补 `--card` / `--hover` 别名（**不改** `--card-bg` 原值，避免波及未改造页面），并新增分层色 `--surface-1/2/3`、三级影深 `--shadow-1/2/3`、`--ring`/`--glow`、8px 间距刻度 `--sp-*`、圆角 `--r-*`、字号 `--fs-*`、动效 `--t-*`/`--ease`、渐变 `--grad-brand/sheen/stage`、骨架尺度 `--rail-w`（364px）。**只定义变量、零选择器**，所以 `/dashboard` 等未改造页面视觉零变化。
+- **页作用域样式** `src/pages/Generate/generate.css`：所有规则以 `.gen-*` 前缀，对 antd 的覆盖一律写成 `.gen-xxx .ant-yyy`，**不外溢到其他页面**。
+- **容器重排** `src/pages/Generate/index.tsx`：Form / state / 接口字段 / 提交逻辑**零改动**，只换外层容器——两栏改 `minmax(0,1fr) + 364px` 栅格、下划线 Tab 改分段控件（选中渐变+发光）、积分规则 Alert 改默认折叠规则条、参数 `Space` 改等宽自适应栅格、提交行改卡内吸底操作条、结果区改带底纹舞台 + 真空态（图标+标题+引导，空态高 320→200px）、历史项改真实缩略图（外链失效自动回落表情，不出裂图）+ hover 位移 + 选中左侧品牌条。新增 `MODE_META`（卡头文案）与 `thumbOf()`（解析 `task.results` 取缩略图）。
+
+### ✅ ③ 验证（全部实测，不靠截图观感）
+- `npm run build`（= `tsc -b && vite build`）**EXIT=0**，3154 modules，JSX 闭合与类型全过。
+- headless 量取：`--card` 由未定义→`#151f2e`；参数栅格实测 **4 × 194.5px 完全等宽**（第一轮视觉复查说「宽度参差」，实测把它打回，属误判）；`pageerrors=0`；暗/浅双主题均正常渲染。
+- 截图基线留存：改造前 / 改造后暗色 / 改造后浅色三张（1600×1000，桩数据 3 条历史 + 积分规则）。
+
+### ⚠️ ④ 生产环境未动（按用户指示）
+- 只提交 GitHub，**未部署生产**：没跑任何部署脚本、没动 `frontend/dist-deploy/`、没碰服务器。`npm run build` 产物只落本地 `frontend/dist/`（已在 .gitignore 内，未入库）。
+- 上线时按仓内既有顺序走：build → 上传 dist → 生产 UI 验证，别只比 `index-*.js` 文件名（Generate 页产物名可能不变，内容却变了）。
+
+### ⏭ ⑤ 下一步（用户继续改页面）
+- 样板认可后逐页铺开：`/tasks`、`/comic-studio`、`/drama`、`/canvas`、`/open-gallery`、`/order`、`/viral`、`/user`，每页＝一份 `<x>.css` + 只换容器；令牌层已就位，不再逐页写魔法数字。
+- 细节待办：结果卡与表单卡的高度配比、历史栏可考虑「上图下文」瀑布流、提交按钮右侧元信息分组。
+- 规范见 `docs/前端质感改造-generate样板-2026-11-17.md`。
+
 ## 2026-10-29（P0 第一批：孤儿任务自愈 + synchronize 开关 + 日志轮转 + 定时任务托管 —— 本地改完待测，未提交）
 
 > 起因：用户要求先通读全项目文档并列出后续开发工作。文档体检结论——`docs/roadmap.md`(停在 07-15)、`docs/dev-checklist.md`(10-08)、`docs/READMEs/`(09-22，只写 6 个后端模块，实际 21 个) **全部严重滞后于代码**，唯一真相是 `docs/current-version.md`。两条反直觉发现：① 支付宝支付其实早已端到端实现（`modules/payment/payment.service.ts` 用 alipay-sdk 下单 + `checkNotifySignV2` 验签 + 主动查单，`order.service.ts` 原子入账，前端 `pages/Order` 轮询已接通），只是被 `system_configs.recharge_enabled='0'` 关掉——roadmap 里「真实支付 2~4 天」实际只剩开闸 + 商户资质 + 生产回调对账。② 下文①号漏洞。

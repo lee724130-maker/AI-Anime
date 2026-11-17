@@ -1,0 +1,77 @@
+/* =============================================================================
+   设计令牌层 · 2026-11-17 页面质感改造（样板页＝/generate）
+   ① 修历史 bug：全站大量在用 var(--card) / var(--hover)，但这两个名字从未定义过
+      （index.css 只定义了 --card-bg / --hover-bg）→ 卡片背景解析为空、整块透明贴底，
+      暗色下 hover 还回落到浅灰 #f5f5f5。此处补齐别名，**不改** --card-bg 原值，
+      以免影响 /dashboard 等未纳入本轮改造的页面。
+   ② 新增一套可复用尺度：分层色 / 影深 / 发光 / 间距 / 圆角 / 字号 / 动效，
+      后续其余页面直接套同一套令牌，不再各写各的内联魔法数字。
+   注意：本块只定义变量，不含任何选择器规则，故对现有页面零视觉影响。
+   ============================================================================= */
+:root {
+  /* 别名修正（浅色） */
+  --card: var(--card-bg);
+  --hover: var(--hover-bg);
+
+  /* 分层表面：页面底 → 卡 → 卡内嵌块，三级递进 */
+  --surface-1: #ffffff;
+  --surface-2: #f7f8fc;
+  --surface-3: #eef1f8;
+  --line: var(--border);
+  --line-strong: #d6dae4;
+
+  /* 影深三级 */
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, .06);
+  --shadow-2: 0 6px 20px -8px rgba(16, 24, 40, .14);
+  --shadow-3: 0 20px 46px -16px rgba(16, 24, 40, .24);
+
+  /* 焦点环与主色发光 */
+  --ring: 0 0 0 3px rgba(108, 92, 231, .16);
+  --glow: 0 10px 26px -12px rgba(108, 92, 231, .55);
+
+  /* 渐变：品牌面 / 卡头微光 / 舞台底纹 */
+  --grad-brand: linear-gradient(135deg, #6c5ce7 0%, #8b7bf0 52%, #a5b4fc 100%);
+  --grad-sheen: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(255, 255, 255, 0));
+  --grad-stage: radial-gradient(120% 90% at 50% 0%, rgba(108, 92, 231, .07), rgba(108, 92, 231, 0) 60%);
+
+  /* 间距刻度（8px 栅格） */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+
+  /* 圆角 */
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px;
+
+  /* 字号层级 */
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-lg: 15px;
+  --fs-xl: 17px; --fs-2xl: 20px;
+
+  /* 动效 */
+  --t-fast: .16s; --t-base: .24s; --ease: cubic-bezier(.2, .7, .3, 1);
+
+  /* 版式骨架尺度 */
+  --rail-w: 364px;
+  --content-max: 1180px;
+}
+
+[data-theme=dark] {
+  /* 别名修正（暗色）：--card 比旧 --card-bg(#1e293b) 更深半档，让"卡"与"卡内块"拉开层级 */
+  --card: #151f2e;
+  --hover: rgba(255, 255, 255, .05);
+
+  --surface-1: #151f2e;
+  --surface-2: #1b2637;
+  --surface-3: #223046;
+  --line: #2b3a52;
+  --line-strong: #3d4f6b;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .45);
+  --shadow-2: 0 8px 24px -10px rgba(0, 0, 0, .6);
+  --shadow-3: 0 24px 54px -20px rgba(0, 0, 0, .75);
+
+  --ring: 0 0 0 3px rgba(129, 140, 248, .26);
+  --glow: 0 12px 32px -14px rgba(129, 140, 248, .6);
+
+  --grad-brand: linear-gradient(135deg, #6366f1 0%, #818cf8 50%, #a5b4fc 100%);
+  --grad-sheen: linear-gradient(180deg, rgba(148, 163, 184, .08), rgba(148, 163, 184, 0));
+  --grad-stage: radial-gradient(120% 90% at 50% 0%, rgba(129, 140, 248, .1), rgba(129, 140, 248, 0) 62%);
+}

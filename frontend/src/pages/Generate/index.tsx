@@ -8,6 +8,7 @@ import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutli
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { progressLabel } from '../../utils/progressLabel';
+import './generate.css';   // 本页质感改造样式（作用域 .gen-root，见文件头注释）
 
 const { TextArea } = Input;
 const { Dragger } = Upload;
@@ -564,7 +565,7 @@ export default function GeneratePage() {
               prompt={promptTextToImage}
               smartPlanLoading={planLoading}
             />
-            <Space style={{ width: '100%' }} size={12} wrap>
+            <div className="gen-params">
               <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" style={{ flex: '1 1 210px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[
                   { label: 'Agnes Image 2.5 Flash（推荐）', value: 'agnes-image-2.5-flash' },
@@ -585,9 +586,9 @@ export default function GeneratePage() {
                   { label: '4K', value: '4K' },
                 ]} />
               </Form.Item>
-              <Text style={{ color: 'var(--text-secondary)', fontSize: 12, lineHeight: '32px', flex: '1 1 260px' }}>1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
-            </Space>
-            <Form.Item>
+              <Text className="gen-params__note">1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
+            </div>
+            <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>{modelTextToImage}</Tag>
               <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
@@ -616,7 +617,7 @@ export default function GeneratePage() {
               prompt={promptTextToVideo}
               smartPlanLoading={planLoading}
             />
-            <Space style={{ width: '100%' }} size={12} wrap>
+            <div className="gen-params">
               <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
@@ -629,7 +630,7 @@ export default function GeneratePage() {
               <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 100px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
-            </Space>
+            </div>
             <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
               <Switch checkedChildren="开" unCheckedChildren="关" />
             </Form.Item>
@@ -651,7 +652,7 @@ export default function GeneratePage() {
                 </>
               )}
             </Form.Item>
-            <Form.Item>
+            <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>agnes-video-2.5-flash</Tag>
               <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
@@ -816,7 +817,7 @@ export default function GeneratePage() {
                 smartPlanLoading={planLoading}
               />
             </div>
-            <Space style={{ width: '100%' }} size={12} wrap>
+            <div className="gen-params">
               <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
@@ -829,7 +830,7 @@ export default function GeneratePage() {
               <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 100px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
-            </Space>
+            </div>
             <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
               <Switch checkedChildren="开" unCheckedChildren="关" />
             </Form.Item>
@@ -851,7 +852,7 @@ export default function GeneratePage() {
                 </>
               )}
             </Form.Item>
-            <Form.Item>
+            <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>agnes-video-2.5-flash</Tag>
               <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
@@ -953,7 +954,7 @@ export default function GeneratePage() {
               AI 反推描述（图生图专用：三图分工 + 逐件服装，不出分镜）
             </Button>
 
-            <Space style={{ width: '100%' }} size={12} wrap>
+            <div className="gen-params">
               <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" style={{ flex: '1 1 210px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={[
                   { label: 'Agnes Image 2.5 Flash（推荐）', value: 'agnes-image-2.5-flash' },
@@ -966,8 +967,8 @@ export default function GeneratePage() {
               <Form.Item name="ratio" label="比例" initialValue="3:4" style={{ flex: '1 1 130px', minWidth: 0 }}>
                 <Select style={{ width: '100%' }} options={I2I_RATIOS.map(r => ({ label: `${r} ${RATIO_LABELS[r] || ''}`.trim(), value: r }))} />
               </Form.Item>
-            </Space>
-            <Form.Item>
+            </div>
+            <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
               <Tag color="blue" style={{ marginLeft: 8 }}>{modelImageToImage}</Tag>
               {creditRules && (
@@ -1128,6 +1129,22 @@ export default function GeneratePage() {
     setPreview({ task, item });
   };
 
+  const MODE_META: Record<string, { title: string; hint: string }> = {
+    'text-to-image': { title: '文字生图片', hint: '描述越具体（主体/光线/构图/风格），出图越稳' },
+    'text-to-video': { title: '文字生视频', hint: '描述画面动作与运镜，时长按每 5 秒叠加计费' },
+    'image-to-video': { title: '图片生视频', hint: '先选参考图，再补一句动作描述' },
+    'image-to-image': { title: '图片生图片', hint: '支持多张参考图，可指定构图与服装' },
+  };
+  // 历史条真实缩略图：results 是 JSON 字符串（含 url / image_url），失败就回落类型图标
+  const thumbOf = (task: any): string => {
+    try {
+      const rs = typeof task.results === 'string' ? JSON.parse(task.results) : task.results;
+      if (!Array.isArray(rs)) return '';
+      const hit = rs.find((x: any) => x && (x.url || x.image_url));
+      return hit ? String(hit.url || hit.image_url) : '';
+    } catch { return ''; }
+  };
+
   const tabItems = [
     { key: 'text-to-image', label: '📝 文字生图片' },
     { key: 'text-to-video', label: '🎬 文字生视频' },
@@ -1137,53 +1154,44 @@ export default function GeneratePage() {
   const sidebarItems = history.slice(0, 10);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Tab 标签行 */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 16, marginBottom: 16,
-        borderBottom: '1px solid var(--border)', paddingBottom: 0, flexShrink: 0,
-        overflowX: isMobile ? 'auto' : undefined,
-      }}>
-        {tabItems.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTabKey(t.key)}
-            style={{
-              border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
-              padding: isMobile ? '10px 4px' : '12px 12px', fontSize: isMobile ? 12 : 14,
-              lineHeight: '22px', marginBottom: -1, whiteSpace: 'nowrap',
-              flex: isMobile ? '1 1 0' : undefined,
-              color: tabKey === t.key ? 'var(--primary)' : 'var(--text-secondary)',
-              fontWeight: tabKey === t.key ? 600 : 400,
-              borderBottom: tabKey === t.key ? '2px solid var(--primary)' : '2px solid transparent',
-              transition: 'color 0.2s, border-color 0.2s',
-            }}
-          >{t.label}</button>
-        ))}
+    <div className="gen-root">
+      {/* 顶栏：页面标题 + 模式分段切换（原「下划线 Tab」→ 分段控件，选中态有面与发光） */}
+      <div className="gen-topbar">
+        <div className="gen-topbar__lead">
+          <span className="gen-topbar__title">AI 生成工作台</span>
+          <span className="gen-topbar__sub">选模式 → 写描述 → 调参数 → 生成，右侧随时回看历史</span>
+        </div>
+        <div className="gen-seg" data-mobile={isMobile ? '1' : '0'}>
+          {tabItems.map(t => {
+            const sp = t.label.indexOf(' ');
+            const ico = sp > 0 ? t.label.slice(0, sp) : '';
+            const txt = sp > 0 ? t.label.slice(sp + 1) : t.label;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                className="gen-seg__btn"
+                data-on={tabKey === t.key ? '1' : '0'}
+                onClick={() => setTabKey(t.key)}
+              >
+                {ico ? <span className="gen-seg__ico">{ico}</span> : null}{txt}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flex: 1, gap: 0, overflow: 'hidden' }}>
-        {/* 左侧：积分规则 + 表单 + 生成结果 */}
-        <div style={{
-          width: '75%', overflowY: 'auto', padding: '0 24px 24px 0',
-          display: 'flex', flexDirection: 'column', gap: 16,
-        }}>
+      <div className="gen-body">
+        {/* 左：积分规则 + 表单 + 生成结果 */}
+        <div className="gen-main">
           {creditRules && (
-            <Alert
-              type="info"
-              showIcon
-              style={{
-                background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-                borderRadius: 10, marginBottom: 0,
-              }}
-              message={<span style={{ color: 'var(--text)', fontSize: 13 }}>积分扣费规则</span>}
-              description={
-                <Space orientation="vertical" size={4}>
+            <details className="gen-rules">
+              <summary>💡 积分扣费规则与生成限制<span className="gen-rules__mark">›</span></summary>
+              <div className="gen-rules__bd">
                   <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>📝 文字生图片：{creditRules.image_per_image} 积分 / 张（1K 强度；2K=×2、3K=×4、4K=×8）</Text>
                   <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🎬 文字生视频 / 🖼 图片生视频：720P = {creditRules.video_720p_per_5s} 积分 / 每 {creditRules.video_unit_seconds} 秒（不足 {creditRules.video_unit_seconds} 秒按 {creditRules.video_unit_seconds} 秒计，时长按每 {creditRules.video_unit_seconds} 秒叠加）</Text>
                   <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>🔄 生成失败自动全额退还积分；提交时预扣，成功后不再重复扣费</Text>
-                  <div style={{ marginTop: 4, padding: '8px 10px', background: 'rgba(250,173,20,0.08)', borderRadius: 6, border: '1px solid rgba(250,173,20,0.2)' }}>
+                  <div className="gen-rules__warn">
                     <Text style={{ color: 'var(--warning, #d48806)', fontSize: 12, fontWeight: 600 }}>⚠️ 生成限制说明</Text>
                     <ul style={{ margin: '4px 0 0 0', paddingLeft: 16, color: 'var(--text-secondary)', fontSize: 11, lineHeight: 1.8 }}>
                       <li><b>时长</b>：可选 4~12 秒任意整数（Agnes Video 2.5 Flash 官方支持范围），超出范围会被自动收敛</li>
@@ -1191,57 +1199,47 @@ export default function GeneratePage() {
                       <li><b>免费额度</b>：当前图像/视频模型为限免，若遇队列拥堵或限流会自动重试或降级到备选模型</li>
                     </ul>
                   </div>
-                </Space>
-              }
-            />
+              </div>
+            </details>
           )}
 
-          {/* 表单卡（4 个 Tab 面板 display 切换） */}
-          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
-            <div style={{ display: tabKey === 'text-to-image' ? 'block' : 'none' }}>{renderForm('text-to-image')}</div>
-            <div style={{ display: tabKey === 'text-to-video' ? 'block' : 'none' }}>{renderForm('text-to-video')}</div>
-            <div style={{ display: tabKey === 'image-to-video' ? 'block' : 'none' }}>{renderForm('image-to-video')}</div>
-            <div style={{ display: tabKey === 'image-to-image' ? 'block' : 'none' }}>{renderForm('image-to-image')}</div>
-          </div>
+          {/* 表单卡（4 个 Tab 面板 display 切换；.gen-form 统一表单节奏与控件外观） */}
+          <section className="gen-card">
+            <div className="gen-card__hd">
+              <span className="gen-card__ttl">{(MODE_META[tabKey] || {}).title || '生成参数'}</span>
+              <span className="gen-card__hint">{(MODE_META[tabKey] || {}).hint || ''}</span>
+            </div>
+            <div className="gen-card__bd">
+              <div className="gen-form" style={{ display: tabKey === 'text-to-image' ? 'block' : 'none' }}>{renderForm('text-to-image')}</div>
+              <div className="gen-form" style={{ display: tabKey === 'text-to-video' ? 'block' : 'none' }}>{renderForm('text-to-video')}</div>
+              <div className="gen-form" style={{ display: tabKey === 'image-to-video' ? 'block' : 'none' }}>{renderForm('image-to-video')}</div>
+              <div className="gen-form" style={{ display: tabKey === 'image-to-image' ? 'block' : 'none' }}>{renderForm('image-to-image')}</div>
+            </div>
+          </section>
 
           {/* 生成结果 */}
-          <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text strong style={{ fontSize: 14, color: 'var(--text)' }}>生成结果</Text>
-              {resultPages.length > 0 && (
-                <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{currentIdx + 1} / {resultPages.length}</Text>
-              )}
+          <section className="gen-card">
+            <div className="gen-card__hd">
+              <span className="gen-card__ttl">生成结果</span>
+              <span className="gen-card__slot">{resultPages.length > 0 ? `${currentIdx + 1} / ${resultPages.length}` : '实时进度与成品'}</span>
             </div>
             {resultPages.length === 0 ? (
-              <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                提交生成任务后，此处实时展示生成进度与结果
+              <div className="gen-stage gen-stage--empty">
+                <div className="gen-empty">
+                  <div className="gen-empty__ico"><InboxOutlined /></div>
+                  <div className="gen-empty__ttl">还没有生成记录</div>
+                  <div className="gen-empty__sub">填好描述后点「生成」，这里会实时显示进度、成品与扣费结果；历史任务可随时从右侧回看。</div>
+                </div>
               </div>
             ) : (
               <div>
-                <div style={{ background: 'var(--bg-secondary)', minHeight: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-                  <Button
-                    shape="circle"
-                    icon={<LeftOutlined />}
-                    disabled={currentIdx === 0}
-                    onClick={() => setCurrentIdx(i => Math.max(0, i - 1))}
-                    style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
-                  />
-                  <Button
-                    shape="circle"
-                    icon={<RightOutlined />}
-                    disabled={currentIdx >= resultPages.length - 1}
-                    onClick={() => setCurrentIdx(i => Math.min(resultPages.length - 1, i + 1))}
-                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', zIndex: 10 }}
-                  />
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<CloseOutlined />}
-                    onClick={closeCurrent}
-                    style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, color: 'var(--text-muted)' }}
-                    title="从结果区移除"
-                  />
-                  <div style={{ padding: '24px 56px', width: '100%', textAlign: 'center' }}>
+                <div className="gen-stage">
+                  <button type="button" className="gen-stage__nav gen-stage__nav--l" disabled={currentIdx === 0}
+                    onClick={() => setCurrentIdx(i => Math.max(0, i - 1))} aria-label="上一条"><LeftOutlined /></button>
+                  <button type="button" className="gen-stage__nav gen-stage__nav--r" disabled={currentIdx >= resultPages.length - 1}
+                    onClick={() => setCurrentIdx(i => Math.min(resultPages.length - 1, i + 1))} aria-label="下一条"><RightOutlined /></button>
+                  <button type="button" className="gen-stage__close" onClick={closeCurrent} title="从结果区移除"><CloseOutlined /></button>
+                  <div className="gen-stage__inner">
                     {resultPages[currentIdx] ? renderResultPage(resultPages[currentIdx]) : null}
                   </div>
                 </div>
@@ -1250,12 +1248,12 @@ export default function GeneratePage() {
                   const item = resultPages[currentIdx].item;
                   const isImage = task.type === 'image';
                   return (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                    <div className="gen-meta">
                       <Tag icon={isImage ? <PictureOutlined /> : <VideoCameraOutlined />} style={{ margin: 0 }}>{isImage ? '图片' : '视频'}</Tag>
                       <Tag color={statusColor[task.status] || 'default'} style={{ margin: 0 }}>{statusText[task.status] || task.status}</Tag>
                       {item?.view && <Tag color="blue" style={{ margin: 0 }}>{item.view}</Tag>}
-                      <Text style={{ color: 'var(--text-secondary)', flex: 1, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 120 }} title={promptOf(task)}>{promptOf(task)}</Text>
-                      <Text style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap' }}>{briefOf(task)}</Text>
+                      <Text className="gen-meta__prompt" title={promptOf(task)}>{promptOf(task)}</Text>
+                      <Text className="gen-meta__brief">{briefOf(task)}</Text>
                       <Space size={4}>
                         {task.status === 'completed' && (
                           <Button size="small" icon={<SaveOutlined />} onClick={() => openSaveModal(task)}>保存</Button>
@@ -1270,18 +1268,21 @@ export default function GeneratePage() {
                 })()}
               </div>
             )}
-          </div>
+          </section>
         </div>
 
-        {/* 右侧：生成历史侧栏 */}
-        <div style={{ width: '25%', borderLeft: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', flexShrink: 0 }}>
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <Text strong style={{ fontSize: 13 }}>生成历史</Text>
-            <Text style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{sidebarItems.length}条</Text>
+        {/* 右：生成历史侧栏 */}
+        <aside className="gen-rail">
+          <div className="gen-rail__hd">
+            <span className="gen-rail__ttl">生成历史</span>
+            <span className="gen-rail__count">{sidebarItems.length} 条</span>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '6px 8px' }}>
+          <div className="gen-rail__bd">
             {sidebarItems.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)', fontSize: 12 }}>暂无生成记录</div>
+              <div className="gen-empty gen-empty--rail">
+                <div className="gen-empty__ico"><InboxOutlined /></div>
+                <div className="gen-empty__sub">还没有生成记录，去左侧开一张吧。</div>
+              </div>
             ) : sidebarItems.map((task: any) => {
               const isImage = task.type === 'image';
               const title = (inputOf(task).prompt || '').trim().slice(0, 30) || (isImage ? '文生图' : '视频生成');
@@ -1289,50 +1290,42 @@ export default function GeneratePage() {
                 : (task.status === 'processing' || task.status === 'pending') ? 'active'
                 : task.status === 'failed' ? 'fail' : '';
               const inResults = resultIds.includes(task.id);
+              const thumb = thumbOf(task);
               return (
                 <div
                   key={task.id}
+                  className="gen-hist"
+                  data-on={inResults ? '1' : '0'}
                   onClick={() => openPreviewFromHistory(task)}
-                  style={{
-                    display: 'flex', gap: 10, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
-                    background: inResults ? 'var(--primary-bg, #f5f0ff)' : 'transparent', marginBottom: 2,
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={(e) => { if (!inResults) e.currentTarget.style.background = 'var(--hover, #f5f5f5)'; }}
-                  onMouseLeave={(e) => { if (!inResults) e.currentTarget.style.background = 'transparent'; }}
                 >
-                  <div style={{
-                    width: 44, height: 44, borderRadius: 6, flexShrink: 0, overflow: 'hidden',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16,
-                    background: isImage ? 'linear-gradient(135deg, #7c3aed33, #22c55e33)' : 'linear-gradient(135deg, #ec489933, #f59e0b33)',
-                  }}>
+                  <div className="gen-hist__thumb">
                     {isImage ? '🎨' : '🎬'}
+                    {thumb ? <img src={thumb} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> : null}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {title}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>
-                      {isImage ? '文生图' : '文生视频'} · {timeAgo(task.created_at)}
-                    </div>
+                  <div className="gen-hist__txt">
+                    <div className="gen-hist__ttl">{title}</div>
+                    <div className="gen-hist__sub">{isImage ? '文生图' : '文生视频'} · {timeAgo(task.created_at)}</div>
                   </div>
                   {dot && (
-                    <div style={{
-                      width: 8, height: 8, borderRadius: '50%', flexShrink: 0, marginTop: 4,
-                      background: dot === 'done' ? '#22c55e' : dot === 'active' ? 'var(--primary)' : '#ef4444',
-                      animation: dot === 'active' ? 'pulse 1.5s infinite' : undefined,
-                    }} />
+                    <span
+                      className="gen-hist__dot"
+                      style={{
+                        color: dot === 'done' ? '#22c55e' : dot === 'active' ? 'var(--primary)' : '#ef4444',
+                        background: dot === 'done' ? '#22c55e' : dot === 'active' ? 'var(--primary)' : '#ef4444',
+                        animation: dot === 'active' ? 'pulse 1.5s infinite' : undefined,
+                      }}
+                    />
                   )}
                 </div>
               );
             })}
           </div>
-          <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', textAlign: 'center', flexShrink: 0 }}>
+          <div className="gen-rail__ft">
             <a onClick={() => navigate('/generate/history')} style={{ fontSize: 12, color: 'var(--primary)', cursor: 'pointer' }}>
               查看全部 →
             </a>
           </div>
-        </div>
+        </aside>
       </div>
 
       <Modal title="保存到大资产库" open={saveModal.visible}

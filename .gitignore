@@ -47,3 +47,6 @@ Temp/
 
 # deploy zip artifacts (local packaging only)
 deploy/
+
+# 前端质感探针的截图产物（tools/probe-generate-ui.cjs 输出，不入库）
+tools/.probe/
