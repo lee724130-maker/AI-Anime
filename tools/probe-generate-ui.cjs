@@ -17,8 +17,8 @@ const OUTDIR = path.join(ROOT, 'tools', '.probe');
 
 const TASKS = {
   items: [
-    { id: 101, type: 'image', status: 'completed', created_at: new Date(Date.now() - 5 * 6e4).toISOString(), input: JSON.stringify({ prompt: '赛博朋克雨夜街道，霓虹招牌' }), results: JSON.stringify([{ url: 'https://picsum.photos/seed/a/320/320' }]) },
-    { id: 102, type: 'video', status: 'processing', created_at: new Date(Date.now() - 40 * 6e4).toISOString(), input: JSON.stringify({ prompt: '针织毛衣上身展示' }), progress: 45 },
+    { id: 101, type: 'image', status: 'completed', created_at: new Date(Date.now() - 5 * 6e4).toISOString(), input: JSON.stringify({ prompt: '赛博朋克雨夜街道，霓虹招牌' }), output_data: JSON.stringify([{ url: 'https://picsum.photos/seed/a/640/400' }, { url: 'https://picsum.photos/seed/b/640/400' }]) },
+    { id: 102, type: 'video', status: 'completed', created_at: new Date(Date.now() - 40 * 6e4).toISOString(), input: JSON.stringify({ prompt: '针织毛衣上身展示' }), cover_url: 'https://picsum.photos/seed/v/640/400', output_data: JSON.stringify({ url: 'https://example.com/v.mp4' }) },
     { id: 103, type: 'image', status: 'failed', created_at: new Date(Date.now() - 90 * 6e4).toISOString(), input: JSON.stringify({ prompt: '白底产品图柔光' }) },
   ],
 };
@@ -30,6 +30,7 @@ const ROUTES = [
   [/\/api\/generate\/credit-rules/, { image_per_image: 5, video_720p_per_5s: 20, video_unit_seconds: 5 }],
   [/\/api\/generate\/tts-voices/, []],
   [/\/api\/global-assets/, { items: [] }],
+  [/\/api\/generate\/text-to-image/, { taskId: 101 }],   // 提交生成→回 taskId，让结果区被填充（零计费，仅桩）
 ];
 
 (async () => {
@@ -82,6 +83,32 @@ const ROUTES = [
   console.log('截图 → ' + shot);
   console.log(JSON.stringify(m, null, 1));
   if (errs.length) console.log('JS 报错：' + errs.slice(0, 3).join(' ;; '));
+
+  // 第二段：驱动一次「提交生成」（打桩、零计费），验证主图 + 缩略图条渲染
+  try {
+    const active = '.gen-form[style*="block"]';
+    const ta = pg.locator(active + ' textarea').first();
+    if (await ta.isVisible({ timeout: 2000 })) await ta.fill('探针触发：赛博朋克雨夜街道');
+    const btn = pg.locator(active + ' .ant-btn-primary').first();
+    if (await btn.isVisible({ timeout: 2000 })) await btn.click();
+    await pg.waitForTimeout(1800);
+    try { await pg.locator('.gen-result').scrollIntoViewIfNeeded({ timeout: 2000 }); await pg.waitForTimeout(300); } catch { /* 滚不动就算了 */ }
+    const shot2 = path.join(OUTDIR, `generate-${THEME}-result.png`);
+    await pg.screenshot({ path: shot2 });
+    const m2 = await pg.evaluate(() => {
+      const thumbs = document.querySelectorAll('.gen-thumb').length;
+      const hero = !!document.querySelector('.gen-stage .ant-image img, .gen-stage img');
+      const on = document.querySelectorAll('.gen-thumb[data-on="1"]').length;
+      const modeCards = document.querySelectorAll('.gen-mode').length;
+      const modeOn = document.querySelectorAll('.gen-mode[data-on="1"]').length;
+      return { thumbs, heroShown: hero, thumbSelected: on, modeCards, modeSelected: modeOn };
+    });
+    console.log('结果段 → ' + shot2);
+    console.log(JSON.stringify(m2, null, 1));
+  } catch (e) {
+    console.log('结果段跳过：' + String(e.message).slice(0, 80));
+  }
+
   await b.close();
   process.exit(errs.length ? 1 : 0);
 })().catch((e) => { console.error('FATAL ' + e.message); process.exit(1); });

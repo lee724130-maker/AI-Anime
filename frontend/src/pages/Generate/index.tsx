@@ -590,13 +590,13 @@ export default function GeneratePage() {
             </div>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>{modelTextToImage}</Tag>
-              <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
-              {estimateCost('text-to-image') !== null && (
-                <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
-                  预计扣费 {estimateCost('text-to-image')} 积分
-                </Text>
-              )}
+              <div className="gen-actions__meta">
+                <Tag color="blue" className="gen-actions__model">{modelTextToImage}</Tag>
+                <a className="gen-actions__doc" href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash" target="_blank" rel="noopener noreferrer">模型文档</a>
+                {estimateCost('text-to-image') !== null && (
+                  <Text className="gen-actions__cost">预计扣费 {estimateCost('text-to-image')} 积分</Text>
+                )}
+              </div>
             </Form.Item>
           </Form>
         );
@@ -654,13 +654,13 @@ export default function GeneratePage() {
             </Form.Item>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>agnes-video-2.5-flash</Tag>
-              <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
-              {estimateCost('text-to-video') !== null && (
-                <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8 }}>
-                  预计扣费 {estimateCost('text-to-video')} 积分
-                </Text>
-              )}
+              <div className="gen-actions__meta">
+                <Tag color="blue" className="gen-actions__model">agnes-video-2.5-flash</Tag>
+                <a className="gen-actions__doc" href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer">模型文档</a>
+                {estimateCost('text-to-video') !== null && (
+                  <Text className="gen-actions__cost">预计扣费 {estimateCost('text-to-video')} 积分</Text>
+                )}
+              </div>
             </Form.Item>
           </Form>
         );
@@ -854,8 +854,10 @@ export default function GeneratePage() {
             </Form.Item>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>agnes-video-2.5-flash</Tag>
-              <a href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, marginLeft: 6 }}>模型文档</a>
+              <div className="gen-actions__meta">
+                <Tag color="blue" className="gen-actions__model">agnes-video-2.5-flash</Tag>
+                <a className="gen-actions__doc" href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-video-25-flash" target="_blank" rel="noopener noreferrer">模型文档</a>
+              </div>
             </Form.Item>
           </Form>
         );
@@ -970,12 +972,12 @@ export default function GeneratePage() {
             </div>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
-              <Tag color="blue" style={{ marginLeft: 8 }}>{modelImageToImage}</Tag>
-              {creditRules && (
-                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                  预计扣费 {creditRules.image_per_image * (creditRules.image_size_multipliers?.[i2iImageSizeWatch] ?? 1)} 积分（参考图不额外计费）
-                </Text>
-              )}
+              <div className="gen-actions__meta">
+                <Tag color="blue" className="gen-actions__model">{modelImageToImage}</Tag>
+                {creditRules && (
+                  <Text className="gen-actions__cost">预计扣费 {creditRules.image_per_image * (creditRules.image_size_multipliers?.[i2iImageSizeWatch] ?? 1)} 积分（参考图不额外计费）</Text>
+                )}
+              </div>
             </Form.Item>
           </Form>
         );
@@ -1135,13 +1137,17 @@ export default function GeneratePage() {
     'image-to-video': { title: '图片生视频', hint: '先选参考图，再补一句动作描述' },
     'image-to-image': { title: '图片生图片', hint: '支持多张参考图，可指定构图与服装' },
   };
-  // 历史条真实缩略图：results 是 JSON 字符串（含 url / image_url），失败就回落类型图标
+  // 历史条真实缩略图：图片读 output_data 数组首项 url，视频优先用 cover_url 封面；
+  // 兼容旧字段 results 与探针 mock。未完成任务返回空 → 回落类型图标。统一套 getUrl 兼容生产相对路径。
   const thumbOf = (task: any): string => {
+    if (task.status !== 'completed') return '';
+    if (task.type !== 'image' && task.cover_url) return getUrl(task.cover_url);
     try {
-      const rs = typeof task.results === 'string' ? JSON.parse(task.results) : task.results;
-      if (!Array.isArray(rs)) return '';
-      const hit = rs.find((x: any) => x && (x.url || x.image_url));
-      return hit ? String(hit.url || hit.image_url) : '';
+      const raw = task.output_data ?? task.results;
+      const d = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const arr = Array.isArray(d) ? d : (d ? [d] : []);
+      const hit = arr.find((x: any) => x && (x.url || x.image_url));
+      return hit ? getUrl(String(hit.url ?? hit.image_url)) : '';
     } catch { return ''; }
   };
 
@@ -1151,34 +1157,35 @@ export default function GeneratePage() {
     { key: 'image-to-video', label: '🖼 图片生视频' },
     { key: 'image-to-image', label: '🖼 图片生图片' },
   ];
-  const sidebarItems = history.slice(0, 10);
+  const sidebarItems = history.slice(0, 3);
 
   return (
     <div className="gen-root">
-      {/* 顶栏：页面标题 + 模式分段切换（原「下划线 Tab」→ 分段控件，选中态有面与发光） */}
+      {/* 顶栏：页面标题 + 副标题（模式选择改为下方四张卡片） */}
       <div className="gen-topbar">
         <div className="gen-topbar__lead">
           <span className="gen-topbar__title">AI 生成工作台</span>
-          <span className="gen-topbar__sub">选模式 → 写描述 → 调参数 → 生成，右侧随时回看历史</span>
+          <span className="gen-topbar__sub">文生图 · 文生视频 · 图生图 · 图生视频，四种模式一站出片</span>
         </div>
-        <div className="gen-seg" data-mobile={isMobile ? '1' : '0'}>
-          {tabItems.map(t => {
-            const sp = t.label.indexOf(' ');
-            const ico = sp > 0 ? t.label.slice(0, sp) : '';
-            const txt = sp > 0 ? t.label.slice(sp + 1) : t.label;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                className="gen-seg__btn"
-                data-on={tabKey === t.key ? '1' : '0'}
-                onClick={() => setTabKey(t.key)}
-              >
-                {ico ? <span className="gen-seg__ico">{ico}</span> : null}{txt}
-              </button>
-            );
-          })}
-        </div>
+      </div>
+
+      {/* 模式选择：四张卡片（图标 + 名称 + 场景说明），选中高亮；点选只切换下方表单，Form/state/提交逻辑零改动 */}
+      <div className="gen-modes" role="tablist" data-mobile={isMobile ? '1' : '0'}>
+        {tabItems.map(t => {
+          const meta = MODE_META[t.key] || {};
+          const sp = t.label.indexOf(' ');
+          const ico = sp > 0 ? t.label.slice(0, sp).trim() : '';
+          const name = meta.title || (sp > 0 ? t.label.slice(sp + 1) : t.label);
+          const on = tabKey === t.key;
+          return (
+            <button key={t.key} type="button" role="tab" aria-selected={on}
+              className="gen-mode" data-on={on ? '1' : '0'} onClick={() => setTabKey(t.key)}>
+              <span className="gen-mode__ico">{ico}</span>
+              <span className="gen-mode__name">{name}</span>
+              <span className="gen-mode__desc">{meta.hint || ''}</span>
+            </button>
+          );
+        })}
       </div>
 
       <div className="gen-body">
@@ -1218,7 +1225,7 @@ export default function GeneratePage() {
           </section>
 
           {/* 生成结果 */}
-          <section className="gen-card">
+           <section className={"gen-card gen-result" + (resultPages.length === 0 ? " gen-result--empty" : "")}>
             <div className="gen-card__hd">
               <span className="gen-card__ttl">生成结果</span>
               <span className="gen-card__slot">{resultPages.length > 0 ? `${currentIdx + 1} / ${resultPages.length}` : '实时进度与成品'}</span>
@@ -1232,7 +1239,7 @@ export default function GeneratePage() {
                 </div>
               </div>
             ) : (
-              <div>
+              <div className="gen-result__body">
                 <div className="gen-stage">
                   <button type="button" className="gen-stage__nav gen-stage__nav--l" disabled={currentIdx === 0}
                     onClick={() => setCurrentIdx(i => Math.max(0, i - 1))} aria-label="上一条"><LeftOutlined /></button>
@@ -1243,6 +1250,21 @@ export default function GeneratePage() {
                     {resultPages[currentIdx] ? renderResultPage(resultPages[currentIdx]) : null}
                   </div>
                 </div>
+                {resultPages.length > 1 && (
+                  <div className="gen-thumbs" role="listbox" aria-label="结果缩略图">
+                    {resultPages.map((pg, i) => {
+                      const src = pg.item?.url ? getUrl(pg.item.url) : thumbOf(pg.task);
+                      return (
+                        <button key={pg.key} type="button" className="gen-thumb" role="option" aria-selected={i === currentIdx}
+                          data-on={i === currentIdx ? '1' : '0'} onClick={() => setCurrentIdx(i)} title={promptOf(pg.task)}>
+                          {src
+                            ? <img src={src} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                            : <span className="gen-thumb__ph">{pg.task.type === 'image' ? '🎨' : '🎬'}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {resultPages[currentIdx] && (() => {
                   const task = resultPages[currentIdx].task;
                   const item = resultPages[currentIdx].item;
@@ -1275,7 +1297,7 @@ export default function GeneratePage() {
         <aside className="gen-rail">
           <div className="gen-rail__hd">
             <span className="gen-rail__ttl">生成历史</span>
-            <span className="gen-rail__count">{sidebarItems.length} 条</span>
+            <span className="gen-rail__count">共 {history.length} 条</span>
           </div>
           <div className="gen-rail__bd">
             {sidebarItems.length === 0 ? (
