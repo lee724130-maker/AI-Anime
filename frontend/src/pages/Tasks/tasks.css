@@ -1,0 +1,159 @@
+/* =============================================================================
+   /tasks 任务中心质感改造（2026-11-19·沿用 /generate 样板的方向 B：令牌化 + 只换容器）
+   作用域：所有规则以 .task- 前缀类名书写，只命中本页新增的容器；
+   对 antd 内部的覆盖一律写成 `.task-xxx .ant-yyy`，不外溢到其他页面（含 /dashboard）。
+   只重排「容器与观感」，业务逻辑/state/接口字段/轮询一律不动。
+   关键修复：原统计数字写死 color:#1a1a1a，暗色下几乎看不见 → 改用 var(--text)。
+   ============================================================================= */
+
+/* ---------- 骨架：居中单列，顶栏 + 工具条 + 统计 + 表格卡 ---------- */
+.task-root {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* ---------- 顶栏 ---------- */
+.task-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.task-topbar__lead { display: flex; align-items: center; gap: 12px; }
+.task-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.task-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.task-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.task-topbar .ant-btn-circle {
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+/* 返回钮：柔化描边 + 淡底，避免暗色下 index.css 的 --border 中灰描边显得生硬（需 !important 压过全局暗色覆盖） */
+.task-root .task-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+}
+.task-root .task-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+
+/* ---------- 工具条：分段 + 计数胶囊 ---------- */
+.task-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.task-toolbar__count {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  padding: 3px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+/* 分段控件：轨道给冷灰面，选中项品牌色，和整页质感一致 */
+.task-root .ant-segmented { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 3px; }
+.task-root .ant-segmented .ant-segmented-item { border-radius: var(--r-sm); color: var(--text-secondary); transition: color var(--t-fast) var(--ease); }
+.task-root .ant-segmented .ant-segmented-item:hover { color: var(--text); }
+/* 选中态：品牌渐变面 + 发光（!important 压过 antd 运行时注入的容器底色，确保暗色也吃到品牌感） */
+.task-root .ant-segmented .ant-segmented-item-selected { background: var(--grad-brand) !important; box-shadow: var(--glow); }
+.task-root .ant-segmented .ant-segmented-item-selected .ant-segmented-item-label { color: #fff !important; }
+.task-root .ant-segmented .ant-segmented-thumb { background: var(--grad-brand) !important; }
+
+/* ---------- 统计卡：来源计数（修暗色 #1a1a1a bug，品牌左条 + hover 浮起） ---------- */
+.task-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+.task-stat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.task-stat:hover { border-color: var(--line-strong); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.task-stat::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--grad-brand);
+}
+.task-stat__label { font-size: var(--fs-sm); color: var(--text-secondary); }
+.task-stat__num { font-size: var(--fs-2xl); font-weight: 700; color: var(--text); line-height: 1.1; }
+
+/* ---------- 表格卡 ---------- */
+.task-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease);
+}
+.task-card:hover { border-color: var(--line-strong); }
+
+.task-card .ant-table { background: transparent; }
+.task-card .ant-table-thead > tr > th {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  letter-spacing: .02em;
+  border-bottom: 1px solid var(--line);
+}
+.task-card .ant-table-thead > tr > th::before { display: none !important; }
+.task-card .ant-table-tbody > tr > td { border-bottom: 1px solid var(--line); transition: background var(--t-fast) var(--ease); }
+.task-card .ant-table-tbody > tr:last-child > td { border-bottom: none; }
+.task-card .ant-table-tbody > tr:hover > td,
+.task-card .ant-table-cell-row-hover { background: var(--hover) !important; }
+.task-card .ant-table-placeholder:hover > td { background: transparent !important; }
+.task-card .ant-pagination { padding: var(--sp-3) var(--sp-4) 0; margin: 0 !important; }
+
+/* 状态标签：同色混入实底 surface 的实心胶囊（非透明，暗色下不可能被读成空心）；!important 压过 antd 运行时注入，仅呈现不动 columns 逻辑 */
+.task-card .ant-tag-processing { background: color-mix(in srgb, var(--info) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 45%, var(--line)) !important; color: var(--info) !important; }
+.task-card .ant-tag-warning { background: color-mix(in srgb, var(--warning) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--warning) 45%, var(--line)) !important; color: var(--warning) !important; }
+
+/* 分页当前页：品牌渐变 + 柔光，呼应顶栏 Tab 选中态，去掉高饱和实心方块的突兀 */
+.task-card .ant-pagination-item-active { background: var(--grad-brand) !important; border-color: transparent !important; box-shadow: var(--glow); }
+.task-card .ant-pagination-item-active a { color: #fff !important; }
+
+/* 空态：留白更克制，文案走次级色 */
+.task-empty { padding: var(--sp-7) 0; }
+.task-empty .ant-empty-description { color: var(--text-muted); }
+
+/* ---------- 浅色模式补层级（暗色本就分层，不用动） ---------- */
+[data-theme=light] .task-stat,
+[data-theme=light] .task-card {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -20px rgba(16, 24, 40, .26);
+}
+
+/* ---------- 暗色补层级：卡片与页面底(#0f172a)拉开——强边框 + 顶部微高光破"平" ---------- */
+[data-theme=dark] .task-stat,
+[data-theme=dark] .task-card {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式：窄屏统计卡转单列 ---------- */
+@media (max-width: 640px) {
+  .task-stats { grid-template-columns: minmax(0, 1fr); }
+  .task-root { padding: var(--sp-4) var(--sp-3); }
+}

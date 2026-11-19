@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Form, Select, Input, Button, Card, Tag,
-  message, Upload, Typography, Space, Image, Modal, Empty, Radio, Tooltip, Alert, Progress, Switch,
+  Form, Select, Input, Button, Tag,
+  message, Upload, Typography, Space, Image, Modal, Empty, Tooltip, Alert, Progress, Switch, Segmented,
 } from 'antd';
-import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
+import { InboxOutlined, SendOutlined, ReloadOutlined, BulbOutlined, PictureOutlined, VideoCameraOutlined, SaveOutlined, CloseCircleOutlined, DeleteOutlined, RobotOutlined, CloseOutlined, LoadingOutlined, LeftOutlined, RightOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
 import { progressLabel } from '../../utils/progressLabel';
@@ -54,42 +54,45 @@ function PromptPresets({ presets, onSelect, smartGenerate, hasImages, smartPlan,
 }) {
   const [show, setShow] = useState(false);
   return (
-    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-      <Button type="link" size="small" icon={<BulbOutlined />} onClick={() => setShow(!show)} style={{ padding: 0 }}>
-        {show ? '收起' : '💡 快速模板'}
-      </Button>
-      {smartGenerate && (
-        <Button
-          type="link"
-          size="small"
-          icon={<RobotOutlined />}
-          onClick={smartGenerate}
-          disabled={!hasImages}
-          title={hasImages ? '根据图片智能生成描述' : '请先上传或选择图片'}
-        >
-          🖼️ 根据图片描述
+    <div className="gen-presets">
+      <div className="gen-presets__bar">
+        <Button type="text" size="small" className="gen-presets__btn" data-on={show ? '1' : '0'} icon={<BulbOutlined />} onClick={() => setShow(!show)}>
+          {show ? '收起' : '快速模板'}
         </Button>
-      )}
-      {smartPlan && (
-        <Button
-          type="link"
-          size="small"
-          icon={smartPlanLoading ? <LoadingOutlined /> : <RobotOutlined />}
-          onClick={smartPlan}
-          loading={smartPlanLoading}
-          disabled={smartPlanLoading || !prompt || prompt.trim().length < 2}
-          title={!prompt || prompt.trim().length < 2 ? '请先输入创意描述' : 'AI 帮你扩展成详细视频描述'}
-        >
-          {smartPlanLoading ? '规划中...' : '✨ AI 智能规划'}
-        </Button>
-      )}
+        {smartGenerate && (
+          <Button
+            type="text"
+            size="small"
+            className="gen-presets__btn"
+            icon={<RobotOutlined />}
+            onClick={smartGenerate}
+            disabled={!hasImages}
+            title={hasImages ? '根据图片智能生成描述' : '请先上传或选择图片'}
+          >
+            根据图片描述
+          </Button>
+        )}
+        {smartPlan && (
+          <Button
+            type="text"
+            size="small"
+            className="gen-presets__btn"
+            icon={smartPlanLoading ? <LoadingOutlined /> : <RobotOutlined />}
+            onClick={smartPlan}
+            loading={smartPlanLoading}
+            disabled={smartPlanLoading || !prompt || prompt.trim().length < 2}
+            title={!prompt || prompt.trim().length < 2 ? '请先输入创意描述' : 'AI 帮你扩展成详细视频描述'}
+          >
+            {smartPlanLoading ? '规划中...' : 'AI 智能规划'}
+          </Button>
+        )}
+      </div>
       {show && (
-        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 6, width: '100%' }}>
+        <div className="gen-presets__chips">
           {presets.map((p) => (
-            <Tag key={p.label} color="blue" style={{ cursor: 'pointer', padding: '2px 10px' }}
-              onClick={() => onSelect(p.value)}>
+            <span key={p.label} className="gen-presets__chip" onClick={() => onSelect(p.value)}>
               {p.label}
-            </Tag>
+            </span>
           ))}
         </div>
       )}
@@ -106,14 +109,6 @@ function timeAgo(value: string) {
   if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
   return `${Math.floor(diff / 86400000)}天前`;
 }
-
-const navBtnStyle = (disabled: boolean): React.CSSProperties => ({
-  position: 'absolute', top: '50%', transform: 'translateY(-50%)', width: 40, height: 40,
-  borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
-  backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.3)', cursor: disabled ? 'not-allowed' : 'pointer',
-  opacity: disabled ? 0.3 : 1, color: '#fff', fontSize: 24, lineHeight: 1, fontFamily: 'system-ui',
-});
 
 export default function GeneratePage() {
   const [tabKey, setTabKey] = useState('text-to-image');
@@ -566,27 +561,21 @@ export default function GeneratePage() {
               smartPlanLoading={planLoading}
             />
             <div className="gen-params">
-              <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" style={{ flex: '1 1 210px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[
+              <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" className="gen-field gen-field--model">
+                <Select options={[
                   { label: 'Agnes Image 2.5 Flash（推荐）', value: 'agnes-image-2.5-flash' },
                   { label: 'Agnes Image 2.1 Flash', value: 'agnes-image-2.1-flash' },
                 ]} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 130px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
+              <Form.Item name="style" label="风格" initialValue="realistic" className="gen-field">
+                <Segmented options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
-              <Form.Item name="num_images" label="数量" initialValue={1} style={{ flex: '1 1 90px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
+              <Form.Item name="num_images" label={<span className="gen-field__label">数量 <Tooltip title="1 张＝单图 / 2 张＝正面+背面 / 4 张＝正面+背面+左侧+右侧"><InfoCircleOutlined className="gen-field__info" /></Tooltip></span>} initialValue={1} className="gen-field">
+                <Segmented options={[1, 2, 4].map(n => ({ label: `${n} 张`, value: n }))} />
               </Form.Item>
-              <Form.Item name="image_size" label="强度" initialValue="1K" style={{ flex: '1 1 120px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[
-                  { label: '1K（推荐）', value: '1K' },
-                  { label: '2K', value: '2K' },
-                  { label: '3K', value: '3K' },
-                  { label: '4K', value: '4K' },
-                ]} />
+              <Form.Item name="image_size" label="强度" initialValue="1K" className="gen-field">
+                <Segmented options={[1, 2, 3, 4].map(n => ({ label: `${n}K`, value: `${n}K` }))} />
               </Form.Item>
-              <Text className="gen-params__note">1张=单图 / 2张=正面+背面 / 4张=正面+背面+左侧+右侧</Text>
             </div>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成图片</Button>
@@ -618,40 +607,44 @@ export default function GeneratePage() {
               smartPlanLoading={planLoading}
             />
             <div className="gen-params">
-              <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
+              <Form.Item name="resolution" label="分辨率" initialValue="720p" className="gen-field">
+                <Segmented options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="宽高比" initialValue="9:16" style={{ flex: '1 1 130px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
+              <Form.Item name="ratio" label="宽高比" initialValue="9:16" className="gen-field gen-field--ratio">
+                <Select options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
               </Form.Item>
-              <Form.Item name="duration" label="时长" initialValue={5} style={{ flex: '1 1 90px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
+              <Form.Item name="duration" label="时长" initialValue={5} className="gen-field gen-field--select">
+                <Select options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 100px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
+              <Form.Item name="style" label="风格" initialValue="realistic" className="gen-field">
+                <Segmented options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </div>
-            <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
-              <Switch checkedChildren="开" unCheckedChildren="关" />
-            </Form.Item>
-            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
-              {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
-                <>
-                  <Form.Item name="voiceover_type" label="配音类型" initialValue="character">
-                    <Radio.Group>
-                      <Radio.Button value="character">🎭 角色台词</Radio.Button>
-                      <Radio.Button value="narration">📢 旁白解说</Radio.Button>
-                    </Radio.Group>
-                  </Form.Item>
-                  <Form.Item name="tts_voice" label="音色" initialValue="xingyu" style={{ maxWidth: 360 }}>
-                    <Select style={{ width: '100%' }} options={voiceOptions} placeholder="选择音色" />
-                  </Form.Item>
-                  <Form.Item name="voiceover_text" label="配音内容（可留空）">
-                    <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
-                  </Form.Item>
-                </>
-              )}
-            </Form.Item>
+            <div className="gen-voiceover">
+              <div className="gen-voiceover__hd">
+                <span className="gen-voiceover__ttl">配音</span>
+                <Form.Item name="voiceover" valuePropName="checked" initialValue={true} noStyle>
+                  <Switch checkedChildren="开" unCheckedChildren="关" />
+                </Form.Item>
+              </div>
+              <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
+                {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
+                  <div className="gen-voiceover__body">
+                    <div className="gen-voiceover__row">
+                      <Form.Item name="voiceover_type" label="配音类型" initialValue="character" className="gen-field">
+                        <Segmented options={[{ label: '🎭 角色台词', value: 'character' }, { label: '📢 旁白解说', value: 'narration' }]} />
+                      </Form.Item>
+                      <Form.Item name="tts_voice" label="音色" initialValue="xingyu" className="gen-field gen-field--voice">
+                        <Select options={voiceOptions} placeholder="选择音色" />
+                      </Form.Item>
+                    </div>
+                    <Form.Item name="voiceover_text" label="配音内容（可留空）" className="gen-field gen-field--block">
+                      <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
+                    </Form.Item>
+                  </div>
+                )}
+              </Form.Item>
+            </div>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <div className="gen-actions__meta">
@@ -684,15 +677,12 @@ export default function GeneratePage() {
             </Form.Item>
 
             <Form.Item label="图片来源" style={{ marginBottom: 8 }}>
-              <Radio.Group value={assetSource} onChange={(e) => {
-                setAssetSource(e.target.value);
+              <Segmented value={assetSource} onChange={(v) => {
+                setAssetSource(v as 'upload' | 'library');
                 formImageToVideo.setFieldsValue({ image_url: '', media: [] });
                 setUploadFileList([]);
                 setSelectedLibraryAssets([]);
-              }}>
-                <Radio.Button value="library">📚 大资产库</Radio.Button>
-                <Radio.Button value="upload">📁 本地上传</Radio.Button>
-              </Radio.Group>
+              }} options={[{ label: '📚 大资产库', value: 'library' }, { label: '📁 本地上传', value: 'upload' }]} />
             </Form.Item>
 
             {assetSource === 'library' ? (
@@ -709,32 +699,14 @@ export default function GeneratePage() {
                 </div>
 
                 {selectedLibraryAssets.length > 0 && (
-                  <div style={{ marginBottom: 12, padding: 8, background: 'var(--primary-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                    <Text style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 4, display: 'block' }}>已选择的资产：</Text>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <div className="gen-sel">
+                    <span className="gen-sel__label">已选择的资产：</span>
+                    <div className="gen-sel__row">
                       {selectedLibraryAssets.map((asset: any) => (
-                        <div key={asset.id} style={{ position: 'relative' }}>
-                          <Image
-                            src={getUrl(asset.image_url)}
-                            width={50}
-                            height={50}
-                            style={{ objectFit: 'cover', borderRadius: 4 }}
-                            preview={false}
-                          />
+                        <div key={asset.id} className="gen-sel__item">
+                          <Image src={getUrl(asset.image_url)} width={56} height={56} style={{ objectFit: 'cover', borderRadius: 6 }} preview={false} />
                           <Tooltip title="取消选择">
-                            <CloseCircleOutlined
-                              onClick={() => removeLibraryAsset(asset.id)}
-                              style={{
-                                position: 'absolute',
-                                top: -4,
-                                right: -4,
-                                fontSize: 16,
-                                color: 'var(--danger)',
-                                cursor: 'pointer',
-                                background: 'var(--bg)',
-                                borderRadius: '50%'
-                              }}
-                            />
+                            <CloseCircleOutlined className="gen-sel__x" onClick={() => removeLibraryAsset(asset.id)} />
                           </Tooltip>
                         </div>
                       ))}
@@ -742,53 +714,38 @@ export default function GeneratePage() {
                   </div>
                 )}
 
-                <Card size="small" style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <Tag color={assetTab === 'character' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('character')}>👤 人物</Tag>
-                    <Tag color={assetTab === 'scene' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('scene')}>🌄 场景</Tag>
-                    <Tag color={assetTab === 'prop' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('prop')}>📦 道具</Tag>
-                  </div>
+                <div className="gen-asset">
+                  <Segmented
+                    className="gen-asset__tabs"
+                    value={assetTab}
+                    onChange={(v) => setAssetTab(v as 'character' | 'scene' | 'prop')}
+                    options={[{ label: '👤 人物', value: 'character' }, { label: '🌄 场景', value: 'scene' }, { label: '📦 道具', value: 'prop' }]}
+                  />
                   {assetsLoading ? (
-                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>加载中...</div>
+                    <div className="gen-asset__hint">加载中...</div>
                   ) : globalAssets.length === 0 ? (
                     <Empty description={`暂无${assetTab === 'character' ? '人物' : assetTab === 'scene' ? '场景' : '道具'}资产`} style={{ padding: 20 }} />
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                    <div className="gen-asset__grid">
                       {globalAssets.map((asset) => {
                         const imgUrl = getUrl(asset.image_url);
                         const isSelected = selectedLibraryAssets.some((a: any) => a.id === asset.id);
                         return (
                           <div
                             key={asset.id}
+                            className="gen-asset__cell"
+                            data-on={isSelected ? '1' : '0'}
+                            data-dim={!isSelected && selectedLibraryAssets.length >= MAX_LIBRARY_ASSETS ? '1' : '0'}
                             onClick={() => toggleLibraryAsset(asset)}
-                            style={{
-                              cursor: 'pointer',
-                              border: isSelected ? '2px solid var(--primary)' : '2px solid transparent',
-                              borderRadius: 12,
-                              overflow: 'hidden',
-                              transition: 'all 0.2s',
-                              background: isSelected ? 'var(--primary-bg)' : 'var(--bg)',
-                              padding: 4,
-                              opacity: isSelected ? 1 : (selectedLibraryAssets.length >= MAX_LIBRARY_ASSETS ? 0.5 : 1),
-                            }}
                           >
-                            <Image
-                              src={imgUrl}
-                              alt={asset.name}
-                              width={92}
-                              height={92}
-                              style={{ objectFit: 'cover', borderRadius: 4 }}
-                              preview={false}
-                            />
-                            <div style={{ fontSize: 11, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
-                              {asset.name}
-                            </div>
+                            <Image src={imgUrl} alt={asset.name} width={112} height={112} style={{ objectFit: 'cover', borderRadius: 6 }} preview={false} />
+                            <div className="gen-asset__name">{asset.name}</div>
                           </div>
                         );
                       })}
                     </div>
                   )}
-                </Card>
+                </div>
               </Form.Item>
             ) : (
               <Form.Item style={{ marginBottom: 16 }}>
@@ -818,40 +775,44 @@ export default function GeneratePage() {
               />
             </div>
             <div className="gen-params">
-              <Form.Item name="resolution" label="分辨率" initialValue="720p" style={{ flex: '1 1 110px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
+              <Form.Item name="resolution" label="分辨率" initialValue="720p" className="gen-field">
+                <Segmented options={videoResolutions.map((r: string) => ({ label: r, value: r }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="宽高比" initialValue="9:16" style={{ flex: '1 1 130px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
+              <Form.Item name="ratio" label="宽高比" initialValue="9:16" className="gen-field gen-field--ratio">
+                <Select options={videoRatios.map((r: string) => ({ label: `${r} ${RATIO_LABELS[r] || ''}`, value: r }))} />
               </Form.Item>
-              <Form.Item name="duration" label="时长" initialValue={5} style={{ flex: '1 1 90px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
+              <Form.Item name="duration" label="时长" initialValue={5} className="gen-field gen-field--select">
+                <Select options={videoDurations.map((d: number) => ({ label: `${d}秒`, value: d }))} />
               </Form.Item>
-              <Form.Item name="style" label="风格" initialValue="realistic" style={{ flex: '1 1 100px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
+              <Form.Item name="style" label="风格" initialValue="realistic" className="gen-field">
+                <Segmented options={[{ label: '🎨 动漫', value: 'anime' }, { label: '📷 写实', value: 'realistic' }]} />
               </Form.Item>
             </div>
-            <Form.Item name="voiceover" label="配音" valuePropName="checked" initialValue={true}>
-              <Switch checkedChildren="开" unCheckedChildren="关" />
-            </Form.Item>
-            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
-              {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
-                <>
-                  <Form.Item name="voiceover_type" label="配音类型" initialValue="character">
-                    <Radio.Group>
-                      <Radio.Button value="character">🎭 角色台词</Radio.Button>
-                      <Radio.Button value="narration">📢 旁白解说</Radio.Button>
-                    </Radio.Group>
-                  </Form.Item>
-                  <Form.Item name="tts_voice" label="音色" initialValue="xingyu" style={{ maxWidth: 360 }}>
-                    <Select style={{ width: '100%' }} options={voiceOptions} placeholder="选择音色" />
-                  </Form.Item>
-                  <Form.Item name="voiceover_text" label="配音内容（可留空）">
-                    <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
-                  </Form.Item>
-                </>
-              )}
-            </Form.Item>
+            <div className="gen-voiceover">
+              <div className="gen-voiceover__hd">
+                <span className="gen-voiceover__ttl">配音</span>
+                <Form.Item name="voiceover" valuePropName="checked" initialValue={true} noStyle>
+                  <Switch checkedChildren="开" unCheckedChildren="关" />
+                </Form.Item>
+              </div>
+              <Form.Item noStyle shouldUpdate={(prev, cur) => prev.voiceover !== cur.voiceover}>
+                {({ getFieldValue }) => getFieldValue('voiceover') !== false && (
+                  <div className="gen-voiceover__body">
+                    <div className="gen-voiceover__row">
+                      <Form.Item name="voiceover_type" label="配音类型" initialValue="character" className="gen-field">
+                        <Segmented options={[{ label: '🎭 角色台词', value: 'character' }, { label: '📢 旁白解说', value: 'narration' }]} />
+                      </Form.Item>
+                      <Form.Item name="tts_voice" label="音色" initialValue="xingyu" className="gen-field gen-field--voice">
+                        <Select options={voiceOptions} placeholder="选择音色" />
+                      </Form.Item>
+                    </div>
+                    <Form.Item name="voiceover_text" label="配音内容（可留空）" className="gen-field gen-field--block">
+                      <TextArea rows={2} placeholder="留空时：点击「AI 智能规划」自动生成所选类型的台词或旁白；不规划则朗读提示词" />
+                    </Form.Item>
+                  </div>
+                )}
+              </Form.Item>
+            </div>
             <Form.Item className="gen-actions">
               <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">生成视频</Button>
               <div className="gen-actions__meta">
@@ -870,15 +831,12 @@ export default function GeneratePage() {
             doGenerate('/api/generate/image-to-image', { ...v, images }, formImageToImage);
           }}>
             <Form.Item label="参考图来源" style={{ marginBottom: 8 }}>
-              <Radio.Group value={i2iAssetSource} onChange={(e) => {
-                setI2iAssetSource(e.target.value);
+              <Segmented value={i2iAssetSource} onChange={(v) => {
+                setI2iAssetSource(v as 'upload' | 'library');
                 setI2iUploadFileList([]);
                 setI2iSelectedAssets([]);
                 formImageToImage.setFieldsValue({ images: [] });
-              }}>
-                <Radio.Button value="library">📚 大资产库</Radio.Button>
-                <Radio.Button value="upload">📁 本地上传</Radio.Button>
-              </Radio.Group>
+              }} options={[{ label: '📚 大资产库', value: 'library' }, { label: '📁 本地上传', value: 'upload' }]} />
             </Form.Item>
 
             {i2iAssetSource === 'library' ? (
@@ -891,47 +849,46 @@ export default function GeneratePage() {
                   <Text type="secondary" style={{ fontSize: 12 }}>建议 1–3 张；最多 {I2I_MAX_IMAGES} 张，参考图不额外计费</Text>
                 </Space>
                 {i2iSelectedAssets.length > 0 && (
-                  <div style={{ marginBottom: 12, padding: 8, background: 'var(--primary-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>已选参考图（顺序即第 1/2/… 张）：</Text>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <div className="gen-sel">
+                    <span className="gen-sel__label">已选参考图（顺序即第 1/2/… 张）：</span>
+                    <div className="gen-sel__row">
                       {i2iSelectedAssets.map((asset: any, idx: number) => (
-                        <div key={asset.id} style={{ position: 'relative' }}>
-                          <Image src={getUrl(asset.image_url)} width={50} height={50} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
-                          <Tag color="blue" style={{ position: 'absolute', top: -6, left: -6, fontSize: 10, padding: '0 3px' }}>{idx + 1}</Tag>
+                        <div key={asset.id} className="gen-sel__item">
+                          <Image src={getUrl(asset.image_url)} width={56} height={56} style={{ objectFit: 'cover', borderRadius: 6 }} preview={false} />
+                          <span className="gen-sel__order">{idx + 1}</span>
                           <Tooltip title="取消选择">
-                            <CloseCircleOutlined onClick={() => i2iRemoveAsset(asset.id)}
-                              style={{ position: 'absolute', top: -4, right: -4, fontSize: 16, color: 'var(--danger)', cursor: 'pointer', background: 'var(--bg)', borderRadius: '50%' }} />
+                            <CloseCircleOutlined className="gen-sel__x" onClick={() => i2iRemoveAsset(asset.id)} />
                           </Tooltip>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-                <Card size="small" style={{ background: 'var(--bg-secondary)', border: '1px dashed var(--border)' }}>
-                  <div style={{ marginBottom: 8 }}>
-                    <Tag color={assetTab === 'character' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('character')}>👤 人物</Tag>
-                    <Tag color={assetTab === 'scene' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('scene')}>🌄 场景</Tag>
-                    <Tag color={assetTab === 'prop' ? 'blue' : 'default'} style={{ cursor: 'pointer' }} onClick={() => setAssetTab('prop')}>📦 道具</Tag>
-                  </div>
+                <div className="gen-asset">
+                  <Segmented
+                    className="gen-asset__tabs"
+                    value={assetTab}
+                    onChange={(v) => setAssetTab(v as 'character' | 'scene' | 'prop')}
+                    options={[{ label: '👤 人物', value: 'character' }, { label: '🌄 场景', value: 'scene' }, { label: '📦 道具', value: 'prop' }]}
+                  />
                   {assetsLoading ? (
-                    <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)' }}>加载中...</div>
+                    <div className="gen-asset__hint">加载中...</div>
                   ) : globalAssets.length === 0 ? (
                     <Empty description="暂无可用资产" style={{ padding: 20 }} />
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+                    <div className="gen-asset__grid">
                       {globalAssets.map((asset) => {
                         const isSelected = i2iSelectedAssets.some((a: any) => a.id === asset.id);
                         return (
-                          <div key={asset.id} onClick={() => i2iToggleAsset(asset)}
-                            style={{ cursor: 'pointer', border: isSelected ? '2px solid var(--primary)' : '2px solid transparent', borderRadius: 12, overflow: 'hidden', background: isSelected ? 'var(--primary-bg)' : 'var(--bg)', padding: 4, opacity: isSelected ? 1 : (i2iSelectedAssets.length >= I2I_MAX_IMAGES ? 0.5 : 1) }}>
-                            <Image src={getUrl(asset.image_url)} alt={asset.name} width={92} height={92} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
-                            <div style={{ fontSize: 11, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>{asset.name}</div>
+                          <div key={asset.id} className="gen-asset__cell" data-on={isSelected ? '1' : '0'} data-dim={!isSelected && i2iSelectedAssets.length >= I2I_MAX_IMAGES ? '1' : '0'} onClick={() => i2iToggleAsset(asset)}>
+                            <Image src={getUrl(asset.image_url)} alt={asset.name} width={112} height={112} style={{ objectFit: 'cover', borderRadius: 6 }} preview={false} />
+                            <div className="gen-asset__name">{asset.name}</div>
                           </div>
                         );
                       })}
                     </div>
                   )}
-                </Card>
+                </div>
               </Form.Item>
             ) : (
               <Form.Item style={{ marginBottom: 16 }}>
@@ -957,17 +914,17 @@ export default function GeneratePage() {
             </Button>
 
             <div className="gen-params">
-              <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" style={{ flex: '1 1 210px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={[
+              <Form.Item name="model" label="生图模型" initialValue="agnes-image-2.5-flash" className="gen-field gen-field--model">
+                <Select options={[
                   { label: 'Agnes Image 2.5 Flash（推荐）', value: 'agnes-image-2.5-flash' },
                   { label: 'Agnes Image 2.1 Flash', value: 'agnes-image-2.1-flash' },
                 ]} />
               </Form.Item>
-              <Form.Item name="image_size" label="强度" initialValue="1K" style={{ flex: '1 1 120px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={['1K', '2K', '3K', '4K'].map(v => ({ label: v, value: v }))} />
+              <Form.Item name="image_size" label="强度" initialValue="1K" className="gen-field">
+                <Segmented options={[1, 2, 3, 4].map(n => ({ label: `${n}K`, value: `${n}K` }))} />
               </Form.Item>
-              <Form.Item name="ratio" label="比例" initialValue="3:4" style={{ flex: '1 1 130px', minWidth: 0 }}>
-                <Select style={{ width: '100%' }} options={I2I_RATIOS.map(r => ({ label: `${r} ${RATIO_LABELS[r] || ''}`.trim(), value: r }))} />
+              <Form.Item name="ratio" label="比例" initialValue="3:4" className="gen-field gen-field--ratio">
+                <Select options={I2I_RATIOS.map(r => ({ label: `${r} ${RATIO_LABELS[r] || ''}`.trim(), value: r }))} />
               </Form.Item>
             </div>
             <Form.Item className="gen-actions">
@@ -1418,66 +1375,61 @@ export default function GeneratePage() {
           const src = isImage ? (cur ? getUrl(cur.url) : '') : videoUrlOf(task);
           const count = outputs.length;
           return (
-            <div>
+            <div className="gen-preview">
               {isImage ? (
-                <div style={{
-                  position: 'relative', textAlign: 'center', background: '#000', borderRadius: 8,
-                  padding: '12px 48px', minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
+                <div className="gen-preview__stage">
                   {count > 1 && (
                     <button
                       aria-label="上一张"
+                      className="gen-preview__nav gen-preview__nav--l"
                       disabled={previewIdx <= 0}
                       onClick={() => setPreviewIdx(i => Math.max(0, i - 1))}
-                      style={{ ...navBtnStyle(previewIdx <= 0), left: 10 }}
                     >‹</button>
                   )}
                   {src ? (
-                    <Image src={src} style={{ maxHeight: 400, borderRadius: 4 }} preview={false} />
+                    <Image
+                      src={src}
+                      style={{ maxHeight: 420, borderRadius: 8, cursor: 'zoom-in' }}
+                      preview={{ mask: (<span style={{ fontSize: 13 }}>🔍 查看大图</span>) }}
+                    />
                   ) : (
                     <Empty description="暂无图片" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                   )}
                   {count > 1 && (
                     <button
                       aria-label="下一张"
+                      className="gen-preview__nav gen-preview__nav--r"
                       disabled={previewIdx >= count - 1}
                       onClick={() => setPreviewIdx(i => Math.min(count - 1, i + 1))}
-                      style={{ ...navBtnStyle(previewIdx >= count - 1), right: 10 }}
                     >›</button>
                   )}
                   {count > 1 && (
-                    <div style={{
-                      position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-                      background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 12, padding: '2px 10px', borderRadius: 10,
-                    }}>{previewIdx + 1} / {count}</div>
+                    <div className="gen-preview__count">{previewIdx + 1} / {count}</div>
                   )}
                 </div>
               ) : (
-                <video src={src} controls playsInline preload="auto" autoPlay
-                  style={{ width: '100%', borderRadius: 8, background: '#000' }} />
+                <video src={src} controls playsInline preload="auto" autoPlay className="gen-preview__video" />
               )}
-              <div style={{ marginTop: 16, padding: 12, background: 'var(--bg-secondary, #f5f5f5)', borderRadius: 8 }}>
-                <Space orientation="vertical" size={8} style={{ width: '100%' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <Text style={{ color: 'var(--text-secondary)', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>描述</Text>
-                    <Text style={{ color: 'var(--text)', fontSize: 12, flex: 1 }}>{input.prompt || '-'}</Text>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    {isImage ? (
-                      <>
-                        <Tag color="blue" style={{ margin: 0 }}>{input.style === 'anime' ? '动漫' : '写实'}</Tag>
-                        <Tag color="blue" style={{ margin: 0 }}>{input.num_images || 1} 张</Tag>
-                      </>
-                    ) : (
-                      <>
-                        <Tag color="blue" style={{ margin: 0 }}>{input.resolution || '720p'}</Tag>
-                        <Tag color="blue" style={{ margin: 0 }}>{RATIO_LABELS[input.ratio || '9:16'] || input.ratio || '9:16'}</Tag>
-                        <Tag color="blue" style={{ margin: 0 }}>{input.duration || 5} 秒</Tag>
-                        <Tag color="blue" style={{ margin: 0 }}>{input.style === 'anime' ? '动漫' : '写实'}</Tag>
-                      </>
-                    )}
-                  </div>
-                </Space>
+              <div className="gen-preview__info">
+                <div className="gen-preview__row">
+                  <Text className="gen-preview__label">描述</Text>
+                  <Text className="gen-preview__val">{input.prompt || '-'}</Text>
+                </div>
+                <div className="gen-preview__tags">
+                  {isImage ? (
+                    <>
+                      <Tag color="blue">{input.style === 'anime' ? '动漫' : '写实'}</Tag>
+                      <Tag color="blue">{input.num_images || 1} 张</Tag>
+                    </>
+                  ) : (
+                    <>
+                      <Tag color="blue">{input.resolution || '720p'}</Tag>
+                      <Tag color="blue">{RATIO_LABELS[input.ratio || '9:16'] || input.ratio || '9:16'}</Tag>
+                      <Tag color="blue">{input.duration || 5} 秒</Tag>
+                      <Tag color="blue">{input.style === 'anime' ? '动漫' : '写实'}</Tag>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           );

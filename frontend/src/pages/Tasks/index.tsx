@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Typography, Card, Row, Col, Table, Tag, Button, Empty, Space, Segmented } from 'antd';
+import { Typography, Table, Tag, Button, Empty, Space, Segmented } from 'antd';
 import { ArrowLeftOutlined, SyncOutlined, ClockCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import { parseDateSafe } from '../../utils/date';
+import './tasks.css';   // 本页质感改造样式（作用域 .task-root，详见文件头注释）
 
 const { Title, Text } = Typography;
 
@@ -134,50 +135,48 @@ export default function TasksPage() {
   ];
 
   return (
-    <div style={{ maxWidth: 960, margin: '0 auto', padding: '24px 16px' }}>
-      <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
-        <Col>
-          <Space size={12}>
-            <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
-            <Title level={4} style={{ margin: 0 }}>任务中心</Title>
-          </Space>
-        </Col>
-        <Col>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchTasks()} loading={loading}>刷新</Button>
-        </Col>
-      </Row>
+    <div className="task-root">
+      {/* 顶栏：返回 + 标题（含一行说明） | 刷新 */}
+      <div className="task-topbar">
+        <div className="task-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+          <div className="task-topbar__titles">
+            <Title level={4} className="task-topbar__title">任务中心</Title>
+            <span className="task-topbar__sub">处理中与待处理的任务实时汇总</span>
+          </div>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={() => fetchTasks()} loading={loading}>刷新</Button>
+      </div>
 
-      <Segmented
-        size="large"
-        value={status}
-        onChange={(v) => switchTab(v as string)}
-        style={{ marginBottom: 16 }}
-        options={[
-          { label: '处理中', value: 'processing' },
-          { label: '待处理', value: 'pending' },
-        ]}
-      />
-      <Text type="secondary" style={{ marginLeft: 12, fontSize: 13 }}>
-        共 {items.length} 个任务
-      </Text>
+      {/* 工具条：状态分段 + 计数胶囊 */}
+      <div className="task-toolbar">
+        <Segmented
+          size="large"
+          value={status}
+          onChange={(v) => switchTab(v as string)}
+          options={[
+            { label: '处理中', value: 'processing' },
+            { label: '待处理', value: 'pending' },
+          ]}
+        />
+        <span className="task-toolbar__count">共 {items.length} 个任务</span>
+      </div>
 
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+      {/* 来源统计卡：品牌左条 + hover 浮起，数字走 var(--text)（修暗色 #1a1a1a bug） */}
+      <div className="task-stats">
         {Object.entries(SOURCE_META).map(([key, meta]) => (
-          <Col xs={8} key={key}>
-            <Card size="small" style={{ borderRadius: 12 }} styles={{ body: { padding: '12px 16px' } }}>
-              <Space orientation="vertical" size={0} style={{ width: '100%' }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>{meta.label}</Text>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1a1a' }}>{countBySource(key)}</div>
-              </Space>
-            </Card>
-          </Col>
+          <div className="task-stat" key={key}>
+            <span className="task-stat__label">{meta.label}</span>
+            <span className="task-stat__num">{countBySource(key)}</span>
+          </div>
         ))}
-      </Row>
+      </div>
 
-      <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 0 } }}>
+      {/* 任务表卡：容器换成本页令牌卡，Table/Empty 组件与全部数据/事件零改动 */}
+      <div className="task-card">
         {items.length === 0 ? (
           <Empty
-            style={{ padding: '48px 0' }}
+            className="task-empty"
             description={status === 'processing' ? '当前没有处理中的任务' : '当前没有待处理的任务'}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
@@ -193,7 +192,7 @@ export default function TasksPage() {
             onRow={(r) => ({ onClick: () => goDetail(r), style: { cursor: 'pointer' } })}
           />
         )}
-      </Card>
+      </div>
     </div>
   );
 }

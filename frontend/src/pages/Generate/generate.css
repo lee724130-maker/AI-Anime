@@ -200,26 +200,143 @@
   border-color: var(--primary);
   box-shadow: var(--ring);
 }
-/* 参数行：原来用 Space + flex 1 1 XXXpx，宽度参差、右侧留大片空白 → 改等宽栅格 */
+/* 参数行：高频短选项转内联胶囊、多/长选项保留下拉；容器由 grid 改 flex-wrap，按内容紧凑排布，消灭空盒子 */
 .gen-params {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-  gap: var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px 20px;
   margin-bottom: var(--sp-4);
 }
-.gen-params .ant-form-item { margin-bottom: 0; }
-.gen-params .ant-select-selector { border-radius: 10px !important; background: var(--surface-2) !important; border-color: var(--line) !important; }
-.gen-params .ant-select:hover .ant-select-selector { border-color: var(--line-strong) !important; }
-.gen-params .ant-select-focused .ant-select-selector { border-color: var(--primary) !important; box-shadow: var(--ring) !important; }
-.gen-params__note {
-  grid-column: 1 / -1;
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-  padding: 8px 10px;
+.gen-field { margin-bottom: 0 !important; }
+.gen-field .ant-form-item-label { padding-bottom: 4px; }
+.gen-field .ant-form-item-label > label { font-size: var(--fs-sm); color: var(--text-secondary); }
+.gen-field__label { display: inline-flex; align-items: center; gap: 4px; }
+.gen-field__info { color: var(--text-muted); font-size: 12px; cursor: help; transition: color var(--t-fast) var(--ease); }
+.gen-field__info:hover { color: var(--primary); }
+/* 下拉框稳定最小宽，避免内容撑破或过窄 */
+.gen-field .ant-select { min-width: 150px; }
+.gen-field--model .ant-select { min-width: 260px; }
+.gen-field--select .ant-select { min-width: 120px; }
+.gen-field--voice .ant-select { min-width: 200px; }
+.gen-field--block { width: 100%; }
+.gen-field--block .ant-input, .gen-field--block textarea { width: 100%; }
+/* 下拉框外观（参数 + 配音面板共用） */
+.gen-params .ant-select-selector,
+.gen-voiceover .ant-select-selector { border-radius: 10px !important; background: var(--surface-2) !important; border-color: var(--line) !important; }
+.gen-params .ant-select:hover .ant-select-selector,
+.gen-voiceover .ant-select:hover .ant-select-selector { border-color: var(--line-strong) !important; }
+.gen-params .ant-select-focused .ant-select-selector,
+.gen-voiceover .ant-select-focused .ant-select-selector { border-color: var(--primary) !important; box-shadow: var(--ring) !important; }
+
+/* 内联胶囊分段：统一质感（选中品牌渐变 + 发光，呼应顶栏与 /tasks） */
+.gen-params .ant-segmented,
+.gen-voiceover .ant-segmented,
+.gen-asset__tabs.ant-segmented { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px; }
+.gen-params .ant-segmented .ant-segmented-item,
+.gen-voiceover .ant-segmented .ant-segmented-item,
+.gen-asset__tabs .ant-segmented-item { border-radius: 6px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.gen-params .ant-segmented .ant-segmented-item-selected,
+.gen-voiceover .ant-segmented .ant-segmented-item-selected,
+.gen-asset__tabs .ant-segmented-item-selected { background: var(--grad-brand) !important; box-shadow: var(--glow); }
+.gen-params .ant-segmented .ant-segmented-item-selected .ant-segmented-item-label,
+.gen-voiceover .ant-segmented .ant-segmented-item-selected .ant-segmented-item-label,
+.gen-asset__tabs .ant-segmented-item-selected .ant-segmented-item-label { color: #fff !important; }
+.gen-params .ant-segmented-thumb,
+.gen-voiceover .ant-segmented-thumb,
+.gen-asset__tabs .ant-segmented-thumb { background: var(--grad-brand) !important; }
+/* 胶囊未选中项 hover 反馈（避免看不出可点） */
+.gen-params .ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected),
+.gen-voiceover .ant-segmented .ant-segmented-item:hover:not(.ant-segmented-item-selected),
+.gen-asset__tabs .ant-segmented-item:hover:not(.ant-segmented-item-selected) { color: var(--text); }
+/* 暗色下拉箭头提亮，增强"可点"暗示 */
+.gen-params .ant-select-arrow,
+.gen-voiceover .ant-select-arrow { color: var(--text-secondary); }
+
+/* 配音面板：浅色子块，开关在右上，条件字段并入栅格节奏 */
+.gen-voiceover { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-4); margin-bottom: var(--sp-4); }
+.gen-voiceover__hd { display: flex; align-items: center; justify-content: space-between; }
+.gen-voiceover__ttl { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.gen-voiceover__body { margin-top: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+.gen-voiceover__row { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-end; }
+
+/* 资产面板：去掉虚线"框中框"，改令牌面板 */
+.gen-asset { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--sp-4); }
+.gen-asset__tabs { margin-bottom: var(--sp-3); }
+.gen-asset__hint { text-align: center; padding: 20px; color: var(--text-muted); }
+.gen-asset__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--sp-3); max-height: 340px; overflow-y: auto; padding: 2px; }
+.gen-asset__cell { cursor: pointer; border: 2px solid transparent; border-radius: var(--r-sm); overflow: hidden; background: var(--card); padding: 4px; transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease); }
+.gen-asset__cell:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+.gen-asset__cell[data-on="1"] { border-color: var(--primary); background: var(--primary-bg); }
+.gen-asset__cell[data-dim="1"] { opacity: .5; }
+.gen-asset__cell img { border-radius: 6px; }
+.gen-asset__name { font-size: var(--fs-xs); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; color: var(--text-secondary); }
+
+/* 已选资产条 */
+.gen-sel { margin-bottom: 12px; padding: 10px; background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.gen-sel__label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); margin-bottom: 6px; }
+.gen-sel__row { display: flex; flex-wrap: wrap; gap: 8px; }
+.gen-sel__item { position: relative; }
+.gen-sel__x { position: absolute; top: -4px; right: -4px; font-size: 16px; color: var(--danger); cursor: pointer; background: var(--card); border-radius: 50%; }
+.gen-sel__order { position: absolute; top: -6px; left: -6px; min-width: 16px; height: 16px; padding: 0 3px; font-size: 10px; line-height: 16px; text-align: center; color: #fff; background: var(--grad-brand); border-radius: 999px; }
+
+/* 预设行：收成协调的一行 */
+.gen-presets { margin-bottom: 8px; }
+.gen-presets__bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 预设按钮：内联胶囊点击样式（描边 + 淡底，hover / 激活态品牌化），与分段胶囊、chip 统一语言 */
+.gen-presets__btn.ant-btn {
+  color: var(--text-secondary);
   background: var(--surface-2);
-  border: 1px dashed var(--line);
-  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding-inline: 12px;
+  height: 28px;
+  font-size: var(--fs-sm);
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
 }
+.gen-presets__btn.ant-btn:hover { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 45%, var(--line)); background: var(--primary-bg); }
+.gen-presets__btn.ant-btn[data-on="1"] { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 55%, var(--line)); background: var(--primary-bg); }
+.gen-presets__chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.gen-presets__chip { font-size: var(--fs-xs); color: var(--text-secondary); padding: 3px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; cursor: pointer; transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.gen-presets__chip:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-bg); }
+
+/* ---------- 预览弹窗内容（Modal 外壳交给 index.css 全局主题，这里只令牌化内部） ---------- */
+.gen-preview__stage {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 260px;
+  padding: 16px 56px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  background-image: var(--grad-stage);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.gen-preview__video { width: 100%; border-radius: var(--r-md); background: #000; }
+.gen-preview__stage img { box-shadow: var(--shadow-2); }
+.gen-preview__nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 50%; border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card) 78%, transparent); backdrop-filter: blur(4px);
+  color: var(--text); cursor: pointer; font-size: 22px; line-height: 1;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+}
+.gen-preview__nav:hover:not([disabled]) { border-color: var(--primary); background: var(--card); }
+.gen-preview__nav[disabled] { opacity: .3; cursor: not-allowed; }
+.gen-preview__nav--l { left: 12px; }
+.gen-preview__nav--r { right: 12px; }
+.gen-preview__count {
+  position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+  font-size: var(--fs-xs); color: var(--text); padding: 2px 12px; border-radius: 999px;
+  background: color-mix(in srgb, var(--card) 70%, transparent); border: 1px solid var(--line); backdrop-filter: blur(4px);
+}
+.gen-preview__info { margin-top: var(--sp-4); padding: var(--sp-4); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); display: flex; flex-direction: column; gap: var(--sp-3); }
+.gen-preview__row { display: flex; align-items: flex-start; gap: 8px; }
+.gen-preview__label { font-size: var(--fs-sm); color: var(--text-secondary); white-space: nowrap; flex-shrink: 0; }
+.gen-preview__val { font-size: var(--fs-sm); color: var(--text); flex: 1; }
+.gen-preview__tags { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gen-preview__tags .ant-tag { margin: 0; }
 
 /* 提交行＝卡内吸底操作条（按钮左、元信息右） */
 .gen-form .gen-actions.ant-form-item { margin-bottom: 0; }
@@ -487,12 +604,6 @@
 .gen-form textarea::placeholder,
 .gen-form .ant-input::placeholder,
 .gen-form .ant-select-selection-placeholder { color: var(--text-secondary); opacity: .9; }
-.gen-params__note {
-  color: color-mix(in srgb, var(--text-secondary) 35%, var(--text));
-  background: var(--surface-3);
-  border-style: solid;
-  border-color: var(--line);
-}
 
 /* 规则条：给出可点性（左侧图标块 + hover 品牌描边） */
 .gen-rules > summary { color: color-mix(in srgb, var(--text-secondary) 40%, var(--text)); font-weight: 500; }
@@ -542,5 +653,6 @@
 @media (max-width: 768px) {
   .gen-card__bd { padding: var(--sp-4); }
   .gen-stage__inner { padding: var(--sp-5) var(--sp-4); }
-  .gen-params { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .gen-params, .gen-voiceover__row { gap: 12px 14px; }
+  .gen-field--model .ant-select, .gen-field .ant-select { min-width: 0; width: 100%; }
 }
