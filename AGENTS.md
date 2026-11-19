@@ -1,5 +1,41 @@
 # 修复日志
 
+## 2026-11-19（前端质感改造·/tasks 铺开 + /generate 四模式表单重排 + 预览升级 ✅ 本地实测通过、已提交推送 GitHub `2c7e5c4`，**生产仍不部署**）
+
+> 承接 11-18「下一步」：先泛化探针，再按清单铺第一页 `/tasks`，随后逐条响应用户「四模式表单不实用」「预设改胶囊」「预览点图放大」。全程三层法：`index.tsx` 只换容器、页作用域 CSS、Form/state/接口字段/提交逻辑零改动。
+
+### ✅ ① 探针泛化（11-18 待办）
+- 新增 `tools/probe-ui.cjs <路由> <前缀> [主题]`：从 `probe-generate-ui.cjs` 泛化，按路由登记桩数据（`MOCKS` 表）+ 通用度量（令牌解析 / `.x-` 作用域块数 / antd 组件计数 / pageErrors）。铺其余页复用。
+- 坑：泛化探针漏登记某路由桩接口会返 `{}` 而非数组（`/generate` 的 `tts-voices` → `voiceList.map` 崩、pageErrors 报红），看着像应用 bug 实为探针缺数据；已补 `/generate` 桩。
+
+### ✅ ② /tasks 铺开（清单第一页）
+- 新增 `frontend/src/pages/Tasks/tasks.css`（全 `.task-*` 作用域）+ `index.tsx` 只换容器：`Card/Row/Col`→令牌 div，`Table/Empty/Segmented` 与数据/事件/轮询零改动。
+- **修真 bug**：统计数字写死 `color:#1a1a1a`，暗色下几乎看不见 → 改 `var(--text)`。
+- 暗色两轮打磨：柔化返回键（被 index.css 暗色 `!important` 压过→提特异度覆盖）、分段选中吃品牌渐变、卡片加强边框+顶部微高光破"平"、状态标签改实心胶囊、分页当前页改品牌渐变。视觉自查暗 6.5→9.5、浅 9.5。
+
+### ✅ ③ /generate 四模式表单重排（用户拍板 B：高频转内联胶囊）
+- **根因**：`.gen-params` 是 grid，但每个 Form.Item 挂 `flex:'1 1 xxxpx'` 内联——**grid 里 flex 无效（死代码）**，短值下拉被等宽拉成空盒子。容器改 `flex-wrap`、删死代码。
+- 短选项转内联胶囊 `Segmented`（数量/风格/强度/分辨率/配音类型/资产来源/分类），长/多选项留下拉（模型/比例/时长/音色）；说明折进「数量」旁 ℹ️ Tooltip。
+- 配音块收进子面板（开关右上、类型+音色并入栅格、去 `maxWidth:360` 魔法数字）；资产选择器去虚线"框中框"改令牌面板、缩略图 92→112、选中走 `data-on`；预设行与「快速模板/AI 智能规划」按钮改胶囊。清掉失效的 `Radio`/`Card` 导入。视觉自查四模式 9–9.5。
+
+### ✅ ④ 预览弹窗升级
+- 内部令牌化：图片舞台去写死 `#000` 改 `--surface-2`+品牌径向光晕、导航/计数/信息面板类化；删弃用的 `navBtnStyle`。Modal 外壳交 index.css 全局主题，未动（避免 `!important` 打架）。
+- **点图放大**：预览内图片去掉 `preview={false}`，开启 antd 全屏查看器（缩放/旋转/下载，遮罩「🔍 查看大图」+ `cursor:zoom-in`），等同浏览器看图。
+
+### ✅ ⑤ 验证（全部实测）
+- `npm run build`（tsc+vite）EXIT=0；`probe-ui` 各页 `pageErrors=0`。/tasks：`varCard` 暗/浅解析、`antCards=0`（换容器生效）、`antTables=1`。/generate：点历史开预览→再点图 `viewerImg=true`。
+
+### ⚠️ ⑥ 生产未动
+- 只提交推送 GitHub（`2c7e5c4`），未跑部署、未碰 `frontend/dist-deploy/`。
+
+### 🧹 附：磁盘清理
+- `D:\AI-Gen-Outputs`（约 132 MB）经核实两项目活代码均不引用（仅历史 .md 提及），按用户确认整体送回收站；先清测试/诊断/可重下字体 ~65.6 MB。
+
+### ⏭ ⑦ 下一步
+- 清单继续：`/drama`(109) → `/user`(161) → `/open-gallery`(230) → `/viral`(341) → `/canvas`(364) → `/order`(565) → `/comic-studio`(1071)，每页＝一份 `<x>.css` + 只换容器，用 `probe-ui.cjs` 实测。
+- 控件口径（用户定）：短选项(≤4)内联胶囊、长/多用下拉；说明折 ℹ️；按钮做胶囊描边；预览点图开全屏查看器。
+- 规范见 `docs/前端质感改造-generate样板-2026-11-17.md`。
+
 ## 2026-11-18（前端质感改造·/generate 二轮打磨 ✅ 本地实测通过、已提交 GitHub，**生产仍不部署**）
 
 > 起因：按 11-17 样板页「下一步」清单继续打磨 `/generate`，并逐条响应用户追加的具体诉求。全程守三层法：`index.tsx` 只换容器、`generate.css` 全 `.gen-*` 作用域、Form/state/接口字段/提交逻辑零改动。
