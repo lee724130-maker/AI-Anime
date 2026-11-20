@@ -1,0 +1,226 @@
+/* =============================================================================
+   /canvas 画布（项目 + 模板库首页）质感改造 · 2026-11-20
+   沿用 /generate 样板与 /tasks /drama /user /open-gallery /viral 的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .cnv- 前缀；antd 覆盖一律写成 `.cnv-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：两个接口并发拉取 / 3s 渲染进度轮询 / 删除与复制与「使用模板」的
+   Modal.confirm 流程（含 tpl-var-* 取值与必填校验）/ 全部 navigate 路径原样保留。
+   CoverThumb 是 Viral 目录共用组件，不改它内部样式。
+   本轮修掉的根因：
+     1. 页内 padding '24px 32px' 与外层 UserLayout 的 clamp padding 重复 → 交回 UserLayout。
+     2. 「使用模板」弹窗里的原生 <input> 写死 border:'1px solid #d9d9d9' 且无背景 →
+        暗色 Modal 里是一块白底输入框，与全站脱节 → 令牌化（.cnv-var-input）。
+     3. 主按钮 #7c3aed、删除图标 #f5222d、卡片阴影魔法数字 → 走 var(--grad-brand)/var(--danger)/令牌影深。
+     4. antd Card 的 cover/actions 外壳（暗色被 index.css:93 !important 钉死）→ 令牌卡 + 本页动作条。
+     5. Row/Col xs24 sm12 md8 lg6 断点魔法数字 → auto-fill 等宽栅格。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.cnv-root { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* ---------- 顶栏 ---------- */
+.cnv-topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.cnv-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.cnv-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.cnv-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.cnv-topbar .cnv-btn-new.ant-btn {
+  border-radius: var(--r-md);
+  background: var(--card) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.cnv-topbar .cnv-btn-new.ant-btn:hover { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-bg) !important; }
+
+/* ---------- 面板（Tabs 外壳） ---------- */
+.cnv-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-2) var(--sp-4) var(--sp-4);
+  transition: border-color var(--t-base) var(--ease);
+}
+.cnv-panel:hover { border-color: var(--line-strong); }
+.cnv-panel .ant-tabs-nav { margin-bottom: var(--sp-4); }
+.cnv-panel .ant-tabs-nav::before { border-bottom-color: var(--line) !important; }
+.cnv-panel .ant-tabs-tab { color: var(--text-secondary); font-size: var(--fs-md); padding: 10px 4px; }
+.cnv-panel .ant-tabs-tab:hover { color: var(--text); }
+.cnv-panel .ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--primary) !important; font-weight: 650; }
+.cnv-panel .ant-tabs-ink-bar { background: var(--grad-brand) !important; height: 3px !important; border-radius: 2px; }
+
+/* ---------- 工具条 ---------- */
+.cnv-toolbar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.cnv-toolbar .ant-input-affix-wrapper,
+.cnv-toolbar .ant-input { border-radius: var(--r-md); }
+.cnv-toolbar .ant-input { max-width: 280px; background: var(--surface-1) !important; border-color: var(--line-strong) !important; }
+.cnv-toolbar .ant-input:hover,
+.cnv-toolbar .ant-input:focus { border-color: var(--primary) !important; box-shadow: var(--ring); }
+
+/* ---------- 栅格 ---------- */
+.cnv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(226px, 1fr)); gap: var(--sp-3); }
+
+/* 新建空白画布：虚线占位卡 */
+.cnv-new {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 216px;
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), background var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.cnv-new:hover { border-color: var(--primary); background: var(--primary-bg); transform: translateY(-2px); }
+.cnv-new__icon { font-size: 26px; color: var(--primary); }
+.cnv-new__text { font-size: var(--fs-sm); }
+
+/* ---------- 通用令牌卡 ---------- */
+.cnv-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.cnv-card:hover { border-color: var(--line-strong); transform: translateY(-3px); box-shadow: var(--shadow-3); }
+.cnv-card__cover { cursor: pointer; }
+.cnv-card__cover .ant-image { display: block; }
+.cnv-card__body { display: flex; flex-direction: column; gap: 6px; padding: var(--sp-3) var(--sp-4) var(--sp-2); flex: 1; min-width: 0; }
+.cnv-card__name { font-size: var(--fs-md); font-weight: 640; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cnv-card__desc {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.9em;
+}
+.cnv-card__tags { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.cnv-card .cnv-chip.ant-tag {
+  margin-inline-end: 0;
+  padding: 1px 8px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-secondary);
+}
+.cnv-card .cnv-chip--state.ant-tag { line-height: 1.75; }
+.cnv-card .ant-tag-default    { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.cnv-card .ant-tag-processing { background: color-mix(in srgb, var(--info) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 48%, var(--line)) !important; color: var(--info) !important; }
+.cnv-card .ant-tag-success    { background: color-mix(in srgb, var(--success) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 48%, var(--line)) !important; color: var(--success) !important; }
+.cnv-card .ant-tag-error      { background: color-mix(in srgb, var(--danger) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--danger) 48%, var(--line)) !important; color: var(--danger) !important; }
+.cnv-card .ant-tag-purple     { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.cnv-card__progress { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* 卡底动作条（原 Card actions 属性 → 本页容器，图标与点击不变） */
+.cnv-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: auto;
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.cnv-card__foot .cnv-iconbtn.ant-btn {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--text-secondary) !important;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.cnv-card__foot .cnv-iconbtn.ant-btn:hover { background: var(--hover); color: var(--primary); border-color: var(--line-strong) !important; }
+.cnv-card__foot .cnv-iconbtn--del.ant-btn,
+.cnv-card__foot .cnv-iconbtn.ant-btn-dangerous { color: var(--danger) !important; }
+.cnv-card__foot .cnv-iconbtn--del.ant-btn:hover { background: var(--danger-bg) !important; border-color: var(--danger) !important; }
+.cnv-card__foot .cnv-btn-use.ant-btn {
+  height: 26px;
+  padding: 0 12px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+}
+.cnv-card__foot .cnv-btn-use.ant-btn:hover { filter: brightness(1.06); box-shadow: var(--glow); }
+.cnv-card__foot .cnv-link.ant-btn-link { height: auto; padding: 0; font-size: var(--fs-sm); color: var(--primary) !important; }
+
+/* ---------- 空态 ---------- */
+.cnv-stage {
+  display: grid;
+  place-items: center;
+  gap: var(--sp-2);
+  min-height: 220px;
+  padding: var(--sp-6);
+  background-image: var(--grad-stage);
+  border-radius: var(--r-md);
+}
+.cnv-stage .ant-empty-description { color: var(--text-muted); }
+.cnv-stage__hint { font-size: var(--fs-sm); color: var(--text-muted); }
+.cnv-stage .cnv-btn-primary.ant-btn {
+  margin-top: var(--sp-2);
+  border-radius: var(--r-md);
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+}
+.cnv-stage .cnv-btn-primary.ant-btn:hover { filter: brightness(1.06); box-shadow: var(--glow); }
+.cnv-loading { display: grid; place-items: center; min-height: 320px; }
+
+/* ---------- 「使用模板」弹窗里的变量输入（原写死 #d9d9d9 白底，暗色 Modal 里很突兀） ---------- */
+.cnv-varform { margin-top: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+.cnv-varform__label { display: block; font-size: var(--fs-sm); color: var(--text-secondary); margin-bottom: 5px; }
+.cnv-varform__input {
+  width: 100%;
+  padding: 7px 11px;
+  font-size: var(--fs-md);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  outline: none;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.cnv-varform__input::placeholder { color: var(--text-muted); }
+.cnv-varform__input:hover { border-color: var(--primary); }
+.cnv-varform__input:focus { border-color: var(--primary); box-shadow: var(--ring); background: var(--surface-1); }
+
+/* ---------- 成片预览弹层里的视频 ---------- */
+.cnv-video { width: 100%; border-radius: var(--r-md); background: #000; }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .cnv-panel,
+[data-theme=light] .cnv-card {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -22px rgba(16, 24, 40, .24);
+}
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .cnv-panel,
+[data-theme=dark] .cnv-card {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+[data-theme=dark] .cnv-card { background: var(--surface-2); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .cnv-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+  .cnv-panel { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+}

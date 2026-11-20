@@ -11,6 +11,7 @@ import {
   DeleteOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import './comic-studio.css';   // 本页质感改造样式（作用域 .cst-root，范围与遗留项见文件头注释）
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -508,7 +509,7 @@ export default function ComicStudioPage() {
         <Space direction="vertical" size={2} style={{ width: '100%' }}>
           {r.pose_ref
             ? <Image src={getUrl(r.pose_ref)} width={44} height={44} preview={false}
-                style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #d9d9d9' }} />
+                style={{ objectFit: 'cover' }} className="cst-thumb" />
             : null}
           <Button size="small" block icon={<AppstoreOutlined />} onClick={() => setPosePicker(i)}>
             {r.pose_ref ? '更换姿势图' : '应用大资产'}
@@ -564,25 +565,26 @@ export default function ComicStudioPage() {
   );
 
   return (
-    <div style={{ maxWidth: 1280, margin: '0 auto', padding: '20px 24px 60px' }}>
+    <div className="cst-root">
       {projectId ? (
         <>
-          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-            <Space>
-              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
-              <Title level={3} style={{ margin: 0 }}>漫画工作室</Title>
-              <Tag color="purple">V2 · 角色设定本驱动</Tag>
-            </Space>
-            <Space wrap>
-              <Button icon={<AppstoreOutlined />} onClick={goLanding}>项目列表</Button>
-            </Space>
-          </Space>
+          <div className="cst-topbar">
+            <div className="cst-topbar__lead">
+              <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+              <div className="cst-topbar__titles">
+                <Title level={4} className="cst-topbar__title">漫画工作室</Title>
+                <span className="cst-topbar__sub">大纲 → 人物 → 设定本（锁定） → 逐页剧情图</span>
+              </div>
+              <Tag className="cst-topbar__tag">V2 · 角色设定本驱动</Tag>
+            </div>
+            <Button icon={<AppstoreOutlined />} onClick={goLanding}>项目列表</Button>
+          </div>
 
       <Alert type="info" showIcon style={{ marginBottom: 16 }}
         message="标准流程：大纲 → 识别人物 → 人设 → 角色设定本（锁定） → 逐页剧情图"
         description="角色由模型从剧情里识别并生成设定本，锁定后作为每一页唯一的身份基准；文字层（旁白/气泡/分支卡）仍交给剪辑应用排版层，底图不含中文。" />
 
-      <Card>
+      <div className="cst-panel">
         <Steps current={step} onChange={(s) => {
           if (!projectId && s > 0) { message.info('先保存项目'); return; }
           // 不能靠点步骤条绕过审格直接进生图 / 交付
@@ -661,8 +663,7 @@ export default function ComicStudioPage() {
                               <Image alt={c.name} src={getUrl(cover)} preview={false}
                                 style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
                             </div>
-                          : <div onClick={() => setDetailCharId(c.id)}
-                              style={{ aspectRatio: '1/1', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12, cursor: 'pointer' }}>暂无正面头像 · 点详情应用</div>}
+                          : <div className="cst-ph cst-ph--1x1 cst-ph--pointer" onClick={() => setDetailCharId(c.id)}>暂无正面头像 · 点详情应用</div>}
                         actions={[
                           <Button size="small" type="link" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>补生成必选块</Button>,
                           <Button size="small" type="link" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url} onClick={() => toggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>,
@@ -719,8 +720,8 @@ export default function ComicStudioPage() {
                       <Col><Card size="small"><Text type="secondary">总格数</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.page_count}</Title></Card></Col>
                       <Col><Card size="small"><Text type="secondary">需生成底图</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.base_count}</Title></Card></Col>
                       <Col><Card size="small"><Text type="secondary">单张积分</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.per_image_credits}</Title></Card></Col>
-                      <Col><Card size="small"><Text type="secondary">预计消耗</Text><Title level={3} style={{ margin: 0, color: '#c2410c' }}>{preflight.estimate.total_credits}</Title></Card></Col>
-                      <Col><Card size="small"><Text type="secondary">当前余额</Text><Title level={3} style={{ margin: 0, color: preflight.deficit ? '#dc2626' : '#16a34a' }}>{preflight.balance}</Title></Card></Col>
+                      <Col><Card size="small"><Text type="secondary">预计消耗</Text><Title level={3} className="cst-stat__num" data-tone="warn">{preflight.estimate.total_credits}</Title></Card></Col>
+                      <Col><Card size="small"><Text type="secondary">当前余额</Text><Title level={3} className="cst-stat__num" data-tone={preflight.deficit ? 'danger' : 'success'}>{preflight.balance}</Title></Card></Col>
                     </Row>
                     <Alert type={preflight.canGenerate ? 'success' : 'error'} showIcon style={{ marginBottom: 12 }}
                       message={preflight.canGenerate ? '预检通过，可以开始生成' : `预检未通过：${(preflight.checks || []).filter((c: any) => c.level === 'error' && !c.ok).length} 项必须处理后才能生成`}
@@ -767,7 +768,7 @@ export default function ComicStudioPage() {
                   <Col key={p.page_no} xs={12} sm={8} md={6} lg={4}>
                     <Card size="small" cover={p.output_url
                       ? <Image alt={`格${p.page_no}`} src={getUrl(p.output_url)} style={{ aspectRatio: '2/3', objectFit: 'cover' }} />
-                      : <div style={{ aspectRatio: '2/3', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12 }}>{p.status === 'failed' ? '生成失败' : '生成中…'}</div>}>
+                      : <div className="cst-ph cst-ph--2x3">{p.status === 'failed' ? '生成失败' : '生成中…'}</div>}>
                       <Space direction="vertical" size={2} style={{ width: '100%' }}>
                         <Space size={4}><Tag>第 {p.page_no} 格</Tag><Tag color={STATUS_TAG[p.status || 'pending']?.color}>{STATUS_TAG[p.status || 'pending']?.label}</Tag></Space>
                         <Text type="secondary" ellipsis style={{ fontSize: 11 }}>{p.reuse_group}</Text>
@@ -800,7 +801,7 @@ export default function ComicStudioPage() {
                   <Col key={p.page_no} xs={12} sm={8} md={6} lg={4}>
                     <Card size="small" cover={p.output_url
                       ? <Image alt={`格${p.page_no}`} src={getUrl(p.output_url)} style={{ aspectRatio: '2/3', objectFit: 'cover' }} />
-                      : <div style={{ aspectRatio: '2/3', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>无底图</div>}>
+                      : <div className="cst-ph cst-ph--2x3">无底图</div>}>
                       <Space direction="vertical" size={2}><Tag>第 {p.page_no} 格</Tag>
                         <Text type="secondary" style={{ fontSize: 11 }} ellipsis>{p.narration || p.dialogue || p.action}</Text></Space>
                     </Card>
@@ -843,51 +844,59 @@ export default function ComicStudioPage() {
             setPosePicker(null);
           }}
         />
-      </Card>
+      </div>
       </>
       ) : creating ? (
         <>
-          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-            <Space>
-              <Button icon={<ArrowLeftOutlined />} onClick={() => setCreating(false)} />
-              <Title level={3} style={{ margin: 0 }}>新建漫画项目</Title>
-            </Space>
-          </Space>
-          <Card style={{ maxWidth: 760, margin: '0 auto' }}>
+          <div className="cst-topbar">
+            <div className="cst-topbar__lead">
+              <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => setCreating(false)} />
+              <div className="cst-topbar__titles">
+                <Title level={4} className="cst-topbar__title">新建漫画项目</Title>
+                <span className="cst-topbar__sub">先定标题、风格与格数，大纲可让 AI 起草</span>
+              </div>
+            </div>
+          </div>
+          <div className="cst-panel cst-panel--narrow">
             {projectSetupForm}
-          </Card>
+          </div>
         </>
       ) : (
         <>
-          <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-            <Space>
-              <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
-              <Title level={3} style={{ margin: 0 }}>我的漫画项目</Title>
-            </Space>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
-          </Space>
+          <div className="cst-topbar">
+            <div className="cst-topbar__lead">
+              <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+              <div className="cst-topbar__titles">
+                <Title level={4} className="cst-topbar__title">我的漫画项目</Title>
+                <span className="cst-topbar__sub">共 {projects.length} 个项目，点开继续大纲 → 设定本 → 剧情图</span>
+              </div>
+            </div>
+            <Button type="primary" className="cst-btn-new" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
+          </div>
           {projects.length === 0 ? (
-            <Empty description="还没有漫画项目，点击右上角「新建项目」开始" style={{ marginTop: 80 }}>
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
-            </Empty>
+            <div className="cst-stage">
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有漫画项目" />
+              <span className="cst-stage__hint">点右上角「新建项目」，先定标题、画风与格数</span>
+              <Button type="primary" className="cst-btn-new" icon={<PlusOutlined />} onClick={() => setCreating(true)}>新建项目</Button>
+            </div>
           ) : (
-            <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <div className="cst-pgrid">
               {projects.map((p) => (
-                <Col xs={24} sm={12} md={8} key={p.id}>
-                  <Card hoverable
-                    title={<Text strong ellipsis style={{ maxWidth: 200 }}>{p.title}</Text>}
-                    extra={<Tag color={PROJECT_STATUS[p.status]?.color || 'default'}>{PROJECT_STATUS[p.status]?.label || p.status}</Tag>}>
-                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                      <Text type="secondary">画风：{p.style_mode === 'anime' ? '动漫' : '真人'}</Text>
-                      <Text type="secondary">分格：{p.panel_count || 0} 格</Text>
-                      {p.updated_at && <Text type="secondary">更新：{String(p.updated_at).slice(0, 16).replace('T', ' ')}</Text>}
-                    </Space>
-                    <Button type="primary" block style={{ marginTop: 12 }}
-                      onClick={(e) => { e.stopPropagation(); openProject(p.id); }}>打开项目</Button>
-                  </Card>
-                </Col>
+                <div className="cst-pcard" key={p.id} onClick={() => openProject(p.id)}>
+                  <div className="cst-pcard__head">
+                    <span className="cst-pcard__title">{p.title}</span>
+                    <Tag className="cst-pcard__status" color={PROJECT_STATUS[p.status]?.color || 'default'}>{PROJECT_STATUS[p.status]?.label || p.status}</Tag>
+                  </div>
+                  <div className="cst-pcard__meta">
+                    <span className="cst-pcard__row">画风：{p.style_mode === 'anime' ? '动漫' : '真人'}</span>
+                    <span className="cst-pcard__row">分格：{p.panel_count || 0} 格</span>
+                    {p.updated_at && <span className="cst-pcard__row">更新：{String(p.updated_at).slice(0, 16).replace('T', ' ')}</span>}
+                  </div>
+                  <Button type="primary" block className="cst-pcard__cta"
+                    onClick={(e) => { e.stopPropagation(); openProject(p.id); }}>打开项目</Button>
+                </div>
               ))}
-            </Row>
+            </div>
           )}
         </>
       )}
@@ -919,7 +928,7 @@ function CharacterDetailModal(props: {
           <Space wrap align="start" style={{ marginBottom: 12 }}>
             {c.sheet_url
               ? <Image alt="设定本拼版" src={getUrl(c.sheet_url)} width={72} height={72} style={{ objectFit: 'cover', borderRadius: 6 }} />
-              : <div style={{ width: 72, height: 72, background: '#f3f4f6', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 11, textAlign: 'center' }}>拼版待齐</div>}
+              : <div className="cst-ph cst-ph--72">拼版待齐</div>}
             <Space direction="vertical" size={2}>
               <Text type="secondary" style={{ fontSize: 12 }}>4 个必选块齐了即自动拼版并解锁「锁定」。可选块不默认生成：点每块的「生成」单独生成，失败块用「重试生成」，生成后自动拼进设定本；已锁定后仍可重试可选块，必选块需先解锁。「应用大资产」的图片直接作为成品，0 生图 0 积分。</Text>
               <Space wrap>
@@ -944,7 +953,7 @@ function CharacterDetailModal(props: {
                     extra={<Tag color={STATUS_TAG[st]?.color}>{STATUS_TAG[st]?.label}</Tag>}
                     cover={img
                       ? <Image alt={BLOCK_LABELS[key]} src={getUrl(img)} style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
-                      : <div style={{ aspectRatio: '1/1', background: '#f3f4f6', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 12 }}>暂无图像</div>}>
+                      : <div className="cst-ph cst-ph--1x1">暂无图像</div>}>
                     <Space direction="vertical" size={2} style={{ width: '100%' }}>
                       <Space size={2} wrap>
                         <Tag color={OPTIONAL_KEYS.includes(key) ? 'default' : 'blue'}>{OPTIONAL_KEYS.includes(key) ? '可选' : '必选'}</Tag>
@@ -1053,9 +1062,9 @@ function BlockAssetPicker(props: {
               <div style={gridStyle}>
                 {lib.map((a) => (
                   <div key={a.id} onClick={() => setSelected(a.id)}
-                    style={{ cursor: 'pointer', border: selected === a.id ? '2px solid #1677ff' : '1px solid #eee', borderRadius: 6, overflow: 'hidden' }}>
+                    className="cst-pick" data-on={selected === a.id ? '1' : '0'}>
                     <Image src={thumbUrl(a.image_url)} width="100%" height={90} style={{ objectFit: 'cover' }} preview={false} />
-                    <div style={{ fontSize: 11, padding: '2px 4px', color: '#555', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
+                    <div className="cst-pick__cap">{a.name}</div>
                   </div>
                 ))}
               </div>
@@ -1066,7 +1075,7 @@ function BlockAssetPicker(props: {
           children: loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> :
             <div style={gridStyle}>
               {catItems.map((it: any) => (
-                <div key={it.id} style={{ border: '1px solid #eee', borderRadius: 6, overflow: 'hidden' }}>
+                <div key={it.id} className="cst-pick__cell">
                   <Image src={thumbUrl(it.thumb || it.full)} width="100%" height={90} style={{ objectFit: 'cover' }} preview={false} />
                   <Button size="small" block loading={busyId === it.id} onClick={() => importAndApply(it)}>导入并应用</Button>
                 </div>

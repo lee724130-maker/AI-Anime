@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Row, Col, Card, Tag, Space, Input, Select, Spin, Empty, Button, message, Modal, Tabs, Tooltip } from 'antd';
+import { Typography, Tag, Input, Select, Spin, Empty, Button, message, Modal, Tabs, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, LayoutOutlined, CopyOutlined, FormOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import CoverThumb from '../Viral/CoverThumb';
+import './canvas.css';   // 本页质感改造样式（作用域 .cnv-root，详见文件头注释）
 
 const { Title, Text } = Typography;
 
@@ -141,14 +142,14 @@ export default function CanvasIndex() {
         title: `使用模板「${t.name}」`,
         width: 480,
         content: (
-          <div style={{ marginTop: 16 }}>
+          <div className="cnv-varform">
             {inputs.map((inp) => (
-              <div key={inp.key} style={{ marginBottom: 12 }}>
-                <Text style={{ display: 'block', marginBottom: 4 }}>{inp.label}</Text>
+              <div key={inp.key}>
+                <Text className="cnv-varform__label">{inp.label}</Text>
                 <input
                   id={`tpl-var-${inp.key}`}
+                  className="cnv-varform__input"
                   defaultValue={inp.defaultValue}
-                  style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid #d9d9d9' }}
                 />
               </div>
             ))}
@@ -192,173 +193,149 @@ export default function CanvasIndex() {
     } catch (err: any) { message.error('复制失败: ' + (err?.response?.data?.message || err.message)); }
   };
 
-  const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
-
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
+    return <div className="cnv-root"><div className="cnv-loading"><Spin size="large" /></div></div>;
   }
 
   return (
-    <div style={{ padding: '24px 32px' }}>
-      <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <Title level={3} style={{ margin: 0 }}>画布</Title>
-          <Text type="secondary">把素材按顺序摆成一排，加文字、BGM 和转场，一键渲染成片</Text>
+    <div className="cnv-root">
+      <div className="cnv-topbar">
+        <div className="cnv-topbar__titles">
+          <Title level={4} className="cnv-topbar__title">画布</Title>
+          <span className="cnv-topbar__sub">把素材按顺序摆成一排，加文字、BGM 和转场，一键渲染成片</span>
         </div>
-        <Space>
-          <Button icon={<FormOutlined />} style={{ borderRadius: 10 }} onClick={() => navigate('/canvas/editor/new')}>
-            新建空白画布
-          </Button>
-        </Space>
+        <Button className="cnv-btn-new" icon={<FormOutlined />} onClick={() => navigate('/canvas/editor/new')}>
+          新建空白画布
+        </Button>
       </div>
 
-      <Tabs
-        activeKey={tab}
-        onChange={setTab}
-        items={[
-          {
-            key: 'projects',
-            label: `我的画布 (${projects.length})`,
-            children: (
-              <>
-                {projects.length === 0 ? (
-                  <Card style={cardStyle}>
-                    <Empty description="还没有画布项目" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-                        新建一个空白画布，或从模板库挑一个开始
-                      </Text>
-                      <Button type="primary" icon={<PlusOutlined />} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}
+      <div className="cnv-panel">
+        <Tabs
+          activeKey={tab}
+          onChange={setTab}
+          items={[
+            {
+              key: 'projects',
+              label: `我的画布 (${projects.length})`,
+              children: (
+                <>
+                  {projects.length === 0 ? (
+                    <div className="cnv-stage">
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有画布项目" />
+                      <span className="cnv-stage__hint">新建一个空白画布，或从模板库挑一个开始</span>
+                      <Button className="cnv-btn-primary" type="primary" icon={<PlusOutlined />}
                         onClick={() => navigate('/canvas/editor/new')}>
                         新建画布
                       </Button>
-                    </Empty>
-                  </Card>
-                ) : (
-                  <Row gutter={[16, 16]}>
-                    <Col xs={24} sm={12} md={8} lg={6}>
-                      <Card
-                        hoverable style={{ ...cardStyle, height: '100%', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed' }}
-                        onClick={() => navigate('/canvas/editor/new')}
-                      >
-                        <div style={{ textAlign: 'center' }}>
-                          <PlusOutlined style={{ fontSize: 28, color: '#7c3aed' }} />
-                          <div style={{ marginTop: 8 }}><Text type="secondary">新建空白画布</Text></div>
-                        </div>
-                      </Card>
-                    </Col>
-                    {projects.map(p => {
-                      const sm = STATUS_MAP[p.status] || { color: 'default', label: p.status, icon: null };
-                      return (
-                        <Col xs={24} sm={12} md={8} lg={6} key={p.id}>
-                          <Card
-                            hoverable style={cardStyle}
-                            cover={
-                              <div onClick={() => navigate(`/canvas/editor/${p.id}`)}>
-                                <CoverThumb src={p.cover_url} height={130} radius={0} />
-                              </div>
-                            }
-                            actions={[
-                              <Tooltip title="编辑" key="edit">
-                                <EditOutlined onClick={() => navigate(`/canvas/editor/${p.id}`)} />
-                              </Tooltip>,
-                              <Tooltip title="删除" key="del">
-                                <DeleteOutlined style={{ color: '#f5222d' }} onClick={() => handleDelete(p)} />
-                              </Tooltip>,
-                            ]}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                              <Text strong style={{ fontSize: 14 }} ellipsis>{p.name}</Text>
+                    </div>
+                  ) : (
+                    <div className="cnv-grid">
+                      <div className="cnv-new" onClick={() => navigate('/canvas/editor/new')}>
+                        <PlusOutlined className="cnv-new__icon" />
+                        <span className="cnv-new__text">新建空白画布</span>
+                      </div>
+                      {projects.map(p => {
+                        const sm = STATUS_MAP[p.status] || { color: 'default', label: p.status, icon: null };
+                        return (
+                          <div className="cnv-card" key={p.id}>
+                            <div className="cnv-card__cover" onClick={() => navigate(`/canvas/editor/${p.id}`)}>
+                              <CoverThumb src={p.cover_url} height={130} radius={0} />
                             </div>
-                            <Space size={6} style={{ marginBottom: 4 }}>
-                              <Tag style={{ borderRadius: 6, fontSize: 10 }}>{p.ratio}</Tag>
-                              <Tag style={{ borderRadius: 6, fontSize: 10 }}>{p.resolution}</Tag>
-                            </Space>
-                            <Space>
-                              <Tag color={sm.color} style={{ borderRadius: 6, fontSize: 10 }}>{sm.label}</Tag>
-                              {p.status === 'rendering' && (
-                                <Text type="secondary" style={{ fontSize: 11 }}>{p.progress}%</Text>
-                              )}
-                            </Space>
-                            {p.status === 'completed' && p.result_url && (
-                              <Button type="link" size="small" icon={<PlayCircleOutlined />} style={{ padding: 0, fontSize: 12 }}
-                                onClick={() => { Modal.info({ title: p.name, width: 480, content: <video src={p.result_url!} controls style={{ width: '100%', borderRadius: 10 }} /> }); }}>
-                                查看成片
-                              </Button>
-                            )}
-                          </Card>
-                        </Col>
-                      );
-                    })}
-                  </Row>
-                )}
-              </>
-            ),
-          },
-          {
-            key: 'templates',
-            label: `画布模板库 (${templates.length})`,
-            children: (
-              <>
-                <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                  <Input
-                    placeholder="搜索模板..." value={keyword}
-                    onChange={e => setKeyword(e.target.value)}
-                    style={{ maxWidth: 280, borderRadius: 10 }}
-                  />
-                  <Select value={category} onChange={setCategory} style={{ width: 160, borderRadius: 10 }}
-                    options={[{ value: 'all', label: '全部分类' }, ...categories.map(c => ({ value: c, label: c }))]} />
-                </div>
-                {templates.length === 0 ? (
-                  <Card style={cardStyle}>
-                    <Empty description="暂无模板" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>在画布编辑器中可将项目另存为模板</Text>
-                    </Empty>
-                  </Card>
-                ) : (
-                  <Row gutter={[16, 16]}>
-                    {templates.map(t => (
-                      <Col xs={24} sm={12} md={8} lg={6} key={t.id}>
-                        <Card hoverable style={cardStyle}>
-                          <div style={{ marginBottom: 10 }}>
-                            <CoverThumb src={templateCover(t)} height={110} />
-                          </div>
-                          <Title level={5} style={{ margin: '0 0 4px', fontSize: 14 }}>{t.name}</Title>
-                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8, lineHeight: 1.4 }}>
-                            {t.description || '暂无描述'}
-                          </Text>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Space size={4}>
-                              <Tag style={{ borderRadius: 6, fontSize: 10 }}>{t.category}</Tag>
-                              <Tag style={{ borderRadius: 6, fontSize: 10 }}>{t.ratio}</Tag>
-                              {t.variables?.length > 0 && (
-                                <Tag color="purple" style={{ borderRadius: 6, fontSize: 10 }}>{t.variables.length} 变量</Tag>
-                              )}
-                            </Space>
-                            <Space size={2}>
-                              <Tooltip title="复制模板">
-                                <Button type="text" size="small" icon={<CopyOutlined />} style={{ fontSize: 14, padding: '4px 6px' }}
-                                  onClick={() => duplicateTemplate(t)} />
+                            <div className="cnv-card__body">
+                              <span className="cnv-card__name">{p.name}</span>
+                              <div className="cnv-card__tags">
+                                <Tag className="cnv-chip" style={{ marginInlineEnd: 0 }}>{p.ratio}</Tag>
+                                <Tag className="cnv-chip" style={{ marginInlineEnd: 0 }}>{p.resolution}</Tag>
+                              </div>
+                              <div className="cnv-card__tags">
+                                <Tag className="cnv-chip cnv-chip--state" color={sm.color} style={{ marginInlineEnd: 0 }}>{sm.label}</Tag>
+                                {p.status === 'rendering' && <span className="cnv-card__progress">{p.progress}%</span>}
+                                {p.status === 'completed' && p.result_url && (
+                                  <Button className="cnv-link" type="link" size="small" icon={<PlayCircleOutlined />}
+                                    onClick={() => { Modal.info({ title: p.name, width: 480, content: <video src={p.result_url!} controls className="cnv-video" /> }); }}>
+                                    查看成片
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+                            <div className="cnv-card__foot">
+                              <Tooltip title="编辑">
+                                <Button className="cnv-iconbtn" type="text" size="small" icon={<EditOutlined />}
+                                  aria-label="编辑" onClick={() => navigate(`/canvas/editor/${p.id}`)} />
                               </Tooltip>
                               <Tooltip title="删除">
-                                <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 14, padding: '4px 6px' }}
-                                  onClick={() => handleDeleteTemplate(t)} />
+                                <Button className="cnv-iconbtn cnv-iconbtn--del" type="text" size="small" danger
+                                  icon={<DeleteOutlined />} aria-label="删除" onClick={() => handleDelete(p)} />
                               </Tooltip>
-                              <Button type="primary" size="small" icon={<LayoutOutlined />} style={{ borderRadius: 8, background: '#7c3aed', borderColor: '#7c3aed', fontSize: 11 }}
-                                onClick={() => useTemplate(t)}>
-                                使用
-                              </Button>
-                            </Space>
+                            </div>
                           </div>
-                        </Card>
-                      </Col>
-                    ))}
-                  </Row>
-                )}
-              </>
-            ),
-          },
-        ]}
-      />
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ),
+            },
+            {
+              key: 'templates',
+              label: `画布模板库 (${templates.length})`,
+              children: (
+                <>
+                  <div className="cnv-toolbar">
+                    <Input
+                      placeholder="搜索模板..." value={keyword}
+                      onChange={e => setKeyword(e.target.value)}
+                    />
+                    <Select value={category} onChange={setCategory} style={{ width: 160 }}
+                      options={[{ value: 'all', label: '全部分类' }, ...categories.map(c => ({ value: c, label: c }))]} />
+                  </div>
+                  {templates.length === 0 ? (
+                    <div className="cnv-stage">
+                      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无模板" />
+                      <span className="cnv-stage__hint">在画布编辑器中可将项目另存为模板</span>
+                    </div>
+                  ) : (
+                    <div className="cnv-grid">
+                      {templates.map(t => (
+                        <div className="cnv-card" key={t.id}>
+                          <div className="cnv-card__cover">
+                            <CoverThumb src={templateCover(t)} height={110} />
+                          </div>
+                          <div className="cnv-card__body">
+                            <span className="cnv-card__name">{t.name}</span>
+                            <span className="cnv-card__desc">{t.description || '暂无描述'}</span>
+                            <div className="cnv-card__tags">
+                              <Tag className="cnv-chip" style={{ marginInlineEnd: 0 }}>{t.category}</Tag>
+                              <Tag className="cnv-chip" style={{ marginInlineEnd: 0 }}>{t.ratio}</Tag>
+                              {t.variables?.length > 0 && (
+                                <Tag className="cnv-chip" color="purple" style={{ marginInlineEnd: 0 }}>{t.variables.length} 变量</Tag>
+                              )}
+                            </div>
+                          </div>
+                          <div className="cnv-card__foot">
+                            <Tooltip title="复制模板">
+                              <Button className="cnv-iconbtn" type="text" size="small" icon={<CopyOutlined />}
+                                aria-label="复制模板" onClick={() => duplicateTemplate(t)} />
+                            </Tooltip>
+                            <Tooltip title="删除">
+                              <Button className="cnv-iconbtn cnv-iconbtn--del" type="text" size="small" danger
+                                icon={<DeleteOutlined />} aria-label="删除" onClick={() => handleDeleteTemplate(t)} />
+                            </Tooltip>
+                            <Button className="cnv-btn-use" type="primary" size="small" icon={<LayoutOutlined />}
+                              onClick={() => useTemplate(t)}>
+                              使用
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ),
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }

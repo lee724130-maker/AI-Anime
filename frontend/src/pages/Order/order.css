@@ -1,0 +1,255 @@
+/* =============================================================================
+   /order 算力充值（充值页 + 订单记录）质感改造 · 2026-11-20
+   沿用 /generate 样板与本轮已铺页面的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .ord- 前缀；antd 覆盖一律写成 `.ord-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：充值开关探测（/api/admin/site/config）、套餐与订单并发拉取、
+   同套餐待支付二次确认、3s 支付状态轮询、15 分钟倒计时、取消订单、支付成功回调
+   （loadData + refreshUser）全部原样保留。
+   本轮改的容器与观感：
+     1. 页头「居中大标题 + 下面一个返回钮」→ 与 /user /tasks 同款顶栏（返回圆钮 + 标题 + 说明）。
+     2. 两层 maxWidth:1100 重复包裹 → 单层 .ord-root 栅格，留白交回本页统一控制。
+     3. 套餐卡是 antd Card(title/extra)：暗色被 index.css:93 !important 钉成 #1e293b，
+        三张卡与页面底只差一档 → 令牌卡 + 选中/推荐档补品牌描边与顶部微光。
+     4. 写死的成功/失败/超时色（#52c41a / #ff4d4f）→ var(--success) / var(--danger)。
+     5. 记录卡里的 Table 走 /tasks 同款表格皮肤（表头冷灰面、行 hover、去双线边框）。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.ord-root {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4) var(--sp-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* ---------- 顶栏 ---------- */
+.ord-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.ord-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); }
+.ord-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.ord-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.ord-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.ord-root .ord-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.ord-root .ord-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+
+/* ---------- 测试期提示条（Alert 组件与 closable 行为不动，只管留白与圆角） ---------- */
+.ord-notice .ant-alert { border-radius: var(--r-md); }
+
+/* ---------- 账户条 ---------- */
+.ord-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--card);
+  background-image: var(--grad-stage);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-base) var(--ease);
+}
+.ord-account:hover { border-color: var(--line-strong); }
+.ord-account__titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ord-account__title { font-size: var(--fs-lg); font-weight: 650; color: var(--text); margin: 0 !important; }
+.ord-account__sub { font-size: var(--fs-sm); color: var(--text-secondary); }
+.ord-account__sub b { color: var(--warning); font-weight: 700; font-variant-numeric: tabular-nums; }
+.ord-account__icon { font-size: 28px; color: var(--primary); flex: none; }
+
+/* ---------- 套餐卡 ---------- */
+.ord-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-4); }
+.ord-plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.ord-plan:hover { border-color: var(--line-strong); transform: translateY(-3px); box-shadow: var(--shadow-3); }
+.ord-plan__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
+.ord-plan__name { display: flex; align-items: center; gap: 7px; font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.ord-plan__name .anticon { color: var(--warning); }
+.ord-plan .ord-plan__badge.ant-tag {
+  margin-inline-end: 0;
+  padding: 1px 10px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  line-height: 1.8;
+}
+.ord-plan .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.ord-plan .ant-tag-blue { background: color-mix(in srgb, var(--info) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 46%, var(--line)) !important; color: var(--info) !important; }
+.ord-plan__price { font-size: 30px; font-weight: 700; color: var(--text); line-height: 1.15; font-variant-numeric: tabular-nums; margin: var(--sp-2) 0 0; }
+.ord-plan__credits { font-size: var(--fs-lg); font-weight: 620; color: var(--text-secondary); }
+.ord-plan__cta {
+  margin-top: auto;
+  padding-top: var(--sp-4);
+}
+.ord-plan__cta .ant-btn {
+  width: 100%;
+  height: 44px;
+  border-radius: var(--r-md);
+  font-weight: 650;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.ord-plan__cta .ant-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+/* 推荐档（creator）：品牌描边 + 顶部微光，与另两档拉开主次 */
+.ord-plan[data-featured="1"] { border-color: color-mix(in srgb, var(--primary) 52%, var(--line)); }
+.ord-plan[data-featured="1"]::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--grad-brand);
+}
+.ord-plan[data-featured="1"]:hover { border-color: var(--primary); }
+
+/* 骨架占位（与套餐卡同尺寸，避免加载完跳动） */
+.ord-plan--skeleton { min-height: 236px; }
+.ord-plan--skeleton:hover { transform: none; box-shadow: var(--shadow-1); border-color: var(--line); }
+
+/* ---------- 充值记录 ---------- */
+.ord-records {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease);
+}
+.ord-records:hover { border-color: var(--line-strong); }
+.ord-records__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.ord-records__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: #fff;
+  background: var(--grad-brand);
+  border-radius: 999px;
+}
+.ord-records__body { padding: 0 var(--sp-4) var(--sp-4); }
+
+/* 表格皮肤（与 /tasks 同口径） */
+.ord-records .ant-table { background: transparent; }
+.ord-records .ant-table-thead > tr > th {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  letter-spacing: .02em;
+  border-bottom: 1px solid var(--line);
+}
+.ord-records .ant-table-thead > tr > th::before { display: none !important; }
+.ord-records .ant-table-tbody > tr > td { border-bottom: 1px solid var(--line); transition: background var(--t-fast) var(--ease); }
+.ord-records .ant-table-tbody > tr:last-child > td { border-bottom: none; }
+.ord-records .ant-table-tbody > tr:hover > td,
+.ord-records .ant-table-cell-row-hover { background: var(--hover) !important; }
+.ord-records .ant-table-placeholder:hover > td { background: transparent !important; }
+.ord-records .ant-table-tbody > tr > td { font-size: var(--fs-md); }
+
+/* 状态标签：实心胶囊（gold/green/default 三档，暗色下不会被读成空心） */
+.ord-records .ant-tag { margin-inline-end: 0; padding: 1px 10px; font-size: var(--fs-xs); border-radius: 999px; line-height: 1.8; }
+.ord-records .ant-tag-gold   { background: color-mix(in srgb, var(--warning) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--warning) 46%, var(--line)) !important; color: var(--warning) !important; }
+.ord-records .ant-tag-green  { background: color-mix(in srgb, var(--success) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 46%, var(--line)) !important; color: var(--success) !important; }
+.ord-records .ant-tag-default { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+
+/* 倒计时：等宽数字，最后 3 分钟转危险色（判定逻辑在 Countdown 组件里，不动） */
+.ord-count { font-variant-numeric: tabular-nums; color: var(--text); }
+.ord-count[data-urgent="1"] { color: var(--danger); font-weight: 650; }
+.ord-count--timeout { color: var(--danger); }
+
+/* 行内操作 */
+.ord-records .ord-btn-pay.ant-btn {
+  height: 26px;
+  padding: 0 12px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+}
+.ord-records .ord-btn-pay.ant-btn:hover { filter: brightness(1.06); box-shadow: var(--glow); }
+.ord-records .ord-btn-cancel.ant-btn {
+  height: 26px;
+  padding: 0 12px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: transparent !important;
+  border: 1px solid color-mix(in srgb, var(--danger) 46%, var(--line)) !important;
+  color: var(--danger) !important;
+}
+.ord-records .ord-btn-cancel.ant-btn:hover { background: var(--danger-bg) !important; border-color: var(--danger) !important; }
+
+/* ---------- 收银台弹窗（Modal 外壳交全局主题，本页只管内部排版） ---------- */
+.ord-pay { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
+.ord-pay__head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xl); font-weight: 650; color: var(--text); }
+.ord-pay__head .anticon { font-size: 20px; color: var(--primary); }
+.ord-pay__no { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ord-pay__sum { display: flex; align-items: baseline; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-4); }
+.ord-pay__amount { font-size: 30px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
+.ord-pay__credits { font-size: var(--fs-sm); color: var(--text-secondary); }
+.ord-pay .ant-btn { width: 100%; height: 44px; border-radius: var(--r-md); font-weight: 620; }
+.ord-pay .ord-pay__go.ant-btn { background: var(--grad-brand) !important; border: none !important; color: #fff !important; box-shadow: var(--shadow-1); }
+.ord-pay .ord-pay__go.ant-btn:hover { filter: brightness(1.06); box-shadow: var(--glow); }
+.ord-pay .ord-pay__cancel.ant-btn { background: var(--surface-2) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.ord-pay__hint { font-size: var(--fs-xs); color: var(--text-muted); }
+.ord-pay__hint .anticon { margin-right: 4px; }
+.ord-pay .ant-result-title { color: var(--text); }
+.ord-pay .ant-result-subtitle { color: var(--text-secondary); }
+.ord-pay__ok.anticon { color: var(--success); }
+.ord-pay__no-icon.anticon { color: var(--danger); }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .ord-plan,
+[data-theme=light] .ord-records,
+[data-theme=light] .ord-account {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -22px rgba(16, 24, 40, .24);
+}
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .ord-plan,
+[data-theme=dark] .ord-records,
+[data-theme=dark] .ord-account {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .ord-root { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .ord-plans { grid-template-columns: minmax(0, 1fr); }
+}

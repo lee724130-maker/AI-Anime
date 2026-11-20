@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Button, Card, Tabs, Select, Input, Space, Typography, Tag, Alert,
-  Row, Col, Image, Pagination, message, Spin, Empty, Tooltip,
+  Button, Tabs, Select, Input, Space, Typography, Tag,
+  Image, Pagination, message, Spin, Empty, Tooltip,
 } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import './open-gallery.css';   // 本页质感改造样式（作用域 .gal-root，详见文件头注释）
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null | undefined) => (p ? (p.startsWith('http') ? p : API_BASE + p) : '');
@@ -108,43 +109,40 @@ export default function OpenGalleryPage() {
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   // antd v5/v6 的 Tabs 传入 items 后，JSX children 会被忽略；内容必须放在 items[].children。
-  const galleryContent = loading ? <Spin style={{ display: 'block', margin: '60px auto' }} />
-    : pageItems.length === 0 ? <Empty description="没有匹配的图片" />
+  const galleryContent = loading ? <div className="gal-stage"><Spin /></div>
+    : pageItems.length === 0 ? (
+      <div className="gal-stage"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有匹配的图片" /></div>
+    )
       : (
         <>
-          <Row gutter={[12, 12]}>
+          <div className="gal-grid">
             {pageItems.map((item) => (
-              <Col key={`${item.kind}-${item.id}`} xs={12} sm={8} md={6} lg={4}>
-                <Card size="small" hoverable
-                  cover={
-                    <Image
-                      alt={item.title}
-                      src={getUrl(item.thumb)}
-                      preview={{ src: getUrl(item.full) }}
-                      style={{ aspectRatio: '2/3', objectFit: 'cover', width: '100%' }}
-                    />
-                  }>
-                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                    <Tooltip title={item.title}>
-                      <Text ellipsis style={{ fontSize: 12 }}>{item.title}</Text>
-                    </Tooltip>
-                    <Text type="secondary" style={{ fontSize: 11 }} ellipsis>{item.id}</Text>
-                    {imported[item.id] && (
-                      <Tag color="success" style={{ fontSize: 11, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {imported[item.id]}
-                      </Tag>
-                    )}
-                    <Button size="small" block icon={<DownloadOutlined />}
-                      loading={busyId === item.id}
-                      onClick={() => importImage(item)}>
-                      导入并复制路径
-                    </Button>
-                  </Space>
-                </Card>
-              </Col>
+              <div className="gal-card" key={`${item.kind}-${item.id}`}>
+                <div className="gal-card__cover">
+                  {/* 外链缩略图挂了要藏掉 img 本体，否则浏览器露裂图图标 + alt 文字（实测踩过） */}
+                  <Image
+                    alt={item.title}
+                    src={getUrl(item.thumb)}
+                    preview={{ src: getUrl(item.full) }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
+                  />
+                </div>
+                <div className="gal-card__body">
+                  <Tooltip title={item.title}>
+                    <span className="gal-card__title">{item.title}</span>
+                  </Tooltip>
+                  <span className="gal-card__id">{item.id}</span>
+                  {imported[item.id] && <Tag className="gal-card__done">{imported[item.id]}</Tag>}
+                  <Button className="gal-card__import" size="small" block icon={<DownloadOutlined />}
+                    loading={busyId === item.id}
+                    onClick={() => importImage(item)}>
+                    导入并复制路径
+                  </Button>
+                </div>
+              </div>
             ))}
-          </Row>
-          <div style={{ marginTop: 16, textAlign: 'center' }}>
+          </div>
+          <div className="gal-pager">
             <Pagination current={page} pageSize={PAGE_SIZE} total={filtered.length}
               onChange={(p) => { setPage(p); window.scrollTo({ top: 0 }); }}
               showSizeChanger={false} showTotal={(t) => `共 ${t} 张`} />
@@ -171,13 +169,17 @@ export default function OpenGalleryPage() {
   };
 
   return (
-    <div style={{ maxWidth: 1280, margin: '0 auto', padding: '20px 24px 60px' }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }} wrap>
-        <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
-          <Title level={3} style={{ margin: 0 }}>开源图片</Title>
-          <Tag color="purple">共 {faces.length + costumes.length + poses.length} 张素材</Tag>
-        </Space>
+    <div className="gal-root">
+      {/* 顶栏：返回 + 标题 + 总数胶囊 | 去设定本 */}
+      <div className="gal-topbar">
+        <div className="gal-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+          <div className="gal-topbar__titles">
+            <Title level={4} className="gal-topbar__title">开源图片</Title>
+            <span className="gal-topbar__sub">CC0 人像 / 造型 / 服装 / 姿势素材，导入后作设定本参考图</span>
+          </div>
+          <span className="gal-topbar__count">共 {faces.length + costumes.length + poses.length} 张素材</span>
+        </div>
         <Button onClick={() => {
           // §18 边界修复：优先回到最近打开的项目（角色设定本所在页），没记录过才回项目列表
           let lastId = '';
@@ -185,13 +187,22 @@ export default function OpenGalleryPage() {
           navigate(lastId && Number.isInteger(Number(lastId)) && Number(lastId) > 0
             ? `/comic-studio/${lastId}` : '/comic-studio');
         }}>去角色设定本</Button>
-      </Space>
+      </div>
 
-      <Alert type="info" showIcon style={{ marginBottom: 16 }}
-        message="选图 → 导入 → 粘贴到设定本"
-        description="点「导入并复制路径」会把原图下载到本项目的 /static/gallery/ 并自动复制路径；然后到 漫画工作室 → 角色设定本，把路径粘进对应图像块的「素材图」输入框点「应用」（0 积分）。素材可自由使用。" />
+      {/* 使用说明：整块常驻 Alert → 默认折叠的规则条（文案一字不动） */}
+      <details className="gal-guide">
+        <summary className="gal-guide__summary">
+          <span className="gal-guide__mark">i</span>
+          <span className="gal-guide__title">选图 → 导入 → 粘贴到设定本</span>
+          <span className="gal-guide__chev">▶</span>
+        </summary>
+        <div className="gal-guide__body">
+          点「导入并复制路径」会把原图下载到本项目的 /static/gallery/ 并自动复制路径；然后到 漫画工作室 → 角色设定本，把路径粘进对应图像块的「素材图」输入框点「应用」（0 积分）。素材可自由使用。
+        </div>
+      </details>
 
-      <Card>
+      {/* 面板：antd Card → 令牌面板；Tabs 与全部过滤/分页/state 零改动 */}
+      <div className="gal-panel">
         <Tabs
           activeKey={tab}
           onChange={(k) => { setTab(k as any); setPage(1); setPoseSeries(undefined); setPoseCat(undefined); setPoseAngle(undefined); }}
@@ -226,7 +237,7 @@ export default function OpenGalleryPage() {
             </Space>
           }
         />
-      </Card>
+      </div>
     </div>
   );
 }

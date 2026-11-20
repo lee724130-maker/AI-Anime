@@ -1,0 +1,306 @@
+/* =============================================================================
+   /viral 热门创作（首页）质感改造 · 2026-11-20
+   沿用 /generate 样板 + /tasks /drama /user /open-gallery 的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .vir- 前缀；antd 覆盖一律写成 `.vir-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：三个接口并发拉取 / 分类与关键词筛选 / 删除确认 Modal / 教程弹窗开关 /
+   全部 navigate 路径与 STATUS_MAP 不动。CoverThumb 是 Viral 目录共用组件，本页不改它内部样式，
+   只在外层套容器并按原参数传 height（避免波及 /viral/templates、/viral/projects 等未纳入本轮的页面）。
+   本轮修掉的根因：
+     1. Hero 用写死深色渐变 `#1e293b → #4c1d95` + 白字：浅色模式下像一块贴上去的黑横幅，与全站脱节
+        → 改品牌色 color-mix 生成的渐变（浅/暗都能吃到 --primary），文字走 var(--text)。
+     2. 品牌紫 #7c3aed 在按钮、区块竖条、Badge、步骤序号、教程弹窗里出现 9 次 → 统一 var(--grad-brand)。
+     3. Hero 步骤卡用 `rgba(255,255,255,.12)` + backdropFilter（浅色模式几乎看不见）→ 令牌面 + 描边。
+     4. 模板卡 / 项目卡是 antd Card（暗色被 index.css:93 !important 钉成 #1e293b，层级平）→ 令牌卡。
+     5. Row/Col 断点魔法数字（xs24 sm12 md8 / xs12 sm8 md6）→ auto-fill 等宽栅格。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.vir-root { display: flex; flex-direction: column; gap: var(--sp-6); }
+.vir-anchor { scroll-margin-top: 80px; display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* ---------- Hero 引导区 ---------- */
+.vir-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-6);
+  align-items: center;
+  padding: var(--sp-6);
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--primary) 14%, var(--card)) 0%,
+    color-mix(in srgb, var(--primary) 30%, var(--card)) 100%);
+  border: 1px solid color-mix(in srgb, var(--primary) 34%, var(--line));
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.vir-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(90% 120% at 88% 0%, rgba(255, 255, 255, .18), transparent 58%);
+  pointer-events: none;
+}
+.vir-hero__lead { position: relative; z-index: 1; min-width: 0; }
+.vir-hero__title-line { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 6px; }
+.vir-hero__title-line .anticon { font-size: 22px; color: var(--primary); }
+.vir-hero__title { font-size: var(--fs-2xl); font-weight: 700; color: var(--text); margin: 0 !important; }
+.vir-hero__sub { font-size: var(--fs-md); color: var(--text-secondary); display: block; margin-bottom: var(--sp-4); }
+
+/* 三步引导：等宽栅格（原 Row/Col xs24 sm8） */
+.vir-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-3); position: relative; z-index: 1; }
+.vir-step {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px var(--sp-4);
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 26%, var(--line));
+  border-radius: var(--r-md);
+  backdrop-filter: blur(6px);
+  transition: border-color var(--t-base) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.vir-step:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.vir-step__head { display: flex; align-items: center; gap: var(--sp-2); }
+.vir-step__no {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.vir-step__title { font-size: var(--fs-md); font-weight: 620; color: var(--text); display: flex; align-items: center; gap: 6px; min-width: 0; }
+.vir-step__title .anticon { color: var(--primary); font-size: var(--fs-lg); }
+.vir-step__desc { font-size: var(--fs-sm); color: var(--text-secondary); line-height: 1.6; }
+
+/* Hero 右侧操作区 */
+.vir-hero__cta { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); }
+.vir-hero__cta .vir-btn-hero.ant-btn {
+  height: 52px;
+  padding: 0 var(--sp-6);
+  border-radius: 999px;
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--glow), var(--shadow-2);
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.vir-hero__cta .vir-btn-hero.ant-btn:hover { filter: brightness(1.06); transform: translateY(-2px); box-shadow: var(--glow), var(--shadow-3) !important; }
+.vir-hero__cta .vir-btn-help.ant-btn {
+  background: transparent !important;
+  border: none !important;
+  color: var(--text-secondary) !important;
+  font-size: var(--fs-sm);
+}
+.vir-hero__cta .vir-btn-help.ant-btn:hover { color: var(--primary) !important; background: var(--primary-bg) !important; }
+
+/* ---------- 区块标题：竖条 + 文本 + 计数胶囊（原 #7c3aed 竖条与 Badge） ---------- */
+.vir-section__head { display: flex; align-items: center; gap: var(--sp-2); }
+.vir-section__bar { width: 3px; height: 16px; border-radius: 2px; background: var(--grad-brand); flex: none; }
+.vir-section__title { font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.vir-section__count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: #fff;
+  background: var(--grad-brand);
+  border-radius: 999px;
+}
+
+/* ---------- 工具条：搜索 + 分类 + 入口 ---------- */
+.vir-toolbar { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.vir-toolbar__search { flex: 1 1 240px; min-width: 200px; }
+.vir-toolbar__select { flex: 0 1 200px; min-width: 150px; }
+.vir-toolbar__actions { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-wrap: wrap; }
+.vir-toolbar .ant-input-affix-wrapper,
+.vir-toolbar .ant-btn { border-radius: var(--r-md); }
+.vir-toolbar .ant-input-affix-wrapper { background: var(--card) !important; border-color: var(--line-strong) !important; }
+.vir-toolbar .ant-input-affix-wrapper:hover,
+.vir-toolbar .ant-input-affix-wrapper-focused { border-color: var(--primary) !important; box-shadow: var(--ring); }
+.vir-toolbar__actions .ant-btn {
+  background: var(--card) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.vir-toolbar__actions .ant-btn:hover { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-bg) !important; }
+
+/* ---------- 模板卡栅格 ---------- */
+.vir-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: var(--sp-4); }
+.vir-tpl-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.vir-tpl-card:hover { border-color: var(--line-strong); transform: translateY(-3px); box-shadow: var(--shadow-3); }
+.vir-tpl-card__cover { padding: var(--sp-3) var(--sp-3) 0; }
+.vir-tpl-card__body { display: flex; flex-direction: column; gap: 5px; padding: var(--sp-3) var(--sp-4) var(--sp-4); flex: 1; min-width: 0; }
+.vir-tpl-card__name { font-size: var(--fs-lg); font-weight: 640; color: var(--text); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.vir-tpl-card__desc {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.9em;
+}
+.vir-tpl-card__foot { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-top: auto; padding-top: var(--sp-2); }
+.vir-tpl-card__meta { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.vir-tpl-card__foot .vir-tpl-card__cat.ant-tag {
+  margin-inline-end: 0;
+  padding: 1px 9px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--text-secondary);
+}
+.vir-tpl-card__heat { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.vir-tpl-card__heat .anticon { color: var(--warning); }
+.vir-tpl-card__actions { display: flex; align-items: center; gap: 4px; }
+.vir-tpl-card__actions .vir-btn-del.ant-btn {
+  width: 26px; height: 26px; min-width: 26px; padding: 0;
+  border-radius: var(--r-sm);
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.vir-tpl-card:hover .vir-btn-del.ant-btn,
+.vir-tpl-card:focus-within .vir-btn-del.ant-btn { opacity: 1; }
+.vir-tpl-card__actions .vir-btn-del.ant-btn:hover { background: var(--danger-bg) !important; border-color: var(--danger) !important; }
+.vir-tpl-card__actions .vir-btn-use.ant-btn {
+  height: 26px;
+  padding: 0 12px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+}
+.vir-tpl-card__actions .vir-btn-use.ant-btn:hover { filter: brightness(1.06); box-shadow: var(--glow); }
+@media (hover: none) {
+  .vir-tpl-card__actions .vir-btn-del.ant-btn { opacity: 1; }
+}
+
+/* ---------- 我的项目栅格（更密） ---------- */
+.vir-pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: var(--sp-3); }
+.vir-proj-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.vir-proj-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.vir-proj-card__name { font-size: var(--fs-md); font-weight: 620; color: var(--text); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vir-proj-card__state { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.vir-proj-card .vir-proj-card__status.ant-tag {
+  margin-inline-end: 0;
+  padding: 1px 10px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  line-height: 1.8;
+}
+.vir-proj-card .ant-tag-default    { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.vir-proj-card .ant-tag-processing { background: color-mix(in srgb, var(--info) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 48%, var(--line)) !important; color: var(--info) !important; }
+.vir-proj-card .ant-tag-success    { background: color-mix(in srgb, var(--success) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 48%, var(--line)) !important; color: var(--success) !important; }
+.vir-proj-card .ant-tag-error      { background: color-mix(in srgb, var(--danger) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--danger) 48%, var(--line)) !important; color: var(--danger) !important; }
+.vir-proj-card__progress { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- 区块底部「查看全部」 ---------- */
+.vir-more { text-align: center; }
+.vir-more .ant-btn-link { color: var(--primary); font-size: var(--fs-md); }
+.vir-more .ant-btn-link:hover { color: var(--primary-hover); }
+
+/* ---------- 空态 / 加载态 ---------- */
+.vir-stage {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: var(--sp-6);
+  background: var(--card);
+  background-image: var(--grad-stage);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.vir-stage .ant-empty-description { color: var(--text-muted); }
+.vir-stage__hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 6px 0 12px; }
+.vir-loading { display: grid; place-items: center; min-height: 320px; }
+
+/* ---------- 教程弹窗内容（Modal 外壳交全局主题，本页只管内部排版） ---------- */
+.vir-help__section { margin-bottom: var(--sp-4); }
+.vir-help__h { font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.vir-help__list { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-2); }
+.vir-help__item { display: flex; gap: var(--sp-3); }
+.vir-help__no {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.vir-help__t { font-size: var(--fs-md); font-weight: 620; color: var(--text); }
+.vir-help__d { font-size: var(--fs-md); color: var(--text-secondary); }
+.vir-help__notes { margin: var(--sp-2) 0 0; padding-left: 20px; font-size: var(--fs-md); line-height: 1.8; color: var(--text-secondary); }
+.vir-help__notes li { margin-bottom: 2px; }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .vir-tpl-card,
+[data-theme=light] .vir-proj-card,
+[data-theme=light] .vir-stage {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -22px rgba(16, 24, 40, .24);
+}
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .vir-tpl-card,
+[data-theme=dark] .vir-proj-card,
+[data-theme=dark] .vir-stage {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+[data-theme=dark] .vir-step { background: color-mix(in srgb, var(--card) 62%, transparent); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 900px) {
+  .vir-hero { grid-template-columns: minmax(0, 1fr); }
+  .vir-hero__cta { align-items: stretch; }
+  .vir-hero__cta .vir-btn-hero.ant-btn { width: 100%; }
+}
+@media (max-width: 640px) {
+  .vir-grid { grid-template-columns: minmax(0, 1fr); }
+  .vir-pgrid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .vir-toolbar__actions { margin-left: 0; }
+}

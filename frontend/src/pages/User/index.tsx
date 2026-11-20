@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Card, Typography, Descriptions, Button, Space, Avatar, Divider, Tag, message, Statistic, Row, Col,
-} from 'antd';
+import { Typography, Button, Avatar, Tag, message } from 'antd';
 import {
   ArrowLeftOutlined, WalletOutlined, UserOutlined, ThunderboltOutlined,
-  CalendarOutlined, PhoneOutlined, CrownOutlined, LogoutOutlined,
+  CalendarOutlined, PhoneOutlined, MailOutlined, CrownOutlined, LogoutOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
+import './user.css';   // 本页质感改造样式（作用域 .user-root，详见文件头注释）
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface Profile {
   id: number;
@@ -21,6 +20,10 @@ interface Profile {
   role: string;
   created_at: string;
 }
+
+/* 文案与数据映射另建小函数（规范 §二·容器层职责），呈现口径统一、逻辑零改动 */
+const roleMeta = (r?: string) => (r === 'admin' ? { color: 'purple', label: '管理员' } : { color: 'blue', label: '普通用户' });
+const joinedOf = (s?: string) => (s ? new Date(s).toLocaleDateString('zh-CN') : '-');
 
 export default function UserPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -42,119 +45,80 @@ export default function UserPage() {
     navigate('/login');
   };
 
-  return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fb' }}>
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 24px 0' }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <Title level={3} style={{ margin: 0 }}>个人中心</Title>
-        </div>
-        <Button className="back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} style={{ marginBottom: 16 }}>返回</Button>
-      </div>
-      <div style={{ maxWidth: 700, margin: '0 auto', padding: '0 24px 32px' }}>
+  const credits = profile?.credits ?? user?.credits ?? 0;
+  const role = roleMeta(profile?.role ?? user?.role);
 
-        {/* User Card */}
-        <Card style={{ borderRadius: 16, marginBottom: 20, border: '1px solid #f0f0f0', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}
-          styles={{ body: { padding: 32 } }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginBottom: 24 }}>
-            <Avatar size={72} icon={<UserOutlined />}
-              style={{ backgroundColor: '#7c3aed', flexShrink: 0 }} />
-            <div style={{ flex: 1 }}>
-              <Space align="center" style={{ marginBottom: 4 }}>
-                <Title level={3} style={{ margin: 0 }}>{profile?.username || user?.username || '-'}</Title>
-                <Tag color={profile?.role === 'admin' ? 'purple' : 'blue'}>
-                  {profile?.role === 'admin' ? '管理员' : '普通用户'}
-                </Tag>
-              </Space>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <Space>
-                  <ThunderboltOutlined style={{ color: '#f59e0b' }} />
-                  <Text strong style={{ fontSize: 16 }}>{profile?.credits ?? user?.credits ?? 0}</Text>
-                  <Text type="secondary">算力</Text>
-                </Space>
-                {profile?.phone && (
-                  <Space>
-                    <PhoneOutlined style={{ color: '#52c41a' }} />
-                    <Text>{profile.phone}</Text>
-                  </Space>
-                )}
-                {profile?.email && (
-                  <Space>
-                    <Text type="secondary">{profile.email}</Text>
-                  </Space>
-                )}
-                <Space>
-                  <CalendarOutlined style={{ color: '#1890ff' }} />
-                  <Text type="secondary">
-                    {profile?.created_at ? new Date(profile.created_at).toLocaleDateString('zh-CN') : '-'} 加入
-                  </Text>
-                </Space>
+  return (
+    <div className="user-root">
+      {/* 顶栏：返回 + 标题（与 /tasks 同范式；原「居中大标题 + 下面一个返回钮」层级平） */}
+      <div className="user-topbar">
+        <div className="user-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+          <div className="user-topbar__titles">
+            <Title level={4} className="user-topbar__title">个人中心</Title>
+            <span className="user-topbar__sub">账号信息、算力余额与快捷入口</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="user-col">
+        {/* 身份卡：Card → 令牌卡；头像 #7c3aed → var(--grad-brand)；Space 行 → 小胶囊 */}
+        <section className="user-hero">
+          <div className="user-hero__id">
+            <Avatar size={72} className="user-hero__avatar" icon={<UserOutlined />} />
+            <div className="user-hero__main">
+              <div className="user-hero__nameline">
+                <span className="user-hero__name">{profile?.username || user?.username || '-'}</span>
+                <Tag className="user-hero__role" color={role.color}>{role.label}</Tag>
+              </div>
+              <div className="user-chips">
+                <span className="user-chip user-chip--credits"><ThunderboltOutlined />{credits} 算力</span>
+                {profile?.phone && <span className="user-chip"><PhoneOutlined />{profile.phone}</span>}
+                {profile?.email && <span className="user-chip user-chip--muted"><MailOutlined />{profile.email}</span>}
+                <span className="user-chip"><CalendarOutlined />{joinedOf(profile?.created_at)} 加入</span>
               </div>
             </div>
           </div>
-          <Divider style={{ margin: '0 0 20px' }} />
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12}>
-              <Button type="primary" size="large" icon={<WalletOutlined />} block
-                onClick={() => navigate('/order')}
-                style={{ borderRadius: 12, height: 48, fontWeight: 600 }}>
-                充值算力
-              </Button>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Button size="large" icon={<LogoutOutlined />} block
-                onClick={handleLogout}
-                style={{ borderRadius: 12, height: 48 }}>
-                退出登录
-              </Button>
-            </Col>
-          </Row>
-        </Card>
+          <div className="user-hero__actions">
+            <Button type="primary" size="large" icon={<WalletOutlined />} onClick={() => navigate('/order')}>
+              充值算力
+            </Button>
+            <Button size="large" icon={<LogoutOutlined />} onClick={handleLogout}>
+              退出登录
+            </Button>
+          </div>
+        </section>
 
-        {/* Account Details */}
-        <Card title={<Space><CrownOutlined style={{ color: '#7c3aed' }} />账户信息</Space>}
-          style={{ borderRadius: 16, border: '1px solid #f0f0f0' }}
-          styles={{ body: { padding: 24 } }}>
+        {/* 账户信息：antd Card + Descriptions(bordered) → 令牌面板 + 定义列表，字段与取值不变 */}
+        <section className="user-panel">
+          <header className="user-panel__head"><CrownOutlined /><span>账户信息</span></header>
           {profile && (
-            <Descriptions column={2} bordered size="small">
-              <Descriptions.Item label="用户名">{profile.username}</Descriptions.Item>
-              <Descriptions.Item label="角色">
-                <Tag color={profile.role === 'admin' ? 'purple' : 'blue'}>
-                  {profile.role === 'admin' ? '管理员' : '普通用户'}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="电子邮箱">{profile.email || '未绑定'}</Descriptions.Item>
-              <Descriptions.Item label="手机号">{profile.phone || '未绑定'}</Descriptions.Item>
-              <Descriptions.Item label="用户 ID">{profile.id}</Descriptions.Item>
-              <Descriptions.Item label="剩余算力">
-                <Text strong style={{ color: '#f59e0b' }}>{profile.credits} 分</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="注册时间" span={2}>
-                {new Date(profile.created_at).toLocaleDateString('zh-CN')}
-              </Descriptions.Item>
-            </Descriptions>
+            <dl className="user-kv">
+              <div className="user-kv__row"><dt>用户名</dt><dd>{profile.username}</dd></div>
+              <div className="user-kv__row">
+                <dt>角色</dt>
+                <dd><Tag color={roleMeta(profile.role).color}>{roleMeta(profile.role).label}</Tag></dd>
+              </div>
+              <div className="user-kv__row"><dt>电子邮箱</dt><dd>{profile.email || '未绑定'}</dd></div>
+              <div className="user-kv__row"><dt>手机号</dt><dd>{profile.phone || '未绑定'}</dd></div>
+              <div className="user-kv__row"><dt>用户 ID</dt><dd>{profile.id}</dd></div>
+              <div className="user-kv__row"><dt>剩余算力</dt><dd className="user-kv__credits">{profile.credits} 分</dd></div>
+              <div className="user-kv__row user-kv__row--wide"><dt>注册时间</dt><dd>{joinedOf(profile.created_at)}</dd></div>
+            </dl>
           )}
-        </Card>
+        </section>
 
-        {/* Quick Stats */}
-        <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
-          <Col xs={12}>
-            <Card style={{ borderRadius: 12, textAlign: 'center' }}
-              styles={{ body: { padding: 20 } }}>
-              <Statistic title="可用算力" value={profile?.credits ?? user?.credits ?? 0}
-                prefix={<ThunderboltOutlined style={{ color: '#f59e0b' }} />}
-                valueStyle={{ color: '#7c3aed' }} />
-            </Card>
-          </Col>
-          <Col xs={12}>
-            <Card style={{ borderRadius: 12, textAlign: 'center' }}
-              styles={{ body: { padding: 20 } }}
-              hoverable onClick={() => navigate('/order')}>
-              <Statistic title="充值" value="去充值"
-                prefix={<WalletOutlined style={{ color: '#52c41a' }} />}
-                valueStyle={{ color: '#7c3aed', fontSize: 16 }} />
-            </Card>
-          </Col>
-        </Row>
+        {/* 快捷块：antd Statistic 卡 → 令牌卡（数据与跳转不变） */}
+        <div className="user-stats">
+          <div className="user-stat">
+            <span className="user-stat__label"><ThunderboltOutlined />可用算力</span>
+            <span className="user-stat__num">{credits}</span>
+          </div>
+          <div className="user-stat user-stat--link" onClick={() => navigate('/order')}>
+            <span className="user-stat__label"><WalletOutlined />充值</span>
+            <span className="user-stat__num user-stat__num--text">去充值</span>
+          </div>
+        </div>
       </div>
     </div>
   );

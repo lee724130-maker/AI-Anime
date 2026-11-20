@@ -1,0 +1,210 @@
+/* =============================================================================
+   /comic-studio 漫画工作室 质感改造（第一轮：页面骨架 + 暗色破面根因）· 2026-11-20
+   沿用 /generate 样板与本轮已铺 6 页的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .cst- 前缀；antd 覆盖一律写成 `.cst-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：七步 Steps 的门禁（step>=5 需过预检确认、step 6 需全格完成）、
+   3s 轮询（tick + stopped/in-flight 保护）、草稿 sessionStorage 步序恢复、
+   识别人物 / 生成人设 / 设定本块级重生成 / 应用大资产 / 锁定 / 生成分格 / 导出漫画包
+   全部原样保留。
+
+   本轮范围（诚实边界）：
+     ✅ 页面外壳与顶栏令牌化（去掉与 UserLayout 重复的 maxWidth 1280 + 双重 padding）
+     ✅ 步骤条外层 Card → 令牌面板
+     ✅ **暗色破面根因**：5 处占位块写死 `background:'#f3f4f6' + color:'#9ca3af'`（浅灰面 + 中灰字），
+        暗色下就是一块块亮白方块（同 /user 的 #f8f9fb、/tasks 的 #1a1a1a 一类 bug）→ 改 .cst-ph 令牌占位；
+        资产挑选器里的 #eee 描边、#555 说明字、#1677ff 选中描边同理 → 令牌化。
+     ✅ 预检数字写死的 #c2410c / #dc2626 / #16a34a → var(--warning)/var(--danger)/var(--success)
+     ⬜ 未纳入本轮：页内 13 个 antd Card 的内部结构（人设表单卡、设定本卡、格卡、剧情图卡）与
+        两个弹窗（CharacterDetailModal / BlockAssetPicker）的整体重排 —— 体量大、耦合生图状态机，
+        留作下一轮单独铺，避免一次改太多把生成流程改坏。
+   ============================================================================= */
+
+/* ---------- 骨架（外层留白交回 UserLayout，本页只管内部节奏） ---------- */
+.cst-root { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+/* ---------- 顶栏 ---------- */
+.cst-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.cst-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.cst-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.cst-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.cst-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.cst-topbar__tag.ant-tag {
+  margin-inline-end: 0;
+  padding: 1px 10px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  line-height: 1.8;
+  background: color-mix(in srgb, var(--primary) 20%, var(--surface-3));
+  border-color: color-mix(in srgb, var(--primary) 44%, var(--line));
+  color: var(--primary);
+}
+.cst-root .cst-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.cst-root .cst-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+
+/* ---------- 步骤面板（原页内唯一那层 <Card> 外壳） ---------- */
+.cst-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-5) var(--sp-5) var(--sp-6);
+  transition: border-color var(--t-base) var(--ease);
+}
+.cst-panel:hover { border-color: var(--line-strong); }
+.cst-panel .ant-steps { margin-bottom: var(--sp-5); }
+.cst-panel .ant-steps .ant-steps-item-title { font-size: var(--fs-md); }
+.cst-panel .ant-steps .ant-steps-item-icon { width: 28px; height: 28px; font-size: var(--fs-sm); line-height: 26px; }
+.cst-panel .ant-steps .ant-steps-item-process .ant-steps-item-icon { background: var(--grad-brand) !important; border-color: transparent !important; box-shadow: var(--glow); }
+.cst-panel .ant-steps .ant-steps-item-finish .ant-steps-item-icon { background: var(--surface-3) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; }
+.cst-panel .ant-steps .ant-steps-item-finish .ant-steps-item-icon > .ant-steps-icon { color: var(--primary) !important; }
+.cst-panel .ant-steps .ant-steps-item-title::after { border-color: var(--line-strong) !important; }
+
+/* ---------- 占位块（本轮核心修复：暗色下不再是一块亮白方块） ---------- */
+.cst-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  background-image: var(--grad-stage);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  text-align: center;
+  line-height: 1.5;
+  padding: var(--sp-2);
+}
+.cst-ph--1x1 { aspect-ratio: 1 / 1; }
+.cst-ph--2x3 { aspect-ratio: 2 / 3; }
+.cst-ph--72 { width: 72px; height: 72px; border-radius: var(--r-sm); font-size: var(--fs-xs); }
+.cst-ph--pointer { cursor: pointer; transition: background var(--t-base) var(--ease), color var(--t-base) var(--ease); }
+.cst-ph--pointer:hover { color: var(--text-secondary); }
+
+/* ---------- 缩略图统一描边（原写死 #d9d9d9） ---------- */
+.cst-thumb { object-fit: cover; border-radius: var(--r-sm); border: 1px solid var(--line-strong); }
+
+/* ---------- 预检数字（原写死 #c2410c / #dc2626 / #16a34a） ---------- */
+.cst-stat__num { margin: 0 !important; font-variant-numeric: tabular-nums; color: var(--text); }
+.cst-stat__num[data-tone="warn"] { color: var(--warning); }
+.cst-stat__num[data-tone="danger"] { color: var(--danger); }
+.cst-stat__num[data-tone="success"] { color: var(--success); }
+
+/* ---------- 资产挑选器（原 #eee 描边 / #555 说明字 / #1677ff 选中描边） ---------- */
+.cst-pick {
+  cursor: pointer;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.cst-pick:hover { border-color: var(--primary); }
+.cst-pick[data-on="1"] { border: 2px solid var(--primary); box-shadow: var(--ring); }
+.cst-pick__cap {
+  padding: 2px 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  background: var(--card);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cst-pick__cell { border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; background: var(--surface-2); }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .cst-panel { border-color: #e2e7f2; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -22px rgba(16, 24, 40, .24); }
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .cst-panel { border-color: var(--line-strong); box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05); }
+
+/* ---------- 步骤面板（原页内唯一那层 <Card> 外壳） ---------- */
+.cst-panel--narrow { max-width: 760px; margin: 0 auto; }
+
+/* ---------- 主按钮（新建项目） ---------- */
+.cst-root .cst-btn-new.ant-btn {
+  border-radius: var(--r-md);
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+  font-weight: 620;
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.cst-root .cst-btn-new.ant-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+
+/* ---------- 项目列表（landing 分支）：Row/Col 断点 → 等宽栅格 ---------- */
+.cst-pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--sp-4); }
+.cst-pcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.cst-pcard:hover { border-color: var(--line-strong); transform: translateY(-3px); box-shadow: var(--shadow-3); }
+.cst-pcard__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
+.cst-pcard__title { font-size: var(--fs-lg); font-weight: 640; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cst-pcard .cst-pcard__status.ant-tag { margin-inline-end: 0; padding: 1px 10px; font-size: var(--fs-xs); border-radius: 999px; line-height: 1.8; flex: none; }
+.cst-pcard .ant-tag-default { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.cst-pcard .ant-tag-processing { background: color-mix(in srgb, var(--info) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 48%, var(--line)) !important; color: var(--info) !important; }
+.cst-pcard .ant-tag-success { background: color-mix(in srgb, var(--success) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 48%, var(--line)) !important; color: var(--success) !important; }
+.cst-pcard .ant-tag-error { background: color-mix(in srgb, var(--danger) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--danger) 48%, var(--line)) !important; color: var(--danger) !important; }
+.cst-pcard .ant-tag-gold { background: color-mix(in srgb, var(--warning) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--warning) 46%, var(--line)) !important; color: var(--warning) !important; }
+.cst-pcard__meta { display: flex; flex-direction: column; gap: 5px; }
+.cst-pcard__row { font-size: var(--fs-sm); color: var(--text-secondary); }
+.cst-pcard__cta { margin-top: auto; }
+.cst-pcard__cta.ant-btn {
+  height: 40px;
+  border-radius: var(--r-md);
+  font-weight: 620;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+}
+.cst-pcard__cta.ant-btn:hover { filter: brightness(1.06); box-shadow: var(--glow); }
+
+/* ---------- 空态舞台 ---------- */
+.cst-stage {
+  display: grid;
+  place-items: center;
+  gap: var(--sp-2);
+  min-height: 300px;
+  padding: var(--sp-6);
+  background: var(--card);
+  background-image: var(--grad-stage);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.cst-stage .ant-empty-description { color: var(--text-muted); }
+.cst-stage__hint { font-size: var(--fs-sm); color: var(--text-muted); }
+.cst-stage .cst-btn-new.ant-btn { margin-top: var(--sp-2); }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .cst-panel,
+[data-theme=light] .cst-pcard,
+[data-theme=light] .cst-stage { border-color: #e2e7f2; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -22px rgba(16, 24, 40, .24); }
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .cst-panel,
+[data-theme=dark] .cst-pcard,
+[data-theme=dark] .cst-stage { border-color: var(--line-strong); box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .cst-panel { padding: var(--sp-4) var(--sp-3) var(--sp-5); }
+  .cst-pgrid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,0 +1,225 @@
+/* =============================================================================
+   /open-gallery 开源图片质感改造 · 2026-11-20
+   沿用 /generate 样板 + /tasks /drama /user 的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .gal- 前缀；antd 覆盖一律写成 `.gal-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：目录拉取 / 四个 tab 的过滤 useMemo / 分页 / 导入接口 / 剪贴板 /
+   「去角色设定本」的 lastProjectId 边界修复（§18）全部原样保留。
+   本轮改的容器与观感：
+     1. 页内 maxWidth 1280 + padding 与外层 UserLayout 重复（双重留白）→ 交回 UserLayout。
+     2. 说明用整块 Alert 常驻（样板页同款噪音）→ 默认折叠的规则条 <details>。
+     3. 图卡用 antd Card(cover) + Row/Col 断点魔法数字 → 令牌卡 + auto-fill 密集栅格。
+     4. 图片 inline aspectRatio/objectFit 魔法数字 → 封面块定比例，图挂了留占位底纹不出裂图。
+     5. Tabs 轨道、Pagination、导入按钮全走令牌（原暗色下由 index.css !important 兜着，层级平）。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.gal-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* ---------- 顶栏 ---------- */
+.gal-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.gal-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.gal-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.gal-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.gal-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.gal-root .gal-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.gal-root .gal-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+.gal-topbar__count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 11px;
+  font-size: var(--fs-xs);
+  color: var(--primary);
+  background: var(--primary-bg);
+  border: 1px solid color-mix(in srgb, var(--primary) 38%, var(--line));
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* ---------- 折叠规则条（取代常驻 Alert） ---------- */
+.gal-guide {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.gal-guide__summary {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 11px var(--sp-4);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  transition: background var(--t-fast) var(--ease);
+}
+.gal-guide__summary::-webkit-details-marker { display: none; }
+.gal-guide__summary:hover { background: var(--hover); }
+.gal-guide__mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+.gal-guide__title { font-size: var(--fs-md); font-weight: 620; color: var(--text); }
+.gal-guide__chev { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); transition: transform var(--t-fast) var(--ease); }
+.gal-guide[open] .gal-guide__chev { transform: rotate(90deg); }
+.gal-guide__body {
+  padding: 0 var(--sp-4) var(--sp-4) calc(var(--sp-4) + 22px + var(--sp-3));
+  font-size: var(--fs-sm);
+  line-height: 1.75;
+  color: var(--text-secondary);
+}
+
+/* ---------- 面板（原 antd Card 外壳） ---------- */
+.gal-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-2) var(--sp-4) var(--sp-4);
+  transition: border-color var(--t-base) var(--ease);
+}
+.gal-panel:hover { border-color: var(--line-strong); }
+
+/* Tabs：轨道走冷灰面，选中项品牌色（与 /tasks 分段控件同口径） */
+.gal-panel .ant-tabs-nav { margin-bottom: var(--sp-4); }
+.gal-panel .ant-tabs-nav::before { border-bottom-color: var(--line) !important; }
+.gal-panel .ant-tabs-tab { color: var(--text-secondary); font-size: var(--fs-md); padding: 10px 4px; transition: color var(--t-fast) var(--ease); }
+.gal-panel .ant-tabs-tab:hover { color: var(--text); }
+.gal-panel .ant-tabs-tab-active .ant-tabs-tab-btn { color: var(--primary) !important; font-weight: 650; }
+.gal-panel .ant-tabs-ink-bar { background: var(--grad-brand) !important; height: 3px !important; border-radius: 2px; }
+.gal-panel .ant-tabs-extra-content .ant-select,
+.gal-panel .ant-tabs-extra-content .ant-input-search { font-size: var(--fs-sm); }
+
+/* ---------- 密集图卡栅格（取代 xs12/sm8/md6/lg4 断点魔法数字） ---------- */
+.gal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(166px, 1fr));
+  gap: var(--sp-3);
+}
+
+.gal-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.gal-card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+
+/* 封面：定比例 2/3，图挂了留底纹，不出裂图 */
+.gal-card__cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  background: var(--surface-3);
+  background-image: var(--grad-stage);
+  overflow: hidden;
+}
+.gal-card__cover .ant-image { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.gal-card__cover .ant-image-img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform var(--t-base) var(--ease); color: transparent; }
+.gal-card:hover .gal-card__cover .ant-image-img { transform: scale(1.04); }
+.gal-card__cover .ant-image-mask { background: color-mix(in srgb, var(--primary) 34%, transparent); color: #fff; font-size: var(--fs-sm); }
+
+.gal-card__body { display: flex; flex-direction: column; gap: 3px; padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.gal-card__title { font-size: var(--fs-sm); color: var(--text); line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gal-card__id { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gal-card .gal-card__done.ant-tag {
+  margin: 3px 0 0;
+  padding: 1px 8px;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--success) 22%, var(--surface-3)) !important;
+  border-color: color-mix(in srgb, var(--success) 46%, var(--line)) !important;
+  color: var(--success) !important;
+}
+.gal-card__body .gal-card__import.ant-btn {
+  margin-top: var(--sp-2);
+  width: 100%;
+  font-size: var(--fs-xs);
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--text-secondary) !important;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.gal-card:hover .gal-card__import.ant-btn,
+.gal-card__import.ant-btn:hover {
+  background: var(--grad-brand) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+}
+
+/* ---------- 分页 ---------- */
+.gal-pager { display: flex; justify-content: center; margin-top: var(--sp-4); }
+.gal-pager .ant-pagination-item { background: var(--surface-2) !important; border-color: var(--line) !important; border-radius: var(--r-sm); }
+.gal-pager .ant-pagination-item a { color: var(--text) !important; }
+.gal-pager .ant-pagination-item-active { background: var(--grad-brand) !important; border-color: transparent !important; box-shadow: var(--glow); }
+.gal-pager .ant-pagination-item-active a { color: #fff !important; }
+.gal-pager .ant-pagination-total-text { color: var(--text-secondary); }
+
+/* ---------- 空态 / 加载态 ---------- */
+.gal-stage {
+  display: grid;
+  place-items: center;
+  min-height: 260px;
+  background-image: var(--grad-stage);
+  border-radius: var(--r-md);
+}
+.gal-stage .ant-empty-description { color: var(--text-muted); }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .gal-panel,
+[data-theme=light] .gal-card,
+[data-theme=light] .gal-guide {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .22);
+}
+[data-theme=light] .gal-card { background: var(--card); }
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .gal-panel,
+[data-theme=dark] .gal-guide {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+[data-theme=dark] .gal-card { background: var(--surface-2); border-color: var(--line-strong); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .gal-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+  .gal-panel { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+}

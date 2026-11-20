@@ -1,0 +1,213 @@
+/* =============================================================================
+   /user 个人中心质感改造 · 2026-11-20
+   沿用 /generate 样板 + /tasks /drama 的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .user- 前缀；antd 覆盖一律写成 `.user-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：/api/user/profile 拉取、refreshUser、退出登录、跳转 /order 全部不动。
+   本轮修掉的根因（实测，不是观感推测）：
+     1. **页面底写死 background:'#f8f9fb'** —— 浅灰常量，暗色下整页仍是亮底（同 /tasks 的 #1a1a1a 一类 bug）。
+        改为不铺背景，交回 .app-shell / body 的 var(--bg)（index.css:14 本就不给背景）。
+     2. 品牌色到处写死 #7c3aed（与全站令牌 --primary #6c5ce7 / 暗色 #818cf8 不同色）→ 走 var(--grad-brand)。
+     3. 头像、算力、按钮、圆角、内边距全是内联魔法数字 → 全部走令牌刻度。
+     4. Descriptions bordered 表格式外壳 + antd Card 被 index.css:93 的暗色 !important 钉死
+        → 换成令牌卡 + .user-kv 定义列表，层级由 --card/--surface/--line-strong 拉开。
+   ============================================================================= */
+
+/* ---------- 骨架：单列居中（本页在 AppShell 内，无 UserLayout 的 1280 约束） ---------- */
+.user-root {
+  min-height: 100vh;
+  padding: var(--sp-6) var(--sp-4) var(--sp-7);
+}
+.user-col {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* ---------- 顶栏：返回 + 标题（与 /tasks 同一范式） ---------- */
+.user-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  max-width: 760px;
+  margin: 0 auto var(--sp-5);
+}
+.user-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); }
+.user-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.user-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.user-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.user-root .user-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.user-root .user-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+
+/* ---------- 令牌卡通用外壳（卡 + 面板共用） ---------- */
+.user-hero,
+.user-panel,
+.user-stat {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.user-panel:hover,
+.user-hero:hover { border-color: var(--line-strong); }
+
+/* ---------- 身份卡 ---------- */
+.user-hero { padding: var(--sp-6); }
+.user-hero__id { display: flex; align-items: center; gap: 20px; }
+.user-hero .user-hero__avatar.ant-avatar {
+  flex: none;
+  background: var(--grad-brand) !important;
+  box-shadow: var(--glow);
+  border-radius: var(--r-lg);
+  font-size: 34px;
+}
+.user-hero__main { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.user-hero__nameline { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.user-hero__name { font-size: var(--fs-2xl); font-weight: 680; color: var(--text); line-height: 1.3; word-break: break-all; }
+
+/* 角色胶囊：实心（非透明），暗色下不会被读成空心 */
+.user-hero .user-hero__role.ant-tag {
+  margin-inline-end: 0;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  line-height: 1.8;
+}
+.user-hero .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.user-hero .ant-tag-blue   { background: color-mix(in srgb, var(--info) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 46%, var(--line)) !important; color: var(--info) !important; }
+
+/* 身份卡下的信息小胶囊：算力 / 手机 / 邮箱 / 加入时间 */
+.user-chips { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.user-chip .anticon { font-size: var(--fs-md); }
+.user-chip--credits { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 38%, var(--line)); background: color-mix(in srgb, var(--warning) 12%, var(--surface-2)); font-weight: 650; }
+.user-chip--muted { color: var(--text-muted); }
+
+/* 主操作条：两张等宽按钮（原 Row/Col xs=24 sm=12 → 自适应栅格） */
+.user-hero__actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--line);
+}
+.user-hero__actions .ant-btn {
+  height: 48px;
+  border-radius: var(--r-md);
+  font-weight: 600;
+}
+.user-hero__actions .ant-btn-primary {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.user-hero__actions .ant-btn-primary:hover { filter: brightness(1.05); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+.user-hero__actions .ant-btn-default {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+}
+.user-hero__actions .ant-btn-default:hover { border-color: var(--danger) !important; color: var(--danger) !important; background: var(--danger-bg) !important; }
+
+/* ---------- 账户信息面板：Descriptions bordered 表格壳 → 定义列表 ---------- */
+.user-panel { padding: var(--sp-5) var(--sp-6) var(--sp-6); }
+.user-panel__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  color: var(--text);
+  padding-bottom: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.user-panel__head .anticon { color: var(--primary); }
+.user-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 2px var(--sp-5);
+  margin: 0;
+}
+.user-kv__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--line);
+}
+.user-kv__row:last-child { border-bottom: none; }
+.user-kv__row--wide { grid-column: 1 / -1; }
+.user-kv dt { font-size: var(--fs-sm); color: var(--text-muted); flex: none; }
+.user-kv dd { margin: 0; font-size: var(--fs-md); color: var(--text); text-align: right; word-break: break-all; }
+.user-kv .user-kv__credits { color: var(--warning); font-weight: 700; }
+.user-kv .ant-tag { margin-inline-end: 0; border-radius: 999px; padding: 1px 10px; font-size: var(--fs-xs); line-height: 1.8; }
+.user-panel .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.user-panel .ant-tag-blue   { background: color-mix(in srgb, var(--info) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 46%, var(--line)) !important; color: var(--info) !important; }
+
+/* ---------- 底部快捷块（原 antd Statistic 卡） ---------- */
+.user-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.user-stat { padding: var(--sp-4) var(--sp-5); display: flex; flex-direction: column; gap: 6px; }
+.user-stat:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.user-stat--link { cursor: pointer; }
+.user-stat--link:hover { transform: translateY(-2px); }
+.user-stat__label { font-size: var(--fs-sm); color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.user-stat__label .anticon { color: var(--warning); }
+.user-stat--link .user-stat__label .anticon { color: var(--success); }
+.user-stat__num { font-size: var(--fs-2xl); font-weight: 700; color: var(--text); line-height: 1.15; }
+.user-stat__num--text { font-size: var(--fs-lg); font-weight: 620; }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .user-hero,
+[data-theme=light] .user-panel,
+[data-theme=light] .user-stat {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -20px rgba(16, 24, 40, .26);
+}
+
+/* ---------- 暗色补层级：卡与页面底(--bg #0f172a)拉开 ---------- */
+[data-theme=dark] .user-hero,
+[data-theme=dark] .user-panel,
+[data-theme=dark] .user-stat {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .user-root { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .user-hero { padding: var(--sp-5); }
+  .user-hero__id { align-items: flex-start; gap: var(--sp-3); }
+  .user-panel { padding: var(--sp-4); }
+  .user-kv { grid-template-columns: minmax(0, 1fr); }
+  .user-stats { grid-template-columns: minmax(0, 1fr); }
+}

@@ -3,12 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
-  Card,
-  Col,
   Empty,
   Modal,
   Result,
-  Row,
   Skeleton,
   Space,
   Table,
@@ -29,8 +26,9 @@ import type { ColumnsType } from 'antd/es/table';
 import api from '../../services/api';
 import { formatDateSafe } from '../../utils/date';
 import { useAuthStore } from '../../stores/authStore';
+import './order.css';   // 本页质感改造样式（作用域 .ord-root，详见文件头注释）
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface Plan {
   key: string;
@@ -141,7 +139,8 @@ function PayModal({
     >
       {status === 'paid' && (
         <Result
-          icon={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+          className="ord-pay"
+          icon={<CheckCircleOutlined className="ord-pay__ok" />}
           title="支付成功"
           subTitle={`已到账 ${credits} 算力`}
           extra={
@@ -153,7 +152,8 @@ function PayModal({
       )}
       {status === 'cancelled' && (
         <Result
-          icon={<CloseCircleOutlined style={{ color: '#ff4d4f' }} />}
+          className="ord-pay"
+          icon={<CloseCircleOutlined className="ord-pay__no-icon" />}
           title="订单已取消"
           extra={
             <Button onClick={close}>关闭</Button>
@@ -161,28 +161,20 @@ function PayModal({
         />
       )}
       {status === 'pending' && (
-        <>
-          <div style={{ marginBottom: 16 }}>
-            <PayCircleOutlined style={{ fontSize: 20, color: 'var(--primary)', marginRight: 8 }} />
-            <Text strong style={{ fontSize: 16 }}>
-              支付宝支付
-            </Text>
+        <div className="ord-pay">
+          <div className="ord-pay__head">
+            <PayCircleOutlined />
+            <span>支付宝支付</span>
           </div>
-          <div style={{ marginBottom: 12 }}>
-            <Text type="secondary">订单号：{orderNo}</Text>
-          </div>
-          <div style={{ marginBottom: 20 }}>
-            <Text strong style={{ fontSize: 28, color: 'var(--primary)' }}>
-              ¥{Number(amount).toFixed(2)}
-            </Text>
-            <Text type="secondary" style={{ marginLeft: 8 }}>
-              得 {credits} 算力
-            </Text>
+          <div className="ord-pay__no">订单号：{orderNo}</div>
+          <div className="ord-pay__sum">
+            <span className="ord-pay__amount">¥{Number(amount).toFixed(2)}</span>
+            <span className="ord-pay__credits">得 {credits} 算力</span>
           </div>
           <Button
             type="primary"
             size="large"
-            block
+            className="ord-pay__go"
             icon={<PayCircleOutlined />}
             onClick={() => {
               if (!payUrl) return;
@@ -191,20 +183,17 @@ function PayModal({
                 window.location.href = payUrl;
               }
             }}
-            style={{ marginBottom: 12, background: 'var(--primary)', borderColor: 'var(--primary)' }}
           >
             去支付宝付款
           </Button>
-          <Button size="large" block onClick={close} style={{ marginBottom: 12 }}>
+          <Button size="large" className="ord-pay__cancel" onClick={close}>
             取消支付
           </Button>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              <LoadingOutlined style={{ marginRight: 4 }} />
-              支付完成后此窗口会自动更新
-            </Text>
-          </div>
-        </>
+          <span className="ord-pay__hint">
+            <LoadingOutlined />
+            支付完成后此窗口会自动更新
+          </span>
+        </div>
       )}
     </Modal>
   );
@@ -228,19 +217,14 @@ function Countdown({ createdAt }: { createdAt: string }) {
     return () => clearInterval(timer);
   }, [createdAt]);
 
-  if (remaining <= 0) return <Text type="danger">已超时</Text>;
+  if (remaining <= 0) return <span className="ord-count--timeout">已超时</span>;
 
   const mm = Math.floor(remaining / 60000);
   const ss = Math.floor((remaining % 60000) / 1000);
   return (
-    <Text
-      style={{
-        color: remaining < 180 * 1000 ? '#ff4d4f' : 'var(--text)',
-        fontVariantNumeric: 'tabular-nums',
-      }}
-    >
+    <span className="ord-count" data-urgent={remaining < 180 * 1000 ? '1' : '0'}>
       {String(mm).padStart(2, '0')}:{String(ss).padStart(2, '0')}
-    </Text>
+    </span>
   );
 }
 
@@ -443,16 +427,16 @@ export default function OrderPage() {
       width: 150,
       render: (_, record) =>
         record.status === 'pending' ? (
-          <Space>
+          <Space size={6}>
             <Button
               size="small"
               type="primary"
+              className="ord-btn-pay"
               onClick={() => openPayUrl(record)}
-              style={{ background: 'var(--primary)', borderColor: 'var(--primary)' }}
             >
               去支付
             </Button>
-            <Button size="small" type="primary" className="btn-danger" onClick={() => cancelOrder(record)}>
+            <Button size="small" type="primary" className="ord-btn-cancel" onClick={() => cancelOrder(record)}>
               取消
             </Button>
           </Space>
@@ -461,101 +445,89 @@ export default function OrderPage() {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'clamp(16px, 3vw, 24px) 0 0' }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <Title level={3} style={{ margin: 0 }}>
-            算力充值
-          </Title>
+    <div className="ord-root">
+      {/* 顶栏：返回圆钮 + 标题（与 /user /tasks 同范式，取代「居中大标题 + 下面一个返回钮」） */}
+      <div className="ord-topbar">
+        <div className="ord-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+          <div className="ord-topbar__titles">
+            <Title level={4} className="ord-topbar__title">算力充值</Title>
+            <span className="ord-topbar__sub">选择套餐创建订单，支付成功后算力自动到账</span>
+          </div>
         </div>
-        <Button
-          className="back-btn"
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/dashboard')}
-          style={{ marginBottom: 16 }}
-        >
-          返回
-        </Button>
+      </div>
+
+      <div className="ord-notice">
         <Alert
           message="当前为测试阶段，视频生成使用免费模型，充值后积分可正常使用但暂无额外算力加成，建议等正式版上线后再充值。"
           type="warning"
           showIcon
           closable
-          style={{ marginBottom: 20, borderRadius: 8 }}
         />
       </div>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 clamp(16px, 3vw, 24px) 32px' }}>
-        <Card style={{ marginBottom: 20, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
-          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <div>
-              <Title level={3} style={{ marginBottom: 4 }}>
-                套餐选择
-              </Title>
-              <Text type="secondary">
-                当前账号：{user?.username || '-'}，剩余 {user?.credits ?? 0} 算力
-              </Text>
-            </div>
-            <WalletOutlined style={{ fontSize: 34, color: 'var(--primary)' }} />
-          </Space>
-        </Card>
 
-        {loading ? (
-          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            {[1, 2, 3].map((i) => (
-              <Col xs={24} md={8} key={i}>
-                <Card style={{ borderRadius: 12, height: 320, border: '1px solid var(--border)' }}>
-                  <Skeleton active paragraph={{ rows: 6 }} />
-                </Card>
-              </Col>
-            ))}
-          </Row>
-        ) : (
-          <>
-            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-              {plans.map((plan) => (
-                <Col xs={24} md={8} key={plan.key}>
-                  <Card
-                    hoverable
-                    style={{ borderRadius: 12, height: '100%', border: '1px solid var(--border)' }}
-                    title={
-                      <Space>
-                        <ThunderboltOutlined style={{ color: 'var(--warning)' }} />
-                        {plan.name}
-                      </Space>
-                    }
-                    extra={<Tag color={plan.key === 'creator' ? 'purple' : 'blue'}>{plan.badge}</Tag>}
-                  >
-                    <Title level={2} style={{ margin: '0 0 6px' }}>
-                      ¥{Number(plan.amount).toFixed(2)}
-                    </Title>
-                    <Text strong style={{ fontSize: 18 }}>
-                      {plan.credits} 算力
-                    </Text>
-                    <Button
-                      type="primary"
-                      block
-                      loading={creatingPlan === plan.key}
-                      icon={<CheckCircleOutlined />}
-                      style={{ marginTop: 20, background: 'var(--primary)', borderColor: 'var(--primary)' }}
-                      onClick={() => requestCreate(plan.key)}
-                    >
-                      {creatingPlan === plan.key ? '创建中...' : '创建充值订单'}
-                    </Button>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-
-            <Card title="充值记录" style={{ borderRadius: 12, border: '1px solid var(--border)' }}>
-              {orders.length ? (
-                <Table rowKey="id" columns={columns} dataSource={orders} pagination={false} scroll={{ x: 640 }} />
-              ) : (
-                <Empty description="暂无充值订单" />
-              )}
-            </Card>
-          </>
-        )}
+      {/* 账户条 */}
+      <div className="ord-account">
+        <div className="ord-account__titles">
+          <Title level={4} className="ord-account__title">套餐选择</Title>
+          <span className="ord-account__sub">
+            当前账号：{user?.username || '-'}，剩余 <b>{user?.credits ?? 0}</b> 算力
+          </span>
+        </div>
+        <WalletOutlined className="ord-account__icon" />
       </div>
+
+      {loading ? (
+        <div className="ord-plans">
+          {[1, 2, 3].map((i) => (
+            <div className="ord-plan ord-plan--skeleton" key={i}>
+              <Skeleton active paragraph={{ rows: 6 }} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          {/* 套餐卡：antd Card(title/extra) → 令牌卡，字段与下单流程零改动 */}
+          <div className="ord-plans">
+            {plans.map((plan) => (
+              <div className="ord-plan" key={plan.key} data-featured={plan.key === 'creator' ? '1' : '0'}>
+                <div className="ord-plan__head">
+                  <span className="ord-plan__name"><ThunderboltOutlined />{plan.name}</span>
+                  <Tag className="ord-plan__badge" color={plan.key === 'creator' ? 'purple' : 'blue'}>{plan.badge}</Tag>
+                </div>
+                <div className="ord-plan__price">¥{Number(plan.amount).toFixed(2)}</div>
+                <div className="ord-plan__credits">{plan.credits} 算力</div>
+                <div className="ord-plan__cta">
+                  <Button
+                    type="primary"
+                    block
+                    loading={creatingPlan === plan.key}
+                    icon={<CheckCircleOutlined />}
+                    onClick={() => requestCreate(plan.key)}
+                  >
+                    {creatingPlan === plan.key ? '创建中...' : '创建充值订单'}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 充值记录 */}
+          <div className="ord-records">
+            <div className="ord-records__head">
+              <span>充值记录</span>
+              <span className="ord-records__count">{orders.length}</span>
+            </div>
+            <div className="ord-records__body">
+              {orders.length ? (
+                <Table rowKey="id" columns={columns} dataSource={orders} pagination={false} scroll={{ x: 640 }} size="middle" />
+              ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无充值订单" />
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       <PayModal
         open={payModal.open}
