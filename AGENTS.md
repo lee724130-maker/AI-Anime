@@ -1,5 +1,84 @@
 # 修复日志
 
+## 2026-11-20（前端质感改造·清单 7 页全部铺开 ✅ 本地实测通过，**未提交 GitHub、未部署生产**）
+
+> 承接 11-19「下一步」清单：`/drama` → `/user` → `/open-gallery` → `/viral` → `/canvas` → `/order` → `/comic-studio`，本轮把 7 页全部铺完。全程守三层法：`index.tsx` 只换容器、页作用域 CSS、Form/state/接口字段/提交逻辑零改动。用户本轮明确范围＝**只做文档列的这 7 页**（`/dashboard` 按约定不动，Landing/Studio/Script/Character/Video/Editor/Auth 本轮不纳入）。
+
+### ⚠️ ① 本轮工作目录是新环境（重要，影响验收口径）
+- `D:\AI-Anime` 是**今日 16:45 从 GitHub 新克隆的一份**（`.git/logs/HEAD` 只有 1 条 clone 记录），不是原来那台开发机。
+- 实测缺口：三端**无 `node_modules`**、`backend` **无 `.env`/`.env.local`**、无 `dist`/`output`；`3306/6379/3000/5173/5174` 全都没有监听；`~/.ssh` 为空（**没有服务器私钥 → 本轮不可能部署**）；**本机根本没有 git 可执行文件**（PATH、`C:\Program Files*\Git`、`D:\` 递归、`C:\ProgramData` 全部搜索无果 → **无法提交推送**，改动全部留在工作区）。
+- 已补齐的最小环境：`frontend` `npm install`（306 包，`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`）；探针改用本机 Chrome —— `PW=frontend/node_modules/playwright-core`、`EXE=C:/Program Files/Google/Chrome/Application/chrome.exe`（原脚本默认的 `D:/OpenFilm/...` 在本机不存在）。`vite dev` 已拉起在 `:5173`（只听 `::1`，必须用 `localhost`）。
+- **因此本轮没有跑任何后端接口、没有花任何积分、没有碰生产**；验证全靠 `npm run build` + 桩掉全部 `/api` 的探针（零计费、无需登录态）。
+
+### ✅ ② 七页做了什么（一句话一页，全部只动容器与观感）
+- **`/drama`**（新 `drama.css`）：`Card/Row/Col/Descriptions` → 令牌卡 + `auto-fill` 栅格；主按钮写死 `#7c3aed` → `var(--grad-brand)`；状态 Tag 原来用 `position:absolute; top:160` 硬坐标（封面一改就错位）→ 贴到封面右上胶囊；删除钮改 hover 才浮现（触屏常显）。**顺带修真 bug**：后端 `GET /api/drama` 的 `cover_url` 会回落到分集/片段的 **video_url（mp4）**（`drama.service.ts:113-117`），原实现当 CSS background 用 → 视频路径永远画不出东西；新增 `coverOf()` 小函数按图片/视频分别出图/出帧，并统一套 `getUrl()`（生产 `/static` 相对路径才解析得开）。
+- **`/user`**（新 `user.css`）：**修真 bug——页面底写死 `background:'#f8f9fb'`，暗色下整页仍是亮底**（与 11-19 `/tasks` 的 `#1a1a1a` 同类），改为交回 `.app-shell`/`body` 的 `var(--bg)`；头像 `#7c3aed`、算力 `#f59e0b`、`Descriptions bordered` 表格壳 → 令牌卡 + `.user-kv` 定义列表；顶栏换成与 `/tasks` 同范式。
+- **`/open-gallery`**（新 `open-gallery.css`）：页内 `maxWidth 1280 + padding` 与外层 `UserLayout` 重复（双重留白）→ 交回 UserLayout；常驻 `Alert` 说明 → 默认折叠规则条（`<details>`，样板页同款范式）；`Card(cover)+Row/Col` → 令牌卡 + `auto-fill minmax(166px,1fr)` 密集栅格；Tabs 轨道/分页/导入按钮令牌化。
+- **`/viral`**（新 `viral.css`）：**Hero 写死深色渐变 `#1e293b→#4c1d95` + 白字，浅色模式像贴了一块黑横幅** → 改 `color-mix(--primary, --card)` 渐变 + `var(--text)`（实测浅色下已变淡紫底）；页内 9 处 `#7c3aed`（按钮/区块竖条/Badge/步骤序号/教程弹窗）→ 令牌；步骤卡 `rgba(255,255,255,.12)`+backdropFilter（浅色几乎看不见）→ 令牌面 + 描边；模板卡/项目卡/工具条/「查看全部」全部类化。**`CoverThumb` 是 Viral 目录共用组件，没动它内部样式**（避免波及未纳入本轮的 `/viral/templates`、`/viral/projects`）。
+- **`/canvas`**（新 `canvas.css`）：页内 `padding:'24px 32px'` 双重留白 → 交回 UserLayout；13 个 `Card`（含 `cover`/`actions` 外壳）→ 令牌卡 + 本页动作条；「使用模板」弹窗里的**原生 `<input>` 写死 `border:'1px solid #d9d9d9'` 且无背景 → 暗色 Modal 里一块白底输入框** → `.cnv-varform__input` 令牌化；`#7c3aed` 主按钮、`#f5222d` 删除图标 → 令牌；`Tabs`/空态舞台同口径。
+- **`/order`**（新 `order.css`）：两层 `maxWidth:1100` 重复包裹 → 单层 `.ord-root`；「居中大标题 + 下面一个返回钮」→ 顶栏范式；套餐 `Card(title/extra)` → 令牌卡，推荐档 `data-featured` 给品牌描边 + 顶部微光拉开主次；骨架占位与真实卡同尺寸（防加载跳动）；`#52c41a/#ff4d4f` 成功失败色 → `var(--success)/var(--danger)`；倒计时 `#ff4d4f` → `.ord-count[data-urgent]`（判定逻辑不动）；记录表走 `/tasks` 同款表格皮肤。**支付相关逻辑一行没动**（充值开关、3s 轮询、15 分钟倒计时、重复下单二次确认、成功回调 `loadData + refreshUser`）。
+- **`/comic-studio`**（新 `comic-studio.css`，**本轮是「骨架 + 暗色破面」的 scoped pass，不是整页**）：页面外壳 `maxWidth 1280 + padding` → `.cst-root`；顶栏三处 `Space` → `.cst-topbar`（含一行说明文案）；包 `Steps` 的那层 `Card` → `.cst-panel`；landing 项目列表 `Row/Col/Card` → `.cst-pgrid/.cst-pcard`；**5 处占位块写死 `background:'#f3f4f6' + color:'#9ca3af'`（暗色下就是一块块亮白方块）→ `.cst-ph` 令牌占位**；资产挑选器 `#eee/#555/#1677ff`、缩略图 `#d9d9d9` 描边、预检数字 `#c2410c/#dc2626/#16a34a` → 令牌。**遗留（已在 CSS 文件头写清）**：页内其余 13 个 antd `Card` 的内部结构（人设表单卡、设定本卡、格卡、剧情图卡）与 `CharacterDetailModal`/`BlockAssetPicker` 两个弹窗的整体重排没做——这块耦合生图状态机，留作下一轮单独铺，避免一次改太多把生成流程改坏。
+
+### ✅ ③ 探针增强 + 桩数据（11-19 教训落地）
+- `tools/probe-ui.cjs` 通用度量**新增 `brokenImgs`**：`naturalWidth===0` 且没被藏起来的可见 `img` 计数。起因是本轮视觉复查抓到 `/open-gallery` 缩略图挂了以后**浏览器露裂图图标 + alt 文字** → `Image` 补 `onError` 隐藏本体 + CSS `color: transparent` 兜底；`/drama` 同批改用「占位层永远在底、媒体失败就藏自己」的写法。
+- 按路由登记了 `/drama`、`/user`、`/viral`、`/canvas`、`/order`、`/comic-studio` 的桩数据，**字段形态全部对着真实后端返回抄**（含 `cover_url` 可能是 mp4、`credit-rules` 的 viral 分支、comic-studio `list()` 返回裸数组并附 `panel_count`）——11-18 那条「mock 用错字段会把 bug 掩盖成截图里能看到图」的教训这轮没有再犯。
+
+### ✅ ④ 验证（全部实测）
+- `npm run build`（`tsc -b && vite build`）**EXIT=0**（每页改完各跑一次，最后一轮全量）。
+- 探针 9 条路由 × 暗/浅 = **18 次全绿**：`root=true`、`antCards=0`（换容器生效）、`brokenImgs=0`、`pageErrors=0`、`exit=0`。
+- 几何基线：`/drama` `rootW=1224 / scopedBlocks=45`、`/user` `1360/38`、`/open-gallery` `1224/64`、`/viral` `1224/92`、`/canvas` `1224/49`、`/order` `rootW=1100`（原 `maxWidth:1100` 保住）`/41`、`/comic-studio` `1224/35`；`--card` 暗 `#151f2e` / 浅 `#fff` 全页解析正常。
+- 视觉复查（读截图报事实，不吹）：`/user` 暗色背景已是深色、`/viral` 浅色 Hero 已是淡紫底、`/open-gallery` 裂图消失、`/drama` 三张卡封面占位图标可见；未发现文字截断/元素重叠/错位。
+
+### ⚠️ ⑤ 生产与提交
+- **未部署生产**（本机无 SSH 私钥，且按 11-17 起用户指示「还要继续改页面」一直不部署）。生产站仍是 **11-09 那次 V2**。
+- **未提交 GitHub**：本机没有 git。改动清单＝`frontend/src/pages/{Drama,User,OpenGallery,Viral,Canvas,Order,ComicStudio}/`（7 份新 CSS + 7 份 index.tsx）+ `tools/probe-ui.cjs`。
+- 上线时按仓内既有顺序：build → 上传 dist → 生产 UI 验证；**别只比 `index-*.js` 文件名**（产物名可能不变而内容已变）。
+
+### ⏭ ⑥ 下一步
+1. **换到有 git + 有服务器凭据的机器**：`git status/diff` 复核 → 提交推送 → 攒一次生产部署窗口（本轮 7 页 + 11-09 之后的本地积压一起上线，需你明确授权）。
+2. `/comic-studio` 补完遗留的 13 个内部 Card 与两个弹窗（scoped 遗留）。
+3. 清单外页面（`Landing`/`Studio`/`Script`/`Character`/`Video`/`Editor`/`Auth`）要不要纳入，等你拍板。
+4. 文档欠账：`docs/current-version.md` 还停在 **10-29**，11 月的「风险审查 4 个 P0 已闭环 + V2 已上线 11-09 + 支付只差商户密钥 + 样式已铺完 9 页」都没回写；`docs/roadmap.md` 停在 07-15。建议下轮一次性对齐。
+5. 规范见 `docs/前端质感改造-generate样板-2026-11-17.md`（本轮已同步 §八/§九）。
+
+### 🆕 ⑦ 收工追加（11-20 晚）：用户提出三件事 —— 实测结论与明日待办
+> 用户说明：本机 SSH 密钥已丢失，但 `D:\服务器资料` 里有另一台设备的拷贝；另**忘记导出 MySQL 表**，当前这份克隆没有可用数据库，希望把**生产库数据复制并应用到本地 MySQL**。今天来不及做，先记录。
+
+#### ① SSH 密钥：文件可用，但**这台机连不上服务器 22 端口**（实测）
+- `D:\服务器资料` 内容：`id_ed25519_ai_anime_privatekey`（411 B）、`.pub`、`安全审查报告-2026-10-12.md`、`重要凭据记录.txt`、`重要凭据记录2.txt`。
+- 密钥本身**没问题**：`ssh-keygen -l` 解析成功 = `256 SHA256:H0BJeFa3OX/ya0fgMpBu8fBG0YHS2ocn846w6d+YAVQ ai-anime-deploy (ED25519)`，**未设 passphrase**；本机 Windows OpenSSH 客户端齐（`ssh/scp/ssh-keygen/sftp` 都在 `C:\Windows\System32\OpenSSH\`）。
+- 但 `ssh root@47.121.137.131` **端口 22 连接超时**（EXIT=255）。三条定位证据：
+  1. 生产站活着：`https://anime.leesystem.xyz/` → **HTTP 200**；
+  2. 服务器可达：`Test-NetConnection 47.121.137.131` → **PingSucceeded=True**，但 **TcpTestSucceeded(22)=False**；
+  3. 不是本机出站问题：`Test-NetConnection github.com -Port 22` → **True**。
+- **结论：ICMP 通、22 端口不通 = 服务器侧没放行这台机的出口 IP**（阿里云安全组或 ufw）。这台机当前出口公网 IP = **`170.178.173.10`**。
+- **要用户本人做的**：阿里云控制台把 `170.178.173.10 → TCP 22` 加进安全组放行（或核对 ufw/`sshd` 侧限制）。放行后即可用 `D:\服务器资料` 里的密钥部署，命令按 `docs/current-version.md §七` 的既有顺序走。**建议顺手把私钥从 `D:\服务器资料` 复制进 `~/.ssh\` 并收紧 ACL**（Windows OpenSSH 对密钥文件权限敏感，实测这次没报 UNPROTECTED，但放桌面资料夹长期不合适）。
+
+#### ② 生产库 → 本地 MySQL（**明日第一件事**，用户点名）
+- 现状实测：本机**没有任何 MySQL/MariaDB/Redis 服务或二进制**（`Get-Service` 匹配 `mysql|redis|mariadb` 零结果；`3306/6379` 无监听），`backend/.env`、`.env.local` 也不存在 → **这份克隆目前完全跑不了后端**，本轮样式改造只靠 `npm run build` + 桩接口探针验证。
+- 待办拆解（明天按顺序做，**全程只读生产、不改生产数据**）：
+  1. 本机装 MySQL 8 + Redis（或用 Docker；装系统软件需用户点头）。
+  2. 生产侧导出：`mysqldump --single-transaction` 全库 → gzip。仓里已有现成脚本 `backend/scripts/backup-mysql.sh`（含 `gzip -t` + `Dump completed` 双校验，默认只报告不删旧备份）。生产 MySQL 连接铁律：**`-h127.0.0.1 -u ai_anime`**（不带 `-h` 走 socket 必 1045）。
+  3. 拉到本地后导入本地库；本地 `.env`/`.env.local` **两份都要写**（`.env.local` 优先），本地 Redis 用 **db0**（生产是 db5，别照抄）。
+  4. ⚠️ **`DB_SYNCHRONIZE=0` 时先核对表结构**：生产已跑过 `comic_projects` 迁移与 `heartbeat_at` 列（11-09 上线），本地导入生产 dump 后结构应当一致，但要用 `npm run migration:show` / `information_schema` 核一遍再启后端。
+  5. ⚠️ **敏感数据处理纪律**：生产库里含 `system_configs.agnes_api_key`、SMTP 授权码等 —— dump 文件**绝不能进 git、不能拷进 `outputs`、不能贴进文档/日志**，导完本地就把 dump 文件送回收站（用平台的回收站删除，不要永久删）。
+  6. 顺带确认：`output/` 里的静态产物（`/static/*` 图片视频）**不在 MySQL 里**，只导库不会让本地有历史成片文件；本地要看得开图的话需要另拉 `backend/output/`。
+- 相关凭据位置提示（**不抄内容**）：生产 MySQL/面板/SMTP 等口令在 `D:\服务器资料\重要凭据记录.txt`、`重要凭据记录2.txt`，以及服务器上的 `.env`/`.env.local`。
+
+#### ③ 推 GitHub：**今天推不成**，两个硬前置（已复核两次，结论确定）
+- 本机**既没有 git 也没有 GitHub CLI**。复核证据：`where.exe git` / `where.exe gh` 均无结果；`C:\Program Files\Git` 目录**不存在**；注册表卸载项（HKLM/HKLM-WOW6432Node/HKCU）里**没有任何 Git/GitHub 条目**；`winget list` 里也查不到 Git/GitHub CLI。
+- ⚠️ **陷阱**：`PATH` 里还残留着 `C:\Program Files\Git\cmd`、`Git\bin`、`Git\usr\bin` 三条**死路径**（Git 曾装过、后来被删/卸掉了，PATH 没清理）。所以「命令行里记得有 git」这个印象是真的，但**程序本体已经不在这台机上了**——遇到 `git : 无法将“git”项识别为 cmdlet` 别怀疑，就是没了。
+- 仓库 remote 是 `https://github.com/lee724130-maker/AI-Anime.git`；`~/.gitconfig` 只有一条 `[credential "https://ghproxy.net"] provider = generic`，**没有 `~/.git-credentials`** → 即便装了 git，**推送还需要 GitHub 凭据**（PAT，或 SSH deploy key）。这台机的 clash 代理在跑（`127.0.0.1:7890` LISTEN），按仓内既有做法 `git -c http.proxy=http://127.0.0.1:7890 -c https.proxy=http://127.0.0.1:7890 push` 这条路是通的，但**凭据必须用户提供**。
+- 待提交清单（本轮全部改动，都在工作区未入库）：
+  - 新增 7 份页作用域 CSS：`frontend/src/pages/{Drama,User,OpenGallery,Viral,Canvas,Order,ComicStudio}/*.css`
+  - 改 7 份 `index.tsx`（同上目录）
+  - 改 `tools/probe-ui.cjs`（新增 `brokenImgs` 度量 + 6 条路由桩数据）
+  - 改本文档 + `docs/前端质感改造-generate样板-2026-11-17.md`
+  - ⚠️ 别把 `frontend/node_modules/`、`.baseline-build.log`/`.build-*.log`/`.vite-dev.log` 这些本轮生成的临时文件提交进去（`.gitignore` 已覆盖 node_modules，日志文件建议顺手删掉或加忽略）
+- **明天开工顺序建议**：① `winget install Git.Git`（用户已同意用 winget 装原生服务，Git 同批装）→ ② 用户提供 PAT 或跑一次 `gh auth login`（GitHub CLI 需另装 `winget install GitHub.cli`）→ ③ `git status/diff` 复核 → 提交 → 走 7890 代理推送；④ 并行推进「生产库 → 本地 MySQL」那条（见 ②）。
+
+## 2026-11-19（前端质感改造·/tasks 铺开 + /generate 四模式表单重排 + 预览升级 ✅ 本地实测通过、已提交推送 GitHub `2c7e5c4`，**生产仍不部署**）
+
 ## 2026-11-19（前端质感改造·/tasks 铺开 + /generate 四模式表单重排 + 预览升级 ✅ 本地实测通过、已提交推送 GitHub `2c7e5c4`，**生产仍不部署**）
 
 > 承接 11-18「下一步」：先泛化探针，再按清单铺第一页 `/tasks`，随后逐条响应用户「四模式表单不实用」「预设改胶囊」「预览点图放大」。全程三层法：`index.tsx` 只换容器、页作用域 CSS、Form/state/接口字段/提交逻辑零改动。
