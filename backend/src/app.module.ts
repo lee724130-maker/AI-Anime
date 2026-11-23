@@ -63,6 +63,7 @@ import { ContactModule } from './modules/contact/contact.module';
 import { RolesGuard } from './common/guards/roles.guard';
 import { CommonModule } from './common/services/common.module';
 import { ComicStudioModule } from './modules/comic-studio/comic-studio.module';
+import { FileSecurityModule } from './common/security/file-security.module';
 
 const logDir = path.resolve(process.cwd(), 'logs');
 
@@ -185,6 +186,8 @@ const fileTransport = (base: string, level?: string) => new winston.transports.D
     PaymentModule,
     ContactModule,
     ComicStudioModule,
+    // 放最后：其 provider 构造期要读 process.env.JWT_SECRET，需确保 ConfigModule 的 dotenv 已加载
+    FileSecurityModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

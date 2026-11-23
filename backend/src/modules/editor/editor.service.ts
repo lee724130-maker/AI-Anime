@@ -5,6 +5,7 @@ import { EditorProject } from './editor-project.entity';
 import { CanvasService, resFromResolution } from '../canvas/canvas.service';
 import { FFmpegUtil, runFfmpegQueued } from '../../utils/ffmpeg.util';
 import { assertDiskSpace } from '../../common/utils/disk-check.util';
+import { FileOwnershipService } from '../../common/security/file-ownership.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -45,6 +46,7 @@ export class EditorService {
     private readonly projectRepo: Repository<EditorProject>,
     private readonly ffmpeg: FFmpegUtil,
     private readonly canvasService: CanvasService,
+    private readonly ownership: FileOwnershipService,
   ) {
     this.outputDir = path.resolve(process.cwd(), 'output');
     if (!fs.existsSync(this.outputDir)) fs.mkdirSync(this.outputDir, { recursive: true });
@@ -399,7 +401,19 @@ export class EditorService {
 
   // ═══════════ Concat (merge two videos) ═══════════
 
-  async concatVideos(urlA: string, urlB: string): Promise<{ url: string; duration: number }> {
+  async concatVideos(urlA: string, urlB: string, userId?: number, isAdmin = false): Promise<{ url: string; duration: number }> {
+    /**
+     * 越权修复（2026-11-23）：原先接受任意 /static 路径，等于可以把别人的文件当自己的素材合成，
+     * 产出的 merged 文件还归调用方 —— 相当于一次「换壳读取」。
+     * 现在要求两个入参文件都归属当前用户（/editor 是管理员功能，管理员放行）。
+     */
+    if (!isAdmin) {
+      for (const u of [urlA, urlB]) {
+        const owned = userId != null && (await this.ownership.owns(userId, u));
+        if (!owned) throw new BadRequestException('只能合并属于自己账号的文件');
+      }
+    }
+
     const localA = await this.localPathOf(urlA);
     const localB = await this.localPathOf(urlB);
     if (!localA || !localB) throw new BadRequestException('视频文件不存在或无法访问');

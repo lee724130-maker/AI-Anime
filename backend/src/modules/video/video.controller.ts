@@ -11,19 +11,24 @@ import {
   UseGuards,
   StreamableFile,
   NotFoundException,
+  ForbiddenException,
   ParseIntPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 import { VideoService } from './video.service';
+import { FileUrlService } from '../../common/security/file-url.service';
 import * as fs from 'fs';
 import * as path from 'path';
 
 @Controller('api/video')
 @UseGuards(JwtAuthGuard)
 export class VideoController {
-  constructor(private readonly videoService: VideoService) {}
+  constructor(
+    private readonly videoService: VideoService,
+    private readonly fileUrl: FileUrlService,
+  ) {}
 
   @Post('generate')
   create(
@@ -89,7 +94,13 @@ export class VideoController {
 
   /** Serve video/image files (requires auth) */
   @Get('file/:filename')
-  serveFile(@Param('filename') filename: string, @Res({ passthrough: true }) res: Response) {
+  serveFile(
+    @Param('filename') filename: string,
+    @Query('exp') exp: string,
+    @Query('sig') sig: string,
+    @Req() req,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const outputDir = path.resolve(process.cwd(), 'output');
     const filePath = path.join(outputDir, filename);
 
@@ -100,6 +111,18 @@ export class VideoController {
 
     if (!fs.existsSync(filePath)) {
       throw new NotFoundException('文件不存在');
+    }
+
+    /**
+     * 越权修复（2026-11-23）：本接口原先只校验「路径不越界 + 文件存在」，
+     * 任何登录用户换个文件名就能取走别人的产物（实测 200 返回完整文件）。
+     * 现在只认与 /static 同一套 HMAC 签名；管理员额外放行，便于排障。
+     * 前端与后台均未调用过本接口（全仓 grep `video/file` 零命中），因此不影响现有功能。
+     */
+    const signed = this.fileUrl.verify(`/static/${filename}`, exp, sig);
+    if (!signed) {
+      const isAdmin = req?.user?.role === 'admin' || req?.user?.is_super_admin === true;
+      if (!isAdmin) throw new ForbiddenException('无权访问该文件');
     }
 
     const ext = path.extname(filename).toLowerCase();

@@ -6,6 +6,8 @@ import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
 import { join } from 'path';
 import * as fs from 'fs';
 import * as express from 'express';
+import { FileUrlService } from './common/security/file-url.service';
+import { createStaticAccessMiddleware } from './common/security/static-access.middleware';
 
 async function bootstrap() {
   // 自己接管 body parser：Express 默认 json 限制 100KB，长提示词/批量 URL 容易 413。
@@ -33,6 +35,9 @@ async function bootstrap() {
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
+  // 越权修复（2026-11-23）：/static 原本直出，任何人猜出文件名就能取走他人产物。
+  // 这里必须在 useStaticAssets **之前**挂守卫：只放行带合法 exp+sig 的签名 URL。
+  app.use('/static', createStaticAccessMiddleware(app.get(FileUrlService)));
   app.useStaticAssets(outputDir, {
     prefix: '/static/',
     setHeaders: (res: any, filePath: string) => {

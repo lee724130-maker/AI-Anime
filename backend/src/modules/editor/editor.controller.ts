@@ -87,7 +87,8 @@ export class EditorController {
   concat(@Req() req, @Body() body: { urlA: string; urlB: string }) {
     this.assertEnabled(req);
     if (!body.urlA || !body.urlB) throw new BadRequestException('urlA and urlB are required');
-    return this.service.concatVideos(body.urlA, body.urlB);
+    const isAdmin = req?.user?.role === 'admin' || req?.user?.is_super_admin === true;
+    return this.service.concatVideos(body.urlA, body.urlB, req.user.id, isAdmin);
   }
 
   // ───── Local upload (video/image/audio for the timeline) ─────

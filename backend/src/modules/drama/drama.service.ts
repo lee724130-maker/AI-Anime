@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import { InjectQueue } from '@nestjs/bull';
 import { DramaProject } from './drama-project.entity';
 import { DramaOutline } from './drama-outline.entity';
@@ -751,7 +751,11 @@ export class DramaService {
   async importFromGlobal(userId: number, projectId: number, assetIds: number[]) {
     await this.getById(userId, projectId);
     if (!assetIds || !assetIds.length) throw new BadRequestException('请选择要导入的资产');
-    const globals = await this.globalAssetRepo.find({ where: { id: In(assetIds) } });
+    // 越权修复（2026-11-23）：原先只按 id 取大资产，任何人枚举 assetId 就能把别人的素材
+    // （含图片路径与提示词）导入自己的短剧项目。现限定「本人资产 + 未来的系统共享资产(user_id IS NULL)」。
+    const globals = await this.globalAssetRepo.find({
+      where: [{ id: In(assetIds), user_id: userId }, { id: In(assetIds), user_id: IsNull() }],
+    });
     if (!globals.length) throw new NotFoundException('未找到指定的大资产');
 
     const created: DramaAsset[] = [];
