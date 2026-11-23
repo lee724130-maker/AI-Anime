@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Button, Card, Typography, Tag, Space, Popconfirm, message, Upload } from 'antd';
+import { Button, Tag, Popconfirm, message, Upload, Empty, Spin } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ArrowLeftOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../../services/api';
-
-const { Title } = Typography;
+import './script.css';   // 本页质感改造样式（作用域 .scr-root，详见文件头注释）
 
 export default function ScriptListPage() {
   const [scripts, setScripts] = useState<any[]>([]);
@@ -72,46 +71,50 @@ export default function ScriptListPage() {
   const statusTag: Record<string, string> = { draft: '草稿', processing: '处理中', completed: '已完成' };
 
   return (
-    <div>
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '24px 24px 15px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <Title level={2} style={{ margin: 0 }}>我的剧本</Title>
+    <div className="scr-root scr-root--list">
+      {/* 顶栏：返回圆钮 + 标题 | 导入 / 新建（原「居中大标题 + 下面一行按钮」） */}
+      <div className="scr-topbar">
+        <div className="scr-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+          <div className="scr-topbar__titles">
+            <span className="scr-topbar__title">我的剧本</span>
+            <span className="scr-topbar__sub">共 {scripts.length} 个剧本，可导出 JSON 到别的设备导入</span>
+          </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Button className="back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')}>返回</Button>
-          <Space>
-            <Upload accept=".json" showUploadList={false} beforeUpload={handleImport}>
-              <Button icon={<UploadOutlined />}>导入剧本</Button>
-            </Upload>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/script/create')}>新建剧本</Button>
-          </Space>
+        <div className="scr-topbar__acts">
+          <Upload accept=".json" showUploadList={false} beforeUpload={handleImport}>
+            <Button icon={<UploadOutlined />}>导入剧本</Button>
+          </Upload>
+          <Button type="primary" className="scr-btn-primary" icon={<PlusOutlined />} onClick={() => navigate('/script/create')}>新建剧本</Button>
         </div>
       </div>
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '0 24px 24px' }}>
-        {loading ? <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>加载中...</div> : (
-          scripts.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>暂无剧本，点击上方按钮创建</div>
-          ) : (
-            scripts.map((item: any) => (
-              <Card key={item.id} style={{ marginBottom: 12, borderRadius: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <Link to={`/script/${item.id}`} style={{ fontSize: 16, fontWeight: 500 }}>{item.title || '未命名剧本'}</Link>
-                    <Tag style={{ marginLeft: 12 }}>{statusTag[item.status] || item.status}</Tag>
-                  </div>
-                  <Space>
-                    <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/script/${item.id}`)}>编辑</Button>
-                    <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(item.id)}>导出</Button>
-                    <Popconfirm title="确定删除？" onConfirm={() => handleDelete(item.id)}>
-                      <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
-                    </Popconfirm>
-                  </Space>
-                </div>
-              </Card>
-            ))
-          )
-        )}
-      </div>
+
+      {loading ? (
+        <div className="scr-loading"><Spin size="large" /></div>
+      ) : scripts.length === 0 ? (
+        <div className="scr-stage">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无剧本" />
+          <span>新建一个剧本，或用上方「导入剧本」载入 JSON</span>
+        </div>
+      ) : (
+        <div className="scr-list">
+          {scripts.map((item: any) => (
+            <div className="scr-item" key={item.id}>
+              <div className="scr-item__lead">
+                <Link className="scr-item__name" to={`/script/${item.id}`}>{item.title || '未命名剧本'}</Link>
+                <Tag className="scr-item__status">{statusTag[item.status] || item.status}</Tag>
+              </div>
+              <div className="scr-item__acts">
+                <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/script/${item.id}`)}>编辑</Button>
+                <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(item.id)}>导出</Button>
+                <Popconfirm title="确定删除？" onConfirm={() => handleDelete(item.id)}>
+                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

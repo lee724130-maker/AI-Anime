@@ -1,0 +1,166 @@
+/* =============================================================================
+   /character 角色页质感改造（index 列表 / Create 创建 / Detail 详情）· 2026-11-23
+   沿用 /generate 样板的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .chr- 前缀；antd 覆盖一律写成 `.chr-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：/api/character 的 list/create/update/delete/generate-reference、
+   Form 校验、保存后回读、两种风格参考图的生成开关（genAnime/genRealistic）全部原样。
+
+   本轮修掉的根因：
+     1. 这三个路由是 <Shelled> 直接包（不经 UserLayout），页内自己写 maxWidth 850/800 + padding，
+        且列表页还套了两层居中容器 → 统一成单层 .chr-root。
+     2. 列表页「居中大标题 + 下面一行返回/创建」层级平 → 与 /tasks /user 同款顶栏。
+     3. 列表项是 Card + List 混用（List 只为了渲染一个 Card，多余一层 DOM 与分隔线）→ 直接栅格。
+     4. 详情页参考图写死 `border:2px solid #d9d9d9`（暗色下几乎看不见）→ 令牌描边；
+        图片路径由后端签名拦截器加签，这里只负责容器，不动 getImgSrc 逻辑。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.chr-root {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4) var(--sp-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.chr-root--narrow { max-width: 760px; }
+
+/* ---------- 顶栏 ---------- */
+.chr-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.chr-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.chr-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.chr-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.chr-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.chr-root .chr-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.chr-root .chr-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+.chr-root .chr-btn-new.ant-btn {
+  border-radius: var(--r-md);
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 620;
+  box-shadow: var(--shadow-1);
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.chr-root .chr-btn-new.ant-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+
+/* ---------- 令牌面板（创建 / 详情共用外壳） ---------- */
+.chr-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+  transition: border-color var(--t-base) var(--ease);
+}
+.chr-panel:hover { border-color: var(--line-strong); }
+.chr-panel__head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 650; color: var(--text); padding-bottom: var(--sp-3); margin-bottom: var(--sp-4); border-bottom: 1px solid var(--line); }
+.chr-panel__head .anticon { color: var(--primary); }
+.chr-panel__hint { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.7; margin: 0 0 var(--sp-4); }
+
+/* ---------- 列表：角色条目 ---------- */
+.chr-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.chr-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.chr-item:hover { border-color: var(--line-strong); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.chr-item__lead { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.chr-item .chr-item__avatar.ant-avatar { flex: none; background: var(--grad-brand); box-shadow: var(--shadow-1); border-radius: var(--r-md); }
+.chr-item__info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.chr-item__name { font-size: var(--fs-lg); font-weight: 620; color: var(--text); text-decoration: none; transition: color var(--t-fast) var(--ease); }
+.chr-item__name:hover { color: var(--primary); }
+.chr-item__tags { display: flex; gap: 5px; flex-wrap: wrap; }
+.chr-item .chr-item__tags .ant-tag { margin-inline-end: 0; padding: 0 9px; font-size: var(--fs-xs); border-radius: 999px; line-height: 1.75; }
+.chr-item .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.chr-item .ant-tag-blue { background: color-mix(in srgb, var(--info) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 46%, var(--line)) !important; color: var(--info) !important; }
+.chr-item__desc { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 !important; line-height: 1.55; }
+.chr-item__acts { display: flex; gap: var(--sp-2); flex: none; }
+.chr-item__acts .ant-btn { border-radius: var(--r-sm); font-size: var(--fs-sm); }
+.chr-item__acts .ant-btn-dangerous { border-color: color-mix(in srgb, var(--danger) 42%, var(--line)) !important; }
+
+/* ---------- 空态 / 加载态 ---------- */
+.chr-stage {
+  display: grid;
+  place-items: center;
+  gap: var(--sp-2);
+  min-height: 240px;
+  padding: var(--sp-6);
+  background: var(--card);
+  background-image: var(--grad-stage);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.chr-stage .ant-empty-description { color: var(--text-muted); }
+.chr-loading { display: grid; place-items: center; min-height: 320px; }
+
+/* ---------- 详情：身份头 ---------- */
+.chr-hero { display: flex; align-items: center; gap: var(--sp-4); padding-bottom: var(--sp-4); margin-bottom: var(--sp-4); border-bottom: 1px solid var(--line); }
+.chr-hero .chr-hero__avatar.ant-avatar { flex: none; background: var(--grad-brand); box-shadow: var(--glow); border-radius: var(--r-lg); }
+.chr-hero__titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.chr-hero__name { font-size: var(--fs-2xl); font-weight: 680; color: var(--text); }
+.chr-hero__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 详情：两种风格参考图 ---------- */
+.chr-refs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-4); }
+.chr-ref {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.chr-ref:hover { border-color: var(--line-strong); box-shadow: var(--shadow-1); }
+.chr-ref__tag.ant-tag { margin-inline-end: 0; padding: 1px 11px; font-size: var(--fs-sm); border-radius: 999px; line-height: 1.8; }
+.chr-ref .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.chr-ref .ant-tag-blue { background: color-mix(in srgb, var(--info) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 46%, var(--line)) !important; color: var(--info) !important; }
+.chr-ref__img { width: 180px; max-width: 100%; border-radius: var(--r-md); border: 1px solid var(--line-strong); background: var(--surface-3); }
+.chr-ref .ant-image { display: block; }
+.chr-ref__none { display: grid; place-items: center; width: 180px; max-width: 100%; aspect-ratio: 1/1; border: 1px dashed var(--line-strong); border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--text-muted); }
+.chr-ref__path { font-size: var(--fs-xs); color: var(--text-muted); word-break: break-all; text-align: center; line-height: 1.5; }
+.chr-ref .chr-ref__act.ant-btn { margin-top: 2px; border-radius: var(--r-sm); background: var(--card) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.chr-ref .chr-ref__act.ant-btn:hover { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-bg) !important; }
+
+/* ---------- 表单动作条 ---------- */
+.chr-form__foot { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .chr-item,
+[data-theme=light] .chr-panel,
+[data-theme=light] .chr-stage,
+[data-theme=light] .chr-ref { border-color: #e2e7f2; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .22); }
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .chr-item,
+[data-theme=dark] .chr-panel,
+[data-theme=dark] .chr-stage { border-color: var(--line-strong); box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .chr-root { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+  .chr-panel { padding: var(--sp-4); }
+  .chr-item { flex-direction: column; align-items: stretch; }
+  .chr-item__acts { justify-content: flex-end; }
+}

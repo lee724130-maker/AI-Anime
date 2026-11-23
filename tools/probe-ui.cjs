@@ -147,6 +147,24 @@ const MOCKS = {
     ]],
   ],
 
+  // /character 桩数据：对齐 GET /api/character/list（直接返回数组）
+  '/character': [
+    [/\/api\/character\/list/, [
+      { id: 1, name: '18岁黑长直古风少女', description: '性格安静，擅吹笛；月白襦裙，外披鸦青斗篷，腰悬一枚铜铃。', avatar_url: '/static/img_1_正面_1786008554728.png', reference_image_anime: '/static/img_11_正面_1786012806432.png', reference_image_realistic: null },
+      { id: 2, name: '守桥老人', description: '左腿旧伤，说话很慢，认得每一个过桥的人。', avatar_url: null, reference_image_anime: null, reference_image_realistic: '/static/img_12_正面_1786012808726.png' },
+      { id: 3, name: '未填描述的测试角色', description: null, avatar_url: null, reference_image_anime: null, reference_image_realistic: null },
+    ]],
+  ],
+
+  // /script 桩数据：对齐 GET /api/script/list（直接返回数组）
+  '/script': [
+    [/\/api\/script\/list/, [
+      { id: 11, title: '铃与雾 · 第一幕', status: 'completed' },
+      { id: 12, title: '体面 · 都市短篇', status: 'processing' },
+      { id: 13, title: '未命名的草稿剧本', status: 'draft' },
+    ]],
+  ],
+
   '/generate': [
     [/\/api\/generate\/tts-voices/, []],
     [/\/api\/generate\/credit-rules/, { image_per_image: 5, video_720p_per_5s: 20, video_unit_seconds: 5 }],

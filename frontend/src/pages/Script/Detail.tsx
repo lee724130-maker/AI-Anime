@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Button, Card, Form, Input, Typography, message, Spin, Space, Tag, Modal, Select, Row, Col, Tooltip,
+  Button, Form, Input, Typography, message, Spin, Space, Tag, Modal, Select, Tooltip,
 } from 'antd';
 import {
   SaveOutlined, ArrowLeftOutlined, VideoCameraOutlined,
@@ -10,8 +10,9 @@ import {
   ClockCircleOutlined, SyncOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import './script.css';   // 与列表/新建共用本页样式（作用域 .scr-root，详见文件头注释）
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const { TextArea } = Input;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
@@ -150,16 +151,20 @@ export default function ScriptDetailPage() {
   if (loading) return <Spin style={{ display: 'block', marginTop: 100 }} />;
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: 24 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/script')}>返回</Button>
-        <Title level={2} style={{ margin: 0, flex: 1 }}>剧本详情</Title>
-        {hasActive && <Tag icon={<SyncOutlined spin />} color="processing">生成中...</Tag>}
+    <div className="scr-root">
+      {/* 顶栏：返回圆钮 + 标题 + 生成中标记（原「返回按钮 + level=2 大标题」） */}
+      <div className="scr-topbar">
+        <div className="scr-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/script')} />
+          <div className="scr-topbar__titles">
+            <Title level={4} className="scr-topbar__title">剧本详情</Title>
+            <span className="scr-topbar__sub">改剧本 → 拆分场景 → 批量生成 → 拼接</span>
+          </div>
+          {hasActive && <Tag icon={<SyncOutlined spin />} color="processing">生成中...</Tag>}
+        </div>
       </div>
 
-      {/* Script Content Editor */}
-      <Card style={{ marginBottom: 20 }}>
+      <div className="scr-panel">
         <Form form={form} onFinish={onFinish} layout="vertical">
           <Form.Item name="title" label="标题">
             <Input placeholder="剧本标题" />
@@ -167,31 +172,24 @@ export default function ScriptDetailPage() {
           <Form.Item name="content" label="剧本内容">
             <TextArea rows={6} placeholder="输入完整剧本，场景之间用 --- 或空行分隔" />
           </Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>保存修改</Button>
-              <Button icon={<ScissorOutlined />} onClick={handleSplit}>拆分场景</Button>
-            </Space>
-          </Form.Item>
+          <div className="scr-form__foot">
+            <Button type="primary" className="scr-btn-primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>保存修改</Button>
+            <Button icon={<ScissorOutlined />} onClick={handleSplit}>拆分场景</Button>
+          </div>
         </Form>
-      </Card>
+      </div>
 
-      {/* Scene Panel */}
-      <Card
-        title={
-          <Space>
-            <NodeIndexOutlined style={{ color: '#7c3aed' }} />
-            <Text strong>场景列表</Text>
-            <Tag color="purple">{scenes.length} 个场景</Tag>
-            {completedCount > 0 && (
-              <Tag color="success">{completedCount} 已完成</Tag>
-            )}
-          </Space>
-        }
-        extra={
-          <Space>
+      <div className="scr-panel">
+        <div className="scr-panel__head">
+          <div className="scr-panel__title">
+            <NodeIndexOutlined />
+            <span>场景列表</span>
+            <Tag className="scr-panel__tag" color="purple">{scenes.length} 个场景</Tag>
+            {completedCount > 0 && <Tag className="scr-panel__tag" color="success">{completedCount} 已完成</Tag>}
+          </div>
+          <div className="scr-panel__acts">
             <Button icon={<ReloadOutlined />} onClick={fetchScript} size="small">刷新</Button>
-            <Button icon={<VideoCameraOutlined />} type="primary"
+            <Button icon={<VideoCameraOutlined />} type="primary" className="scr-btn-primary"
               disabled={scenes.length === 0} onClick={() => setGenOpen(true)}>
               生成全部
             </Button>
@@ -201,92 +199,66 @@ export default function ScriptDetailPage() {
               onClick={handleStitchAll}>
               拼接全部
             </Button>
-          </Space>
-        }
-        style={{ borderRadius: 12, marginBottom: 20 }}
-      >
-        {scenes.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 48, color: '#bbb' }}>
-            请先在剧本内容中编写剧本，点击"拆分场景"
           </div>
-        ) : (
-          scenes.map((scene: any, i: number) => (
-            <div key={i} style={{
-              padding: 16, marginBottom: 12,
-              border: '1px solid #e8e0f0', borderRadius: 12,
-              background: scene.status === 'completed' ? '#f6fff6' : scene.status === 'failed' ? '#fff6f6' : '#fff',
-            }}>
-              <Row gutter={16} align="top">
-                {/* Scene index */}
-                <Col xs={24} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      width: 26, height: 26, borderRadius: 8,
-                      background: scene.status === 'completed' ? '#52c41a' : scene.status === 'failed' ? '#ff4d4f' : scene.status === 'processing' ? '#1890ff' : '#7c3aed',
-                      color: '#fff', fontSize: 13, fontWeight: 600,
-                    }}>{i + 1}</span>
-                    <Text strong>场景 {i + 1}</Text>
-                    <Tag color={STATUS_META[scene.status]?.color}>{STATUS_META[scene.status]?.label}</Tag>
-                    <div style={{ flex: 1 }} />
-                    <Space size={4}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>时长</Text>
-                      <Select size="small" value={scene.duration || 5}
-                        onChange={(v) => handleSceneUpdate(i, 'duration', v)}
-                        style={{ width: 80 }}
-                        options={[5, 10, 15].map(d => ({ value: d, label: `${d}秒` }))}
-                      />
-                      {scene.task_id && (
-                        <Tooltip title="查看视频详情">
-                          <Button size="small" type="text" icon={<PlayCircleOutlined />}
-                            onClick={() => navigate(`/video/${scene.task_id}`)} />
-                        </Tooltip>
-                      )}
-                    </Space>
-                  </div>
-                </Col>
+        </div>
 
-                {/* Prompt */}
-                <Col xs={24} md={scene.video_url ? 14 : 24}>
-                  <TextArea size="small" rows={3}
+        {scenes.length === 0 ? (
+          <div className="scr-stage">请先在剧本内容中编写剧本，点击「拆分场景」</div>
+        ) : (
+          <div className="scr-scenes">
+            {scenes.map((scene: any, i: number) => (
+              /* 状态底色原先写死 #f6fff6/#fff6f6/#fff（暗色下全是白卡）→ data-status + color-mix */
+              <div className="scr-scene" key={i}
+                data-status={scene.status || 'pending'}
+                data-has-video={scene.video_url ? '1' : '0'}>
+                <div className="scr-scene__head">
+                  <span className="scr-scene__no">{i + 1}</span>
+                  <span className="scr-scene__name">场景 {i + 1}</span>
+                  <Tag className="scr-scene__tag" color={STATUS_META[scene.status]?.color}>{STATUS_META[scene.status]?.label}</Tag>
+                  <span className="scr-scene__spacer" />
+                  <span className="scr-scene__tail">
+                    <span className="scr-scene__label">时长</span>
+                    <Select size="small" value={scene.duration || 5}
+                      onChange={(v) => handleSceneUpdate(i, 'duration', v)}
+                      style={{ width: 80 }}
+                      options={[5, 10, 15].map(d => ({ value: d, label: `${d}秒` }))}
+                    />
+                    {scene.task_id && (
+                      <Tooltip title="查看视频详情">
+                        <Button size="small" type="text" icon={<PlayCircleOutlined />}
+                          onClick={() => navigate(`/video/${scene.task_id}`)} />
+                      </Tooltip>
+                    )}
+                  </span>
+                </div>
+                <div className="scr-scene__body">
+                  <TextArea className="scr-scene__prompt" size="small" rows={3}
                     value={scene.prompt} placeholder="场景 prompt"
                     onChange={(e) => handleSceneUpdate(i, 'prompt', e.target.value)}
-                    style={{ fontSize: 13, lineHeight: 1.7, borderRadius: 8 }}
                   />
-                </Col>
-
-                {/* Video preview */}
-                {scene.video_url && (
-                  <Col xs={24} md={10}>
-                    <video controls width="100%" style={{ borderRadius: 8, maxHeight: 120 }}
+                  {scene.video_url && (
+                    <video className="scr-scene__video" controls width="100%"
                       src={getUrl(scene.video_url)}
                       poster={scene.cover_url ? getUrl(scene.cover_url) : undefined}
                     >
                       <source src={getUrl(scene.video_url)} type="video/mp4" />
                     </video>
-                  </Col>
-                )}
-
-                {/* Error message */}
-                {scene.error_msg && (
-                  <Col xs={24}>
-                    <Text type="danger" style={{ fontSize: 12 }}>{scene.error_msg}</Text>
-                  </Col>
-                )}
-              </Row>
-            </div>
-          ))
+                  )}
+                </div>
+                {scene.error_msg && <span className="scr-scene__err">{scene.error_msg}</span>}
+              </div>
+            ))}
+          </div>
         )}
-      </Card>
+      </div>
 
-      {/* Stitch result */}
       {stitchResult && (
-        <Card title="拼接结果" style={{ borderRadius: 12, border: '1px solid #52c41a' }}>
-          <video controls width="100%" style={{ maxHeight: 400, borderRadius: 8 }}
-            src={getUrl(stitchResult.video_url)}>
+        <div className="scr-panel scr-stitch">
+          <div className="scr-panel__head"><div className="scr-panel__title"><span>拼接结果</span></div></div>
+          <video controls width="100%" src={getUrl(stitchResult.video_url)}>
             <source src={getUrl(stitchResult.video_url)} type="video/mp4" />
           </video>
-        </Card>
+        </div>
       )}
 
       {/* Generate Options Modal */}
@@ -295,15 +267,15 @@ export default function ScriptDetailPage() {
         onOk={handleGenerateAll} confirmLoading={genLoading}
         okText={`开始生成 (${scenes.length} 个场景)`} width={500}
       >
-        <Space orientation="vertical" style={{ width: '100%' }} size={16}>
-          <Row gutter={12}>
-            <Col span={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>分辨率</Text>
+        <div className="scr-modal">
+          <div className="scr-modal__grid">
+            <div className="scr-opt">
+              <span className="scr-opt__label">分辨率</span>
               <Select value={resolution} onChange={setResolution} style={{ width: '100%' }}
                 options={[{ value: '480p', label: '480p' }, { value: '720p', label: '720p' }, { value: '1080p', label: '1080p' }]} />
-            </Col>
-            <Col span={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>宽高比</Text>
+            </div>
+            <div className="scr-opt">
+              <span className="scr-opt__label">宽高比</span>
               <Select value={ratio} onChange={setRatio} style={{ width: '100%' }}
                 options={[
                   { label: '9:16', value: '9:16' },
@@ -313,30 +285,28 @@ export default function ScriptDetailPage() {
                   { label: '3:4', value: '3:4' },
                   { label: '21:9', value: '21:9' },
                 ]} />
-            </Col>
-            <Col span={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>风格</Text>
+            </div>
+            <div className="scr-opt">
+              <span className="scr-opt__label">风格</span>
               <Select value={style} onChange={setStyle} style={{ width: '100%' }}
                 options={[{ value: 'anime', label: '动漫' }, { value: 'realistic', label: '真人' }]} />
-            </Col>
-            <Col span={6}>
-              <Text type="secondary" style={{ fontSize: 12 }}>默认时长</Text>
+            </div>
+            <div className="scr-opt">
+              <span className="scr-opt__label">默认时长</span>
               <Select value={duration} onChange={setDuration} style={{ width: '100%' }}
                 options={[{ value: 5, label: '5秒' }, { value: 10, label: '10秒' }, { value: 15, label: '15秒' }]} />
-            </Col>
-          </Row>
-          <div>
-            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>角色（可选）</Text>
+            </div>
+          </div>
+          <div className="scr-opt">
+            <span className="scr-opt__label">角色（可选）</span>
             <Select mode="multiple" value={characters} onChange={setCharacters}
               style={{ width: '100%' }} placeholder="选择角色（可多选）"
               options={charOptions.map((c: any) => ({ value: c.id, label: c.name }))}
               notFoundContent="暂无角色"
             />
           </div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            每个场景会带上前一个场景的剧情提要作为上下文，保证连贯性
-          </Text>
-        </Space>
+          <span className="scr-panel__hint">每个场景会带上前一个场景的剧情提要作为上下文，保证连贯性</span>
+        </div>
       </Modal>
     </div>
   );

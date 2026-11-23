@@ -1,0 +1,195 @@
+/* =============================================================================
+   /script 剧本页质感改造（index 列表 / Create 新建编辑 / Detail 详情）· 2026-11-23
+   沿用 /generate 样板的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .scr- 前缀；antd 覆盖一律写成 `.scr-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：/api/script 的 list/create/update/export/import/split/generate/stitch、
+   Form 与场景数组的 handleSceneUpdate、批量生成弹窗与轮询标记 hasActive 全部原样。
+
+   本轮修掉的根因：
+     1. 场景卡状态色全是硬编码浅底 + 硬边框（completed #f6fff6/#b7eb8f、failed #fff6f6/#ffa39e、
+        默认 #fff/#e8e0f0）——**暗色下三张卡全是白底**，与整页脱节 → 改 data-status + color-mix，
+        两种主题都成立；序号圆点的 #52c41a/#ff4d4f/#1890ff/#7c3aed 同样令牌化。
+     2. 列表页「加载中/空态」是 `color:#bbb` 的裸 div（暗色下几乎看不见）→ 令牌舞台。
+     3. 拼接结果卡写死 `border:1px solid #52c41a`；场景面板标题写死 `#7c3aed` → 令牌。
+     4. 三个路由都不经 UserLayout，页内各自写 maxWidth 900/1000/800 + 双层居中容器 → 单层 .scr-root。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.scr-root {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4) var(--sp-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.scr-root--list { max-width: 880px; }
+
+/* ---------- 顶栏 ---------- */
+.scr-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.scr-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; min-width: 0; }
+.scr-topbar__titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.scr-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52ch; }
+.scr-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.scr-topbar__acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.scr-root .scr-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.scr-root .scr-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+.scr-root .scr-btn-primary.ant-btn {
+  border-radius: var(--r-md);
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 620;
+  box-shadow: var(--shadow-1);
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.scr-root .scr-btn-primary.ant-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+.scr-root .scr-btn-primary.ant-btn[disabled] { opacity: .5; transform: none; box-shadow: none; filter: none; }
+
+/* ---------- 令牌面板 ---------- */
+.scr-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-5) var(--sp-5) var(--sp-5);
+  transition: border-color var(--t-base) var(--ease);
+}
+.scr-panel:hover { border-color: var(--line-strong); }
+.scr-panel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding-bottom: var(--sp-3); margin-bottom: var(--sp-4); border-bottom: 1px solid var(--line); }
+.scr-panel__title { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.scr-panel__title .anticon { color: var(--primary); }
+.scr-panel__acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.scr-panel__hint { font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.7; margin: 0; }
+.scr-panel .ant-tag { margin-inline-end: 0; border-radius: 999px; padding: 1px 9px; font-size: var(--fs-xs); line-height: 1.75; }
+.scr-panel .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.scr-panel .ant-tag-success { background: color-mix(in srgb, var(--success) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 46%, var(--line)) !important; color: var(--success) !important; }
+
+/* ---------- 列表条目 ---------- */
+.scr-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.scr-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.scr-item:hover { border-color: var(--line-strong); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.scr-item__lead { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; flex-wrap: wrap; }
+.scr-item__name { font-size: var(--fs-lg); font-weight: 620; color: var(--text); text-decoration: none; }
+.scr-item__name:hover { color: var(--primary); }
+.scr-item .scr-item__status.ant-tag { margin-inline-end: 0; padding: 1px 10px; font-size: var(--fs-xs); border-radius: 999px; line-height: 1.75; }
+.scr-item__acts { display: flex; gap: var(--sp-2); flex: none; }
+.scr-item__acts .ant-btn { border-radius: var(--r-sm); font-size: var(--fs-sm); }
+
+/* ---------- 场景卡（本轮核心修复：状态色不再写死浅底） ---------- */
+.scr-scenes { display: flex; flex-direction: column; gap: var(--sp-3); }
+.scr-scene {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.scr-scene:hover { border-color: var(--line-strong); box-shadow: var(--shadow-1); }
+.scr-scene[data-status="completed"] { border-color: color-mix(in srgb, var(--success) 46%, var(--line)); background: color-mix(in srgb, var(--success) 9%, var(--surface-2)); }
+.scr-scene[data-status="failed"] { border-color: color-mix(in srgb, var(--danger) 48%, var(--line)); background: color-mix(in srgb, var(--danger) 9%, var(--surface-2)); }
+.scr-scene[data-status="processing"] { border-color: color-mix(in srgb, var(--info) 46%, var(--line)); background: color-mix(in srgb, var(--info) 9%, var(--surface-2)); }
+.scr-scene__head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.scr-scene__no {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: var(--fs-md);
+  font-weight: 650;
+}
+.scr-scene[data-status="completed"] .scr-scene__no { background: color-mix(in srgb, var(--success) 78%, #000 0%); }
+.scr-scene[data-status="failed"] .scr-scene__no { background: var(--danger); }
+.scr-scene[data-status="processing"] .scr-scene__no { background: var(--info); }
+.scr-scene__name { font-size: var(--fs-md); font-weight: 640; color: var(--text); }
+.scr-scene__spacer { flex: 1 1 auto; }
+.scr-scene__tail { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.scr-scene__label { font-size: var(--fs-xs); color: var(--text-muted); }
+.scr-scene .scr-scene__tag.ant-tag { margin-inline-end: 0; padding: 1px 9px; font-size: var(--fs-xs); border-radius: 999px; line-height: 1.75; }
+.scr-scene .ant-tag-default { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.scr-scene .ant-tag-processing { background: color-mix(in srgb, var(--info) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 48%, var(--line)) !important; color: var(--info) !important; }
+.scr-scene .ant-tag-success { background: color-mix(in srgb, var(--success) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 48%, var(--line)) !important; color: var(--success) !important; }
+.scr-scene .ant-tag-error { background: color-mix(in srgb, var(--danger) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--danger) 48%, var(--line)) !important; color: var(--danger) !important; }
+.scr-scene__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
+.scr-scene[data-has-video="1"] .scr-scene__body { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.scr-scene__prompt.ant-input { font-size: var(--fs-md); line-height: 1.7; border-radius: var(--r-sm); background: var(--card) !important; border-color: var(--line-strong) !important; }
+.scr-scene__prompt.ant-input:focus { border-color: var(--primary) !important; box-shadow: var(--ring); }
+.scr-scene__video { width: 100%; max-height: 140px; border-radius: var(--r-sm); background: #000; border: 1px solid var(--line-strong); }
+.scr-scene__err { font-size: var(--fs-xs); color: var(--danger); }
+
+/* ---------- 生成设置：标签 + 控件成对排布（原 Row/Col xs8/sm4 魔法断点） ---------- */
+.scr-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-3) var(--sp-4); }
+.scr-opt { display: flex; flex-direction: column; gap: 5px; }
+.scr-opt__label { font-size: var(--fs-sm); color: var(--text-muted); }
+.scr-opts__note { grid-column: 1 / -1; font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 拼接结果 ---------- */
+.scr-stitch { border-color: color-mix(in srgb, var(--success) 46%, var(--line)); }
+.scr-stitch video { width: 100%; max-height: 420px; border-radius: var(--r-md); background: #000; }
+
+/* ---------- 批量生成弹窗 ---------- */
+.scr-modal { display: flex; flex-direction: column; gap: var(--sp-4); }
+.scr-modal__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-3); }
+
+/* ---------- 空态 / 加载态 ---------- */
+.scr-stage {
+  display: grid;
+  place-items: center;
+  gap: var(--sp-2);
+  min-height: 200px;
+  padding: var(--sp-6);
+  background-image: var(--grad-stage);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  text-align: center;
+}
+.scr-loading { display: grid; place-items: center; min-height: 280px; color: var(--text-muted); font-size: var(--fs-md); }
+
+/* ---------- 表单动作条 ---------- */
+.scr-form__foot { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .scr-item,
+[data-theme=light] .scr-panel { border-color: #e2e7f2; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .22); }
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .scr-item,
+[data-theme=dark] .scr-panel { border-color: var(--line-strong); box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .scr-scene[data-has-video="1"] .scr-scene__body { grid-template-columns: minmax(0, 1fr); }
+  .scr-item { flex-direction: column; align-items: stretch; }
+  .scr-item__acts { justify-content: flex-end; }
+  .scr-root { padding: var(--sp-4) var(--sp-3) var(--sp-6); }
+}
