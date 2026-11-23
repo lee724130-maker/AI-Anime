@@ -1,5 +1,51 @@
 # 修复日志
 
+## 2026-11-23（前端质感改造·批次A `/character` + `/script` ✅ 已推送 `21e353e`，**未部署生产**）
+
+> 清单 7 页收官后用户拍板「继续铺清单外页面」。批次 A 先做最小、最安全的两组 CRUD 页（7 个文件）。
+> 用户已明确上线节奏：**先把页面全部做完做扎实，再攒一次部署窗口一并上线**，所以「生产是旧版、本地领先」是有意状态，不是遗漏。
+> 批次 B（Video）起留到明天继续。
+
+### ✅ ① `/character`（index 79 / Create 49 / Detail 156 → 新增 `character.css`，`.chr-*`）
+- **列表页**：`List` 里只为了渲染一个 `Card`（白搭一层 DOM 与分隔线）→ 直接条目栅格；「居中大标题 + 下面一行返回/创建」→ 与 `/tasks` `/user` 同款顶栏（返回圆钮 + 标题 + 计数说明 + 主操作）。
+- **创建页**：`Card` → `.chr-panel`；表单动作从 `Form.Item` 里挪出来成 `.chr-form__foot`。
+- **详情页**：居中孤立的头像 → `.chr-hero` 摘要头（头像 + 当前名称 + ID）；🔴 **两种风格参考图写死 `border:'2px solid #d9d9d9'`（暗色下几乎看不见）** → `.chr-ref` 令牌描边；两块重复 JSX 收成一个 `refBlock()` 小函数，`genAnime/genRealistic` 状态、`generateReference()` 调用与文案一字未改。
+- 三个路由原本各自写 `maxWidth 850/800` + 双层居中容器 → 单层 `.chr-root`。
+
+### ✅ ② `/script`（index 117 / Create 350 / Detail 343 → 新增 `script.css`，`.scr-*`）
+- 🔴 **本轮最值钱的修复：场景卡状态底色全是硬编码浅色系** —— `completed #f6fff6/#b7eb8f`、`failed #fff6f6/#ffa39e`、默认 `#fff/#e8e0f0`，序号圆点 `#52c41a/#ff4d4f/#1890ff/#7c3aed`，**暗色下这些卡就是一块块白卡** → 改 `data-status` + `color-mix`。
+- 列表页「加载中 / 空态」是 `color:#bbb` 的裸 div（暗色下同样几乎看不见）→ `.scr-stage` / `.scr-loading` 令牌舞台。
+- 场景面板 `Card(title/extra)` → `.scr-panel` 头栏 + 动作区分列；生成设置 `Row/Col xs8 sm4` 魔法断点 → `.scr-opts` 自适应栅格；拼接结果卡写死 `border:1px solid #52c41a` → `.scr-stitch`；批量生成弹窗 `Space/Row/Col` → `.scr-modal` 栅格。
+- 三个路由同样收掉各自的 `maxWidth 900/1000/800` 双层容器。
+
+### ✅ ③ 验证方式这轮起升级（双轨）
+- **桩数据探针**：`npm run build` EXIT=0；`probe-ui` `/character`、`/script` 暗/浅全绿（`antCards=0 / brokenImgs=0 / pageErrors=0`）。顺带发现 `/script` 没登记桩数据时列表会渲染炸进 ErrorBoundary（`/api/script/list` 返回 `{}`），已补两条路由的桩数据。
+- **真实数据走查**（新做法）：往本地 `scripts` 表灌一条含 **4 种状态场景**的临时剧本（视频指向本地真实 mp4，**绝不调用任何生成接口** —— 本地 `system_configs` 带真实 Agnes key，点了就耗生产配额），用真实登录态在暗/浅两主题下用 `getComputedStyle` 读**实际色值**判定，而不是看截图猜：
+
+  | data-status | 暗色实测底色 | 浅色实测底色 |
+  |---|---|---|
+  | completed | `color(srgb .115 .210 .250)` | `.887 .950 .945` |
+  | processing | `.130 .194 .285` | `.902 .931 .986` |
+  | failed | `.184 .175 .236` | `.966 .909 .923` |
+  | pending | `rgb(27,38,55)` | `rgb(247,248,252)` |
+
+  页面底 `rgb(15,23,42)` —— **暗色下没有任何一张卡是白的**；`antCards=0`、`jsErr=0`、视频正常渲染。
+- 走查数据已删除，`scripts / characters / comic_projects` 均核对回到与生产一致的 **0 行**。
+
+### 📌 ④ 提交
+`645d93a..21e353e`（9 文件，+761 / −411）：`frontend/src/pages/Character/{index,Create,Detail}.tsx + character.css`、`frontend/src/pages/Script/{index,Create,Detail}.tsx + script.css`、`tools/probe-ui.cjs`。
+
+### ⏭ ⑤ 明日继续（批次 B 起）
+| 批次 | 页面 | 规模 |
+|---|---|---|
+| **B** | `/video` index / Create / Detail / Stitch | 348 + 257 + 204 + 237 |
+| C | `/login` `/register`（Auth） | 248 + 231 |
+| D | `/studio` | 627 |
+| E | `/`（Landing 营销首页，风险最高单独做） | 1317 |
+| F | `/editor`（admin-only：EditorPage + Timeline + PropsPanel + index） | 1116 + 352 + 222 + 127 |
+
+另有两项与样式无关的待办：**`CleanupService` 的 `Illegal mix of collations` 未修**（磁盘自动清理实际没在工作）；**越权修复与 7 页样式仍未部署生产**，等页面全部做完攒一次窗口按 `docs/deploy.md` 上线（后端需现场核对 `dist/src/common/security/` 是否就位）。
+
 ## 2026-11-23（前端质感改造·`/comic-studio` 第二轮收尾 ✅ 清单 7 页全部做完，**未部署生产**）
 
 > 用户指示：先把页面全部优化好，再一并上线。清单里唯一剩的 `/comic-studio` scoped 遗留（13 个内部 Card + 2 个弹窗）本轮做完。
