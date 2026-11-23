@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Button, Card, Steps, Form, Input, InputNumber, Select, Space, Typography,
+  Button, Steps, Form, Input, InputNumber, Select, Space, Typography,
   Table, Tag, Alert, Progress, Row, Col, Image, Divider, Tooltip, message, Empty, Spin,
-  Modal, Tabs, List,
+  Modal, Tabs,
 } from 'antd';
 import {
   PlusOutlined, ArrowLeftOutlined, ThunderboltOutlined, CheckOutlined,
@@ -532,7 +532,7 @@ export default function ComicStudioPage() {
   const pct = progress?.total ? Math.round(((progress.completed + progress.failed) / progress.total) * 100) : 0;
 
   const projectSetupForm = (
-    <div>
+    <div className="cst-form">
       <Form form={form} layout="vertical" initialValues={DEFAULT_FORM} onFinish={createOrUpdate}>
         <Row gutter={16}>
           <Col xs={24} md={12}><Form.Item name="title" label="项目名称" rules={[{ required: true, message: '请填写名称' }]}><Input /></Form.Item></Col>
@@ -549,16 +549,18 @@ export default function ComicStudioPage() {
           <Col xs={24} md={4}><Form.Item name="scene_anchor" label="场景锚点"><Input /></Form.Item></Col>
         </Row>
         <Form.Item name="costume_ref" label="附加服装参考图（可选，/static/...）"><Input placeholder="可留空；服装主要由人物人设逐件描述" /></Form.Item>
-        <Button type="primary" htmlType="submit" icon={<CheckOutlined />}>保存项目</Button>
+        <div className="cst-form__foot">
+          <Button type="primary" htmlType="submit" icon={<CheckOutlined />}>保存项目</Button>
+        </div>
       </Form>
       {projectId && (
         <>
           <Divider titlePlacement="left" plain>剧情大纲（模型生成，可人工改写）</Divider>
           <TextArea rows={6} value={outline} onChange={(e) => setOutline(e.target.value)} placeholder="点下方按钮生成，或直接粘贴现成大纲" />
-          <Space style={{ marginTop: 12 }}>
+          <div className="cst-form__foot">
             <Button icon={<ThunderboltOutlined />} onClick={genOutline}>生成剧情大纲</Button>
             <Button type="primary" icon={<CheckOutlined />} onClick={confirmOutline}>确认大纲，去识别人物</Button>
-          </Space>
+          </div>
         </>
       )}
     </div>
@@ -580,7 +582,7 @@ export default function ComicStudioPage() {
             <Button icon={<AppstoreOutlined />} onClick={goLanding}>项目列表</Button>
           </div>
 
-      <Alert type="info" showIcon style={{ marginBottom: 16 }}
+      <Alert className="cst-note" type="info" showIcon style={{ marginBottom: 16 }}
         message="标准流程：大纲 → 识别人物 → 人设 → 角色设定本（锁定） → 逐页剧情图"
         description="角色由模型从剧情里识别并生成设定本，锁定后作为每一页唯一的身份基准；文字层（旁白/气泡/分支卡）仍交给剪辑应用排版层，底图不含中文。" />
 
@@ -607,46 +609,57 @@ export default function ComicStudioPage() {
 
           {/* 1 人物与人设 */}
           {step === 1 && (
-            <div>
-              <Space style={{ marginBottom: 12 }} wrap>
+            <div className="cst-step">
+              <div className="cst-step__bar">
                 <Button type="primary" icon={<ThunderboltOutlined />} onClick={extractCharacters}>从大纲识别人物</Button>
                 <Button icon={<ThunderboltOutlined />} onClick={genPrompts} disabled={!characters.length}>生成人设提示词</Button>
-                <Text type="secondary">人物由模型识别；可增删改各项人设，服装务必逐件写清</Text>
-              </Space>
+                <span className="cst-step__hint">人物由模型识别；可增删改各项人设，服装务必逐件写清</span>
+              </div>
               {characters.length ? (
                 <>
-                  <Row gutter={[12, 12]}>
+                  {/* 人设卡：antd Card(title 里塞 Input) → 令牌卡；Input/onChange/value 一字未动 */}
+                  <div className="cst-chargrid">
                     {characters.map((c, i) => (
-                      <Col xs={24} md={12} key={c.id}>
-                        <Card size="small" title={<Space><Tag color="purple">{c.id}</Tag><Input size="small" style={{ width: 140 }} value={c.name} onChange={(e) => patchChar(i, 'name', e.target.value)} /></Space>}>
-                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                            <Input size="small" addonBefore="身份" value={c.role} onChange={(e) => patchChar(i, 'role', e.target.value)} />
-                            <Input size="small" addonBefore="年龄/性别" value={`${c.age || ''} ${c.gender || ''}`} onChange={(e) => { patchChar(i, 'age', e.target.value); }} />
-                            <Input size="small" addonBefore="外貌" value={c.appearance} onChange={(e) => patchChar(i, 'appearance', e.target.value)} />
-                            <TextArea rows={2} placeholder="服装逐件（上衣/下装/鞋/外搭/配饰，含颜色材质）" value={c.costume} onChange={(e) => patchChar(i, 'costume', e.target.value)} />
-                            <Input size="small" addonBefore="配饰" value={c.accessories} onChange={(e) => patchChar(i, 'accessories', e.target.value)} />
-                            <Input size="small" addonBefore="标志" value={c.signature} onChange={(e) => patchChar(i, 'signature', e.target.value)} />
-                            {c.prompt && <Alert type="success" message={<span><Text type="secondary">英文设定本提示词：</Text>{c.prompt}</span>} />}
-                          </Space>
-                        </Card>
-                      </Col>
+                      <div className="cst-char" key={c.id}>
+                        <div className="cst-char__head">
+                          <Tag className="cst-char__no">{c.id}</Tag>
+                          <Input size="small" style={{ width: 140 }} value={c.name} onChange={(e) => patchChar(i, 'name', e.target.value)} />
+                        </div>
+                        <div className="cst-char__fields">
+                          <Input size="small" addonBefore="身份" value={c.role} onChange={(e) => patchChar(i, 'role', e.target.value)} />
+                          <Input size="small" addonBefore="年龄/性别" value={`${c.age || ''} ${c.gender || ''}`} onChange={(e) => { patchChar(i, 'age', e.target.value); }} />
+                          <Input size="small" addonBefore="外貌" value={c.appearance} onChange={(e) => patchChar(i, 'appearance', e.target.value)} />
+                          <TextArea rows={2} placeholder="服装逐件（上衣/下装/鞋/外搭/配饰，含颜色材质）" value={c.costume} onChange={(e) => patchChar(i, 'costume', e.target.value)} />
+                          <Input size="small" addonBefore="配饰" value={c.accessories} onChange={(e) => patchChar(i, 'accessories', e.target.value)} />
+                          <Input size="small" addonBefore="标志" value={c.signature} onChange={(e) => patchChar(i, 'signature', e.target.value)} />
+                          {c.prompt && <Alert className="cst-char__prompt" type="success" message={<span><span className="cst-char__prompt-label">英文设定本提示词：</span>{c.prompt}</span>} />}
+                        </div>
+                      </div>
                     ))}
-                  </Row>
-                  <div style={{ marginTop: 12, textAlign: 'right' }}>
+                  </div>
+                  <div className="cst-step__foot">
                     <Button type="primary" icon={<CheckOutlined />} onClick={confirmCharacters}>确认人物，去生成设定本</Button>
                   </div>
                 </>
-              ) : <Empty description="还没有人物，点「从大纲识别人物」" />}
+              ) : <div className="cst-stage"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有人物，点「从大纲识别人物」" /></div>}
             </div>
           )}
 
           {/* 2 角色设定本 */}
           {step === 2 && (
-            <div>
-              <Alert type="info" showIcon style={{ marginBottom: 12 }}
-                message="角色设定本 = 角色一致性的唯一基准"
-                description="必选 4 块：正面头像 / 三视图 / 表情组 / 局部特写——这 4 块齐了就能自动拼版、锁定并进入下一步。可选 3 块：人物服装 / 姿势 / 造型，不默认生成、不阻塞流程，需要时在详情弹窗里单独生成，生成后会自动拼进设定本。「应用大资产」可把大资产库/开源图鉴的图直接作为该块成品（0 生图 0 积分）。" />
-              <Row gutter={[12, 12]}>
+            <div className="cst-step">
+              {/* 长说明：常驻 Alert → 默认折叠指南条（/open-gallery 同款范式），文案一字不动 */}
+              <details className="cst-guide">
+                <summary className="cst-guide__summary">
+                  <span className="cst-guide__mark">i</span>
+                  <span>角色设定本 = 角色一致性的唯一基准</span>
+                  <span className="cst-guide__chev">▶</span>
+                </summary>
+                <div className="cst-guide__body">
+                  必选 4 块：正面头像 / 三视图 / 表情组 / 局部特写——这 4 块齐了就能自动拼版、锁定并进入下一步。可选 3 块：人物服装 / 姿势 / 造型，不默认生成、不阻塞流程，需要时在详情弹窗里单独生成，生成后会自动拼进设定本。「应用大资产」可把大资产库/开源图鉴的图直接作为该块成品（0 生图 0 积分）。
+                </div>
+              </details>
+              <div className="cst-sheetgrid">
                 {characters.map((c) => {
                   const done = doneRequired(c);
                   const opt = doneOptional(c);
@@ -654,96 +667,108 @@ export default function ComicStudioPage() {
                   const failed = (c.blocks || []).filter((b: any) => b.status === 'failed' && !b.url).length;
                   const cover = portraitImage(c);
                   return (
-                    <Col xs={24} sm={12} md={8} xl={6} key={c.id}>
-                      <Card size="small" hoverable
-                        title={<Space size={4}><Text strong ellipsis style={{ maxWidth: 110, fontSize: 13 }}>{c.name}</Text>{c.locked ? <Tag color="success">已锁定</Tag> : <Tag>未锁定</Tag>}</Space>}
-                        extra={<Button size="small" type="link" icon={<AppstoreOutlined />} onClick={() => setDetailCharId(c.id)}>详情</Button>}
-                        cover={cover
-                          ? <div onClick={() => setDetailCharId(c.id)} style={{ cursor: 'pointer' }}>
-                              <Image alt={c.name} src={getUrl(cover)} preview={false}
-                                style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
-                            </div>
-                          : <div className="cst-ph cst-ph--1x1 cst-ph--pointer" onClick={() => setDetailCharId(c.id)}>暂无正面头像 · 点详情应用</div>}
-                        actions={[
-                          <Button size="small" type="link" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>补生成必选块</Button>,
-                          <Button size="small" type="link" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url} onClick={() => toggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>,
-                        ]}>
-                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                          <Text type="secondary" style={{ fontSize: 12 }}>必选 {done}/{total} · 可选 {opt}/{OPTIONAL_KEYS.length}</Text>
-                          <Progress percent={Math.round(done / total * 100)} size="small" showInfo={false} />
-                          {failed > 0 && (
-                            <Button block size="small" type="link" danger style={{ padding: 0, height: 20 }}
-                              onClick={() => setDetailCharId(c.id)}>{failed} 块生成失败 · 点此重试</Button>
-                          )}
-                          <Button block size="small" onClick={() => setDetailCharId(c.id)}>查看图像块详情</Button>
-                        </Space>
-                      </Card>
-                    </Col>
+                    <div className="cst-sheet" key={c.id}>
+                      <div className="cst-sheet__head">
+                        <span className="cst-sheet__name">{c.name}</span>
+                        <Tag className="cst-sheet__lock" color={c.locked ? 'success' : 'default'}>{c.locked ? '已锁定' : '未锁定'}</Tag>
+                        <Button size="small" type="link" icon={<AppstoreOutlined />} onClick={() => setDetailCharId(c.id)}>详情</Button>
+                      </div>
+                      <div className="cst-sheet__cover" onClick={() => setDetailCharId(c.id)}>
+                        {cover
+                          ? <Image className="cst-sheet__img" alt={c.name} src={getUrl(cover)} preview={false} />
+                          : <div className="cst-ph cst-ph--1x1 cst-ph--pointer">暂无正面头像 · 点详情应用</div>}
+                      </div>
+                      <div className="cst-sheet__body">
+                        <span className="cst-sheet__meta">必选 {done}/{total} · 可选 {opt}/{OPTIONAL_KEYS.length}</span>
+                        <Progress percent={Math.round(done / total * 100)} size="small" showInfo={false} />
+                        {failed > 0 && (
+                          <Button className="cst-sheet__retry" size="small" type="link" danger
+                            onClick={() => setDetailCharId(c.id)}>{failed} 块生成失败 · 点此重试</Button>
+                        )}
+                      </div>
+                      <div className="cst-sheet__foot">
+                        <Button size="small" type="link" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => genSheet(c.id)}>补生成必选块</Button>
+                        <Button size="small" type="link" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url} onClick={() => toggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>
+                      </div>
+                    </div>
                   );
                 })}
-              </Row>
-              <div style={{ marginTop: 16, textAlign: 'right' }}>
-                <Button onClick={() => setStep(1)}>返回改人设</Button>
-                <Button type="primary" disabled={!allLocked} onClick={() => setStep(3)}>全部已锁定，去生成分格</Button>
               </div>
-              {!allLocked && <Text type="secondary" style={{ display: 'block', textAlign: 'right', marginTop: 6, fontSize: 12 }}>需所有人物的 4 个必选块完成并锁定设定本</Text>}
+              <div className="cst-step__foot cst-step__foot--split">
+                <span className="cst-step__hint">{!allLocked ? '需所有人物的 4 个必选块完成并锁定设定本' : ''}</span>
+                <span className="cst-step__acts">
+                  <Button onClick={() => setStep(1)}>返回改人设</Button>
+                  <Button type="primary" disabled={!allLocked} onClick={() => setStep(3)}>全部已锁定，去生成分格</Button>
+                </span>
+              </div>
             </div>
           )}
 
           {/* 3 分格 */}
           {step === 3 && (
-            <div>
-              <Space style={{ marginBottom: 12 }} wrap>
+            <div className="cst-step">
+              <div className="cst-step__bar">
                 <Button type="primary" icon={<ThunderboltOutlined />} onClick={genScript}>生成分格脚本</Button>
-                <Text type="secondary">每格必须指定出场人物；该人物的设定本会自动作为生图参考图</Text>
-              </Space>
+                <span className="cst-step__hint">每格必须指定出场人物；该人物的设定本会自动作为生图参考图</span>
+              </div>
               {panels.length ? (
                 <>
-                  <Table rowKey="page_no" size="small" pagination={false} scroll={{ x: 1100, y: 460 }} dataSource={panels} columns={columns} />
-                  <div style={{ marginTop: 12, textAlign: 'right' }}>
+                  <div className="cst-table">
+                    <Table rowKey="page_no" size="small" pagination={false} scroll={{ x: 1100, y: 460 }} dataSource={panels} columns={columns} />
+                  </div>
+                  <div className="cst-step__foot">
                     <Button type="primary" icon={<CheckOutlined />} onClick={() => savePanels(panels)}>保存分格并去审格</Button>
                   </div>
                 </>
-              ) : <Empty description="点按钮生成逐页剧情" />}
+              ) : <div className="cst-stage"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="点按钮生成逐页剧情" /></div>}
             </div>
           )}
 
           {/* 4 审格 · 门控与用量（生成前预检） */}
           {step === 4 && (
-            <div>
-              <Title level={5}>审格 · 门控与用量（生成前预检）</Title>
-              <Paragraph type="secondary">同一「复用组」的格只生成 1 张底图，其余格复制同图，仅文字层不同。下面逐项确认前面几步的设定与「能否正确生成」，有「未通过」项时无法开始生图。</Paragraph>
+            <div className="cst-step">
+              <Title level={5} className="cst-h5">审格 · 门控与用量（生成前预检）</Title>
+              <Paragraph className="cst-p" type="secondary">同一「复用组」的格只生成 1 张底图，其余格复制同图，仅文字层不同。下面逐项确认前面几步的设定与「能否正确生成」，有「未通过」项时无法开始生图。</Paragraph>
               <Spin spinning={preflightLoading}>
                 {preflight ? (
                   <>
-                    <Row gutter={12} style={{ marginBottom: 12 }}>
-                      <Col><Card size="small"><Text type="secondary">总格数</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.page_count}</Title></Card></Col>
-                      <Col><Card size="small"><Text type="secondary">需生成底图</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.base_count}</Title></Card></Col>
-                      <Col><Card size="small"><Text type="secondary">单张积分</Text><Title level={3} style={{ margin: 0 }}>{preflight.estimate.per_image_credits}</Title></Card></Col>
-                      <Col><Card size="small"><Text type="secondary">预计消耗</Text><Title level={3} className="cst-stat__num" data-tone="warn">{preflight.estimate.total_credits}</Title></Card></Col>
-                      <Col><Card size="small"><Text type="secondary">当前余额</Text><Title level={3} className="cst-stat__num" data-tone={preflight.deficit ? 'danger' : 'success'}>{preflight.balance}</Title></Card></Col>
-                    </Row>
-                    <Alert type={preflight.canGenerate ? 'success' : 'error'} showIcon style={{ marginBottom: 12 }}
+                    {/* 预检数字：5 个 antd Card → 令牌统计块（品牌左条 + 等宽数字） */}
+                    <div className="cst-statrow">
+                      <div className="cst-stat"><span className="cst-stat__label">总格数</span><Title level={3} className="cst-stat__num">{preflight.estimate.page_count}</Title></div>
+                      <div className="cst-stat"><span className="cst-stat__label">需生成底图</span><Title level={3} className="cst-stat__num">{preflight.estimate.base_count}</Title></div>
+                      <div className="cst-stat"><span className="cst-stat__label">单张积分</span><Title level={3} className="cst-stat__num">{preflight.estimate.per_image_credits}</Title></div>
+                      <div className="cst-stat"><span className="cst-stat__label">预计消耗</span><Title level={3} className="cst-stat__num" data-tone="warn">{preflight.estimate.total_credits}</Title></div>
+                      <div className="cst-stat"><span className="cst-stat__label">当前余额</span><Title level={3} className="cst-stat__num" data-tone={preflight.deficit ? 'danger' : 'success'}>{preflight.balance}</Title></div>
+                    </div>
+                    <Alert className="cst-note" type={preflight.canGenerate ? 'success' : 'error'} showIcon
                       message={preflight.canGenerate ? '预检通过，可以开始生成' : `预检未通过：${(preflight.checks || []).filter((c: any) => c.level === 'error' && !c.ok).length} 项必须处理后才能生成`}
                       description={preflight.deficit ? `积分还差 ${preflight.deficit} 分，请先充值` : undefined} />
-                    <List size="small" bordered style={{ marginBottom: 12 }} dataSource={preflight.checks || []}
-                      renderItem={(c: any) => (
-                        <List.Item>
-                          <Space wrap size={6}>
-                            <Tag color={c.ok ? 'success' : (c.level === 'error' ? 'error' : 'warning')}>
-                              {c.ok ? '通过' : (c.level === 'error' ? '未通过' : '提醒')}
-                            </Tag>
-                            <Text>{c.label}</Text>
-                            {c.detail && <Text type="secondary" style={{ fontSize: 12 }}>{c.detail}</Text>}
-                          </Space>
-                        </List.Item>
-                      )} />
+                    {/* 检查清单：antd List(bordered) → 令牌清单（数据与 renderItem 判定不变） */}
+                    <div className="cst-checks">
+                      {(preflight.checks || []).map((c: any, i: number) => (
+                        <div className="cst-check" key={i}>
+                          <Tag color={c.ok ? 'success' : (c.level === 'error' ? 'error' : 'warning')}>
+                            {c.ok ? '通过' : (c.level === 'error' ? '未通过' : '提醒')}
+                          </Tag>
+                          <span className="cst-check__label">{c.label}</span>
+                          {c.detail && <span className="cst-check__detail">{c.detail}</span>}
+                        </div>
+                      ))}
+                    </div>
                   </>
-                ) : <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>}
+                ) : <div className="cst-modalstage"><Spin /></div>}
               </Spin>
-              <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="底图不含任何中文文字"
-                description="旁白、台词、气泡、分支卡全部留给剪辑应用 /comic 排版层。提示词已固定注入禁分镜 / 禁拼图 / 禁多余人物 / 禁换装。" />
-              <Space wrap>
+              <details className="cst-guide">
+                <summary className="cst-guide__summary">
+                  <span className="cst-guide__mark">!</span>
+                  <span>底图不含任何中文文字</span>
+                  <span className="cst-guide__chev">▶</span>
+                </summary>
+                <div className="cst-guide__body">
+                  旁白、台词、气泡、分支卡全部留给剪辑应用 /comic 排版层。提示词已固定注入禁分镜 / 禁拼图 / 禁多余人物 / 禁换装。
+                </div>
+              </details>
+              <div className="cst-step__bar">
                 <Button onClick={() => setConfirmed(!confirmed)} icon={<CheckOutlined />}
                   disabled={!preflight?.canGenerate} type={confirmed ? 'primary' : 'default'}>
                   {confirmed ? '已确认分格与设定本' : '点此确认分格与设定本'}
@@ -751,35 +776,37 @@ export default function ComicStudioPage() {
                 <Button type="primary" disabled={!confirmed || !preflight?.canGenerate} loading={loading} onClick={startGeneration}>开始生成底图</Button>
                 <Button onClick={() => setStep(3)}>返回改分格</Button>
                 <Button onClick={() => projectId && refreshPreflight(projectId)} loading={preflightLoading}>重新检查</Button>
-              </Space>
+              </div>
             </div>
           )}
 
           {/* 5 生成 */}
           {step === 5 && (
-            <div>
-              <Space style={{ marginBottom: 12 }} wrap>
+            <div className="cst-step">
+              <div className="cst-step__bar">
                 <Text strong>生成进度</Text>
-                {progress && <Text type="secondary">完成 {progress.completed} / {progress.total} · 失败 {progress.failed} · 进行中 {progress.processing}</Text>}
-              </Space>
-              <Progress percent={pct} status={progress?.failed ? 'exception' : undefined} style={{ marginBottom: 16 }} />
-              <Row gutter={[12, 12]}>
+                {progress && <span className="cst-step__hint">完成 {progress.completed} / {progress.total} · 失败 {progress.failed} · 进行中 {progress.processing}</span>}
+              </div>
+              <Progress className="cst-cell__bar" percent={pct} status={progress?.failed ? 'exception' : undefined} />
+              <div className="cst-cellgrid">
                 {panels.map((p) => (
-                  <Col key={p.page_no} xs={12} sm={8} md={6} lg={4}>
-                    <Card size="small" cover={p.output_url
-                      ? <Image alt={`格${p.page_no}`} src={getUrl(p.output_url)} style={{ aspectRatio: '2/3', objectFit: 'cover' }} />
-                      : <div className="cst-ph cst-ph--2x3">{p.status === 'failed' ? '生成失败' : '生成中…'}</div>}>
-                      <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                        <Space size={4}><Tag>第 {p.page_no} 格</Tag><Tag color={STATUS_TAG[p.status || 'pending']?.color}>{STATUS_TAG[p.status || 'pending']?.label}</Tag></Space>
-                        <Text type="secondary" ellipsis style={{ fontSize: 11 }}>{p.reuse_group}</Text>
-                        {p.error_msg && <Tooltip title={p.error_msg}><Text type="danger" style={{ fontSize: 11 }}>失败原因</Text></Tooltip>}
-                        <Button size="small" block icon={<ReloadOutlined />} onClick={() => regenerate(p.page_no)}>重生成</Button>
-                      </Space>
-                    </Card>
-                  </Col>
+                  <div className="cst-cell" key={p.page_no}>
+                    {p.output_url
+                      ? <Image className="cst-cell__img" alt={`格${p.page_no}`} src={getUrl(p.output_url)} />
+                      : <div className="cst-ph cst-ph--2x3">{p.status === 'failed' ? '生成失败' : '生成中…'}</div>}
+                    <div className="cst-cell__body">
+                      <span className="cst-cell__tags">
+                        <Tag>第 {p.page_no} 格</Tag>
+                        <Tag color={STATUS_TAG[p.status || 'pending']?.color}>{STATUS_TAG[p.status || 'pending']?.label}</Tag>
+                      </span>
+                      <span className="cst-cell__sub">{p.reuse_group}</span>
+                      {p.error_msg && <Tooltip title={p.error_msg}><Text type="danger" className="cst-cell__err">失败原因</Text></Tooltip>}
+                      <Button className="cst-cell__act" size="small" icon={<ReloadOutlined />} onClick={() => regenerate(p.page_no)}>重生成</Button>
+                    </div>
+                  </div>
                 ))}
-              </Row>
-              <div style={{ marginTop: 16, textAlign: 'right' }}>
+              </div>
+              <div className="cst-step__foot">
                 <Button type="primary" disabled={!panels.length || panels.some((p: any) => p.status === 'processing' || p.status === 'pending')}
                   onClick={() => setStep(6)}>查看交付</Button>
               </div>
@@ -788,26 +815,27 @@ export default function ComicStudioPage() {
 
           {/* 6 交付 */}
           {step === 6 && (
-            <div>
-              <Title level={5}>漫画包交付</Title>
-              <Paragraph type="secondary">导出 ZIP 含 <code>格NN.png</code>、各人物 <code>设定本_cN.png</code>、<code>panel-spec.json</code>、<code>manifest.json</code>。拿去 <code>D:\剪辑应用</code> 的 /comic 页套文字层并完善剧情。</Paragraph>
-              <Space style={{ marginBottom: 16 }} wrap>
+            <div className="cst-step">
+              <Title level={5} className="cst-h5">漫画包交付</Title>
+              <Paragraph className="cst-p" type="secondary">导出 ZIP 含 <code>格NN.png</code>、各人物 <code>设定本_cN.png</code>、<code>panel-spec.json</code>、<code>manifest.json</code>。拿去 <code>D:\剪辑应用</code> 的 /comic 页套文字层并完善剧情。</Paragraph>
+              <div className="cst-step__bar">
                 <Button type="primary" icon={<DownloadOutlined />} loading={loading} onClick={exportPackage}>导出漫画包</Button>
                 <Button icon={<SwapOutlined />} onClick={cloneOtherStyle}>复制为另一风格</Button>
                 {exportUrl && <Button href={getUrl(exportUrl)} target="_blank" download>下载 ZIP</Button>}
-              </Space>
-              <Row gutter={[12, 12]}>
+              </div>
+              <div className="cst-cellgrid">
                 {panels.map((p) => (
-                  <Col key={p.page_no} xs={12} sm={8} md={6} lg={4}>
-                    <Card size="small" cover={p.output_url
-                      ? <Image alt={`格${p.page_no}`} src={getUrl(p.output_url)} style={{ aspectRatio: '2/3', objectFit: 'cover' }} />
-                      : <div className="cst-ph cst-ph--2x3">无底图</div>}>
-                      <Space direction="vertical" size={2}><Tag>第 {p.page_no} 格</Tag>
-                        <Text type="secondary" style={{ fontSize: 11 }} ellipsis>{p.narration || p.dialogue || p.action}</Text></Space>
-                    </Card>
-                  </Col>
+                  <div className="cst-cell" key={p.page_no}>
+                    {p.output_url
+                      ? <Image className="cst-cell__img" alt={`格${p.page_no}`} src={getUrl(p.output_url)} />
+                      : <div className="cst-ph cst-ph--2x3">无底图</div>}
+                    <div className="cst-cell__body">
+                      <span className="cst-cell__tags"><Tag>第 {p.page_no} 格</Tag></span>
+                      <span className="cst-cell__sub">{p.narration || p.dialogue || p.action}</span>
+                    </div>
+                  </div>
                 ))}
-              </Row>
+              </div>
             </div>
           )}
         </Spin>
@@ -925,20 +953,21 @@ function CharacterDetailModal(props: {
       onCancel={onClose} width={1000} footer={null}>
       {c && (
         <>
-          <Space wrap align="start" style={{ marginBottom: 12 }}>
+          <div className="cst-digest">
             {c.sheet_url
-              ? <Image alt="设定本拼版" src={getUrl(c.sheet_url)} width={72} height={72} style={{ objectFit: 'cover', borderRadius: 6 }} />
+              ? <Image className="cst-digest__sheet" alt="设定本拼版" src={getUrl(c.sheet_url)} width={72} height={72} preview={false} />
               : <div className="cst-ph cst-ph--72">拼版待齐</div>}
-            <Space direction="vertical" size={2}>
-              <Text type="secondary" style={{ fontSize: 12 }}>4 个必选块齐了即自动拼版并解锁「锁定」。可选块不默认生成：点每块的「生成」单独生成，失败块用「重试生成」，生成后自动拼进设定本；已锁定后仍可重试可选块，必选块需先解锁。「应用大资产」的图片直接作为成品，0 生图 0 积分。</Text>
-              <Space wrap>
+            <div className="cst-digest__main">
+              <span className="cst-digest__text">4 个必选块齐了即自动拼版并解锁「锁定」。可选块不默认生成：点每块的「生成」单独生成，失败块用「重试生成」，生成后自动拼进设定本；已锁定后仍可重试可选块，必选块需先解锁。「应用大资产」的图片直接作为成品，0 生图 0 积分。</span>
+              <div className="cst-digest__acts">
                 <Button size="small" icon={<ReloadOutlined />} disabled={c.locked} onClick={() => onGenSheet(c.id)}>补生成必选块</Button>
                 <Button size="small" icon={c.locked ? <UnlockOutlined /> : <LockOutlined />} disabled={!c.sheet_url}
                   onClick={() => onToggleLock(c.id, !c.locked)}>{c.locked ? '解锁' : '锁定'}</Button>
-              </Space>
-            </Space>
-          </Space>
-          <Row gutter={[12, 12]}>
+              </div>
+            </div>
+          </div>
+          {/* 7 个图像块（4 必选 + 3 可选）：antd Card → 令牌块卡；可选块用虚线边框区分 */}
+          <div className="cst-blocks">
             {BLOCK_KEYS.map((key) => {
               const b: any = (c.blocks || []).find((x: any) => x.key === key) || {};
               const st = blockStatus(b);
@@ -947,42 +976,42 @@ function CharacterDetailModal(props: {
               // 锁定后身份基准（必选 4 块）不可动，但失败/未完成的可选块仍允许生成与替换
               const canEdit = !c.locked || optional;
               return (
-                <Col xs={12} sm={8} md={6} key={key}>
-                  <Card size="small"
-                    title={<Text style={{ fontSize: 12 }}>{BLOCK_LABELS[key]}</Text>}
-                    extra={<Tag color={STATUS_TAG[st]?.color}>{STATUS_TAG[st]?.label}</Tag>}
-                    cover={img
-                      ? <Image alt={BLOCK_LABELS[key]} src={getUrl(img)} style={{ width: '100%', aspectRatio: '1/1', objectFit: 'cover' }} />
-                      : <div className="cst-ph cst-ph--1x1">暂无图像</div>}>
-                    <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                      <Space size={2} wrap>
-                        <Tag color={OPTIONAL_KEYS.includes(key) ? 'default' : 'blue'}>{OPTIONAL_KEYS.includes(key) ? '可选' : '必选'}</Tag>
-                        {b.reference_asset_id ? <Tag color="purple">大资产</Tag> : null}
-                        {b.source === 'generated' ? <Tag color="blue">已生成</Tag> : null}
-                        {b.source === 'library' && !b.reference_asset_id ? <Tag color="geekblue">素材图</Tag> : null}
-                        {b.error_msg ? <Tooltip title={b.error_msg}><Tag color="error">有错误</Tag></Tooltip> : null}
-                      </Space>
-                      <Space size={0} wrap>
-                        <Button size="small" type="link" style={{ padding: 0 }} disabled={!canEdit} icon={<AppstoreOutlined />}
-                          onClick={() => onPick(c.id, key, BLOCK_REF_TAG[key] || 'open')}>应用大资产</Button>
-                        <Button size="small" type="link" style={{ padding: 0 }}
-                          disabled={!canEdit || st === 'processing'} danger={st === 'failed'}
-                          title={canEdit ? '生成会调用模型并消耗积分' : '请先解锁后再重生成必选块'}
-                          icon={st === 'completed' || st === 'processing' ? <ReloadOutlined /> : <ThunderboltOutlined />}
-                          onClick={() => onRegen(c.id, key)}>
-                          {st === 'failed' ? '重试生成' : st === 'processing' ? '生成中…' : b.url ? '重生成' : '生成'}
-                        </Button>
-                        {b.reference_image && (
-                          <Button size="small" type="link" danger style={{ padding: 0 }} disabled={!canEdit}
-                            icon={<DeleteOutlined />} onClick={() => onClear(c.id, key)}>移除</Button>
-                        )}
-                      </Space>
-                    </Space>
-                  </Card>
-                </Col>
+                <div className="cst-block" key={key} data-optional={optional ? '1' : '0'}>
+                  <div className="cst-block__head">
+                    <span className="cst-block__title">{BLOCK_LABELS[key]}</span>
+                    <Tag className="cst-block__state" color={STATUS_TAG[st]?.color}>{STATUS_TAG[st]?.label}</Tag>
+                  </div>
+                  {img
+                    ? <Image className="cst-block__img" alt={BLOCK_LABELS[key]} src={getUrl(img)} />
+                    : <div className="cst-ph cst-ph--1x1">暂无图像</div>}
+                  <div className="cst-block__body">
+                    <div className="cst-block__tags">
+                      <Tag color={optional ? 'default' : 'blue'}>{optional ? '可选' : '必选'}</Tag>
+                      {b.reference_asset_id ? <Tag color="purple">大资产</Tag> : null}
+                      {b.source === 'generated' ? <Tag color="blue">已生成</Tag> : null}
+                      {b.source === 'library' && !b.reference_asset_id ? <Tag color="geekblue">素材图</Tag> : null}
+                      {b.error_msg ? <Tooltip title={b.error_msg}><Tag color="error">有错误</Tag></Tooltip> : null}
+                    </div>
+                    <div className="cst-block__acts">
+                      <Button size="small" type="link" disabled={!canEdit} icon={<AppstoreOutlined />}
+                        onClick={() => onPick(c.id, key, BLOCK_REF_TAG[key] || 'open')}>应用大资产</Button>
+                      <Button size="small" type="link"
+                        disabled={!canEdit || st === 'processing'} danger={st === 'failed'}
+                        title={canEdit ? '生成会调用模型并消耗积分' : '请先解锁后再重生成必选块'}
+                        icon={st === 'completed' || st === 'processing' ? <ReloadOutlined /> : <ThunderboltOutlined />}
+                        onClick={() => onRegen(c.id, key)}>
+                        {st === 'failed' ? '重试生成' : st === 'processing' ? '生成中…' : b.url ? '重生成' : '生成'}
+                      </Button>
+                      {b.reference_image && (
+                        <Button size="small" type="link" danger disabled={!canEdit}
+                          icon={<DeleteOutlined />} onClick={() => onClear(c.id, key)}>移除</Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               );
             })}
-          </Row>
+          </div>
         </>
       )}
     </Modal>
@@ -1048,18 +1077,17 @@ function BlockAssetPicker(props: {
     onClose();
   };
 
-  const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, maxHeight: 360, overflowY: 'auto' };
-
   return (
     <Modal open={open} title={`为「${blockLabel}」选择图像`} onCancel={onClose} width={780} zIndex={1200}
       okText="应用所选" okButtonProps={{ disabled: tab !== 'lib' || selected == null }}
       onOk={tab === 'lib' ? confirmLib : undefined}>
+      {/* 挑选器网格：内联 gridStyle → .cst-pickgrid（5 列，超高滚动）；Tabs/接口/选择逻辑不动 */}
       <Tabs activeKey={tab} onChange={setTab} items={[
         {
           key: 'lib', label: '我的资产库',
-          children: loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> :
+          children: loading ? <div className="cst-modalstage"><Spin /></div> :
             lib.length ? (
-              <div style={gridStyle}>
+              <div className="cst-pickgrid">
                 {lib.map((a) => (
                   <div key={a.id} onClick={() => setSelected(a.id)}
                     className="cst-pick" data-on={selected === a.id ? '1' : '0'}>
@@ -1072,8 +1100,8 @@ function BlockAssetPicker(props: {
         },
         {
           key: 'open', label: '开源图鉴',
-          children: loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> :
-            <div style={gridStyle}>
+          children: loading ? <div className="cst-modalstage"><Spin /></div> :
+            <div className="cst-pickgrid">
               {catItems.map((it: any) => (
                 <div key={it.id} className="cst-pick__cell">
                   <Image src={thumbUrl(it.thumb || it.full)} width="100%" height={90} style={{ objectFit: 'cover' }} preview={false} />

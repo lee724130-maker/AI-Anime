@@ -1,5 +1,36 @@
 # 修复日志
 
+## 2026-11-23（前端质感改造·`/comic-studio` 第二轮收尾 ✅ 清单 7 页全部做完，**未部署生产**）
+
+> 用户指示：先把页面全部优化好，再一并上线。清单里唯一剩的 `/comic-studio` scoped 遗留（13 个内部 Card + 2 个弹窗）本轮做完。
+
+### ✅ ① 改了什么（仍然只动容器与观感）
+`comic-studio.css` 追加 ~200 行（`.cst-*` 作用域），`index.tsx` 换容器：
+- **步骤 1 人设卡**：`Card(title 里塞 Tag+Input)` → `.cst-char`（头部=编号胶囊+改名框，字段竖排，英文提示词 Alert 类化）；`Row/Col` → `auto-fill minmax(340px,1fr)`。
+- **步骤 2 设定本卡**：`Card(title/extra/cover/actions)` → `.cst-sheet`（头栏 名称+锁定胶囊+详情 / 封面 1:1 / 进度 / 底栏两枚等分动作钮）；长说明 `Alert` → 默认折叠 `.cst-guide` 指南条（文案一字未改）；**删掉与头栏「详情」重复的「查看图像块详情」按钮**（同一 `setDetailCharId`，纯去重）。
+- **步骤 3 分格表**：`Table` 保留，外面套 `.cst-table` 走 /tasks 同款表格皮肤。
+- **步骤 4 审格**：5 个 `Card size=small` 统计 → `.cst-stat`（品牌左条 + 等宽数字）；`List(bordered)` 检查清单 → `.cst-checks/.cst-check`（`dataSource`/`renderItem` 判定不变）；警示 `Alert` → 折叠指南条。
+- **步骤 5/6 格卡**：`Card(cover)` → `.cst-cell`（2:3 图 + 状态胶囊 + 复用组 + 重生成钮），`Row/Col xs12 sm8 md6 lg4` → `auto-fill minmax(148px,1fr)`。
+- **`CharacterDetailModal`**：摘要 `Space` → `.cst-digest`；7 个图像块 `Card` → `.cst-block`，**可选块用 `data-optional` 虚线边框区分必选块**；`style={{padding:0}}` 的内联链接钮全部类化。
+- **`BlockAssetPicker`**：内联 `gridStyle` → `.cst-pickgrid`（5 列 + 超高滚动），加载态 `.cst-modalstage`。
+- 清掉随之失效的 `Card` / `List` 导入（`noUnusedLocals` 会拦）。
+
+### ✅ ② 验证：这轮起改用「真实数据走查」，比桩数据可信
+本地已有后端 + 生产镜像库 + 真实素材，所以新增一条验证路径（脚本在会话临时目录，未入库）：用仓库 `JWT_SECRET` 签已有账号的短期 token 注入 `localStorage`、**不桩任何接口**、逐步骤截图并量 `img loaded/broken`、`.ant-card` 计数、各新容器类名计数、`pageerror`。
+
+结果（暗色 1560×1020）：`step0` 表单 / `step1 char=2` / `step2 sheet=2 imgs 2/2` / 详情弹窗 `block=7 imgs 8/8` / `step3` 表格 / `step4 stat=5 check=10` / `step5-6 cell=8 imgs 5/5` —— **全部 `antCards=0`、`broken=0`、`jsErr=0`**；`npm run build` EXIT=0；`probe-ui` 9 路由 × 暗/浅 18/18 仍全绿。视觉复核（读截图报事实）：无文字溢出、无元素重叠、无按钮截断、卡片高度一致、无裂图。
+
+顺带这也验证了上一条的签名 URL 改造在真实浏览器里成立：`/generate` 真实数据页 `imgs=3 loaded=3 broken=0`，漫画工作室详情弹窗 `8/8` 张真实图全部经签名 URL 正常显示。
+
+### ⚠️ ③ 走查用的临时数据已彻底清理
+为让步骤体有内容又不花积分，直接往本地 `comic_projects` 插了一条引用**已存在真实图片**的临时项目（不调任何生成接口）。走查完按 id + 标题双保险删除，**`comic_projects` 已回到与生产一致的 0 行**。
+过程中的坑：① 步骤 5/6 有门禁，假数据必须让预检全绿才进得去 —— 预检要 `characters_status='confirmed'`（我一开始写成 `'done'`）、出场人物全部 `locked` 且 `sheet_url` 指向磁盘真实存在的文件、每格必须有 `characters` 数组；② `mysql2` 的 `SELECT LAST_INSERT_ID() id` 返回字段名是 `id` 不是 `insertId`，解构写错导致第一遍跑在 `undefined` 项目上、还漏删了一行脏数据（已补删）；③ 这个 Modal 用 `Escape` 关不掉，后续步骤必须整页重载，否则截图全被弹窗挡住。
+
+### ⏭ ④ 下一步
+1. 清单 7 页已收官。**是否把范围扩展到清单外页面**（`Landing`/`Studio`/`Script`/`Character`/`Video`/`Editor`/`Auth`）等用户拍板。
+2. 页面全部满意后再走**统一部署窗口**：本次待上线内容 = 11-09 之后的本地积压 + 7 页样式 + 越权修复（`09d5364`），其中后端上线要按 `docs/current-version.md §七` 的顺序（本次无表结构变更，但需现场核对 `dist/src/common/security/` 是否就位）。
+3. `CleanupService` 的 `Illegal mix of collations` 仍未修（磁盘自动清理实际没在工作）。
+
 ## 2026-11-23（越权修复：`/static` 改签名 URL + 3 处入参归属校验 ✅ 本地 15/15 回归通过；**未部署生产**）
 
 > 用户提问：「本地和实例的文件是否在对应的用户账号上？要避免用户1 的图片在用户2 里面能打开」。查完确认**数据库归属是对的，文件层是裸奔的**，且生产同样如此。用户拍板「现在就动手改」。
