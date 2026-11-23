@@ -1,6 +1,62 @@
 # 修复日志
 
-## 2026-11-23（本机环境从零拉起 + **生产库导入本地 MySQL** ✅ 全链路实测打通；另：上一条日志的日期订正见本节末）
+## 2026-11-23（越权修复：`/static` 改签名 URL + 3 处入参归属校验 ✅ 本地 15/15 回归通过；**未部署生产**）
+
+> 用户提问：「本地和实例的文件是否在对应的用户账号上？要避免用户1 的图片在用户2 里面能打开」。查完确认**数据库归属是对的，文件层是裸奔的**，且生产同样如此。用户拍板「现在就动手改」。
+
+### 🔴 ① 实测到的漏洞（不是推断，本地与生产各验一遍）
+样本：任务 `id=49`，属主 `user 16`，文件 `img_49_正面_1793382754516.png`。
+
+| 请求 | 修复前 本地 | 修复前 生产 |
+|---|---|---|
+| `GET /static/img_49_正面_….png` **不带任何凭证** | **200，完整 2,310,645 B** | **200，完整 2,310,645 B** |
+| 同上，带他人 token | 200 | 200 |
+| `GET /api/video/file/…` 带他人 token | **200** | 401（生产密钥不同，签不出合法 token，未能实测；代码同一份） |
+
+根因四条：
+1. `main.ts:36` `useStaticAssets(outputDir, { prefix: '/static/' })` 挂在 **Nest 守卫体系之外**（全局只有 `ThrottlerGuard`），文件名对上就直出。
+2. 文件名 `img_<自增任务id>_<视角>_<13位毫秒>.png` —— **任务 id 可枚举**，唯一未知量是时间戳，而时间戳会随属主自己的接口响应/作品展/日志/Referer/浏览器历史外泄。
+3. `video.controller.ts:91 serveFile` 只做路径穿越 + 存在性检查，**没有一行归属校验**。
+4. `editor.controller.ts:87 concat` 接受任意 `urlA/urlB`；`drama.service.ts:754 importFromGlobal` 的 `globalAssetRepo.find({ where: { id: In(assetIds) } })` **缺 user_id**，枚举 id 即可把他人素材（含提示词）搬进自己项目。
+
+同时确认**做对的部分**（不用改）：所有业务表带 `user_id`；`comic-studio.owned()`、`generate.listTasks` 的 `where.user_id`、`drama` 子资源先验项目归属（20+ 处）、`canvas/viral` 模板的 `assertTemplateVisible/Writable` 都是正确范式；四个关键控制器都有控制器级 `@UseGuards(JwtAuthGuard)`，所以 `req.user?.id` 的可选链不构成绕过。
+
+### ✅ ② 修法：签名 URL（A）+ 入参归属校验（D）
+新增 `backend/src/common/security/`：
+- `file-url.service.ts` —— HMAC-SHA256(`路径|exp`)，密钥用 `JWT_SECRET`；`sign / verify / strip`。签名对象是**解码后的去前缀路径**，避免中文名百分号编码差异导致校验抖动；`timingSafeEqual` 防时序；TTL 6 小时。
+- `sign-static-urls.interceptor.ts` —— 全局出站拦截器，把响应里所有 `/static/...` 自动签名。**库里仍只存干净相对路径，前端与 `<img>/<video>` 零改动**。
+- `normalize-static-paths.interceptor.ts` —— 全局入站拦截器，把请求带回的签名 URL 剥回干净路径再进 handler。**必须有**：本项目多处是「把刚读到的 URL 原样存回去」（设定本 `block-reference`、资产回填、时间线节点 url…），不归一化就会把 6 小时有效期的签名写进数据库，过期后历史素材集体打不开。
+- `static-access.middleware.ts` + `main.ts` 在 `useStaticAssets` **之前** `app.use('/static', …)`：只认合法签名，否则 403。
+- `file-ownership.service.ts` —— 按内容反查文件属主（`media_files` 只有 39 行、磁盘 59 个文件，**它不是完整登记表**，故跨 15 张表反查 + 子表顺父表）。
+- `video.controller.serveFile` 改为只认签名（管理员额外放行便于排障；全仓 grep `video/file` 前端零调用，不影响功能）；`editor concat` 要求两路入参都归属当前用户；`drama importFromGlobal` 加 `user_id = userId OR user_id IS NULL`（给未来的系统共享资产留口）。
+
+### ⚠️ ③ 过程中踩的坑（都记下来）
+- **TypeORM 实体是类实例**：出站拦截器最初用 `Object.getPrototypeOf(x) !== Object.prototype` 跳过「非普通对象」，结果列表接口里的路径**一个都没签名**（回归 [2] 直接 FAIL 抓到）。改成对类实例一视同仁、按自身可枚举属性重建。
+- **测试取样两次踩到「以为的普通用户其实是管理员」**：`user 1`（admin）与 `user 16`（`Lee-1`，`role` 字段其实是 `admin`）都会命中管理员放行分支，造成两个假 FAIL。回归脚本已改成显式 `role<>'admin' AND is_super_admin=0` 取样。
+- **`npx tsc` 漏 `workdir` 会装到同名的假包 `tsc@2.0.4`**，编译其实没跑、dist 是旧的，表现是「改了没生效」。带正确工作目录重跑才生效。
+- **`.ps1` 必须存成 UTF-8 带 BOM**，否则 PowerShell 5.1 按 ANSI 读，中文注释会打断字符串定界符，报一堆看不懂的 ParserError。
+- 备份脚本里把覆盖前快照写成了 `mysql --databases`（那是 `mysqldump` 的选项），报 `unknown option '--databases'`，快照实际是空的 —— 已改用 `mysqldump` 并加「快照失败就中止恢复」的硬闸。
+
+### ✅ ④ 验证（全部实测）
+- `npx tsc` **EXIT=0**；后端重启加载新 dist。
+- 越权回归 **15/15 PASS**：未签名（匿名/他人/属主本人）一律 403；属主经 API 拿到的 URL 自带签名且能取回完整文件；**篡改签名 403、过期 exp 403**；`/api/video/file` 无签名 403、带签名 200、管理员 200；属主仍能正常列出自己的 21 条任务、他人列不到（列表隔离未被破坏）；**经 vite 代理(5173) 的签名 URL 200 / 未签名 403**。
+- 签名往返 **7/7 PASS**：把带签名的 URL 当**入参**创建大资产 → 落库是 `/static/img_19_正面_1786287533372.png`（无 `exp/sig`）、列表出口又重新签好、用出口签名能取回文件、测试数据已删。
+- 样式回归 9 路由 × 暗/浅 = **18/18 仍全绿**（`pageErrors=0 / brokenImgs=0`），确认签名改造没打坏任何页面。
+
+### ✅ ⑤ 另：本地 MySQL 备份/还原脚本（用户「不想每次从生产拉」）
+- 新增 `backend/scripts/backup-local-mysql.ps1`：`mysqldump --single-transaction --no-tablespaces` → gzip → **自校验**（解压回来必须见 `Dump completed`）→ SHA256 落盘；可选 `-Encrypt`（AES-256-CBC + PBKDF2 20 万次迭代，盐/IV 前置存放）、`-Verify`（导完立刻还原到临时库 `ai_anime_verify` 比表数）、`-Keep N`（默认 0，不删旧备份）。
+- 新增 `backend/scripts/restore-local-mysql.ps1`：支持 `.sql.gz` 与 `-Decrypt` 加密副本；**恢复前自动用 mysqldump 存一份覆盖前快照**，快照失败即中止。
+- 实测：备份 0.04 MB → `-Verify` 报「源库 30 张表 = 还原库 30 张表」→ 再跑真实还原，关键表行数 users 7 / generation_tasks 31 / orders 23 / system_configs 34 全部与生产一致，覆盖前快照 198.5 KB 正常生成；还原后重跑安全回归 15/15 与样式回归 18/18。
+- 输出目录刻意放在 **`D:\AI-Anime-backups`（仓库外）**：备份含 `system_configs` 里的 agnes key 与 SMTP 授权码，绝不能进 git，也不要放会被展示/上传的目录。
+
+### ⚠️ ⑥ 遗留
+1. **未部署生产** —— 生产站现在仍有那个匿名可读的 `/static`。上线按 `docs/deploy.md`；⚠️ 本次只改后端源码与新增文件、**无表结构变更**，但部署后要现场核对 `dist/src/common/security/` 是否就位，否则 `main.ts` require 失败起不来。
+2. 签名 TTL 6 小时：页面久开后再点新资源会重新走接口拿新签名，正常；若将来要「邮件里放 /static 直链」「导出包外链」，需单独签更长 TTL 或加白名单。
+3. 孤儿文件（`vid_38_*.mp4`、`tts_38_*.mp3`、`subs_*.srt`）数据库里无任何引用，现在起不可达 —— 属预期。
+4. 🔴 新发现的既有 bug（本次未动）：后端启动日志 `[CleanupService] 磁盘空间检查失败，已跳过本轮清理: Illegal mix of collations for operation 'UNION'` —— 清理服务的 UNION 查询在混用排序规则时报错，**等于磁盘自动清理一直没在工作**，生产同样要查。
+5. `editor` 是 admin-only，concat 归属校验对普通用户路径影响为零；将来若开放给普通用户，`FileOwnershipService` 的反查覆盖度要再压一轮。
+
+## 2026-11-23（本机环境从零拉起 + **生产库导入本地 MySQL** ✅ 全链路实测打通）
 
 > 用户指令：已放行 IP → 验证实例 → 查看生产数据库 → 导入本地项目使用。全程对生产**只读**，未改任何生产数据、未部署、未花积分。
 
