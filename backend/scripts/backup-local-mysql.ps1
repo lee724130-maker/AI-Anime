@@ -25,6 +25,7 @@ param(
   [string]$Host_  = '127.0.0.1',
   [int]$Port      = 3306,
   [int]$Keep      = 0,
+  [string]$Password = '',      # 配合 -Encrypt 使用；不给则交互式询问（自动化测试可显式传入）
   [switch]$Encrypt,
   [switch]$Verify
 )
@@ -47,7 +48,7 @@ $shaPath  = "$gzPath.sha256"
 Write-Host "[1/5] 导出 $DbName（--single-transaction，不锁表、不改数据）" -ForegroundColor Cyan
 # MYSQL_PWD 避免口令出现在进程命令行里；--no-tablespaces 免掉业务账号缺 PROCESS 权限的告警
 $env:MYSQL_PWD = $DbPass
-& $mysqldump -h $Host_ -P $Port -u $DbUser --no-tablespaces --default-character-set=utf8mb4 --databases $DbName --result-file=$sqlPath
+& $mysqldump -h $Host_ -P $Port -u $DbUser --no-tablespaces --routines --events --default-character-set=utf8mb4 --databases $DbName --result-file=$sqlPath
 if ($LASTEXITCODE -ne 0) { throw "mysqldump 失败 exit=$LASTEXITCODE" }
 $env:MYSQL_PWD = $null
 
@@ -81,9 +82,13 @@ Write-Host "       SHA256：$hash"
 
 if ($Encrypt) {
   Write-Host "[+] AES-256 加密副本（口令只有你自己知道，丢了无法恢复）" -ForegroundColor Cyan
-  $cred = Read-Host -Prompt '设置备份口令（至少 12 位）' -AsSecureString
-  $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($cred))
+  if ($Password) {
+    $plain = $Password
+  } else {
+    $cred = Read-Host -Prompt '设置备份口令（至少 12 位）' -AsSecureString
+    $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($cred))
+  }
   if ($plain.Length -lt 12) { throw '口令太短' }
   $encPath = "$gzPath.enc"
   $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()

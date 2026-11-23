@@ -11,6 +11,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)][string]$From,
+  [string]$Password = '',      # 配合 -Decrypt；不给则交互式询问
   [switch]$Decrypt,
   [string]$DbName = 'ai_anime',
   [string]$RootUser = 'root',
@@ -30,9 +31,13 @@ $work = Join-Path $env:TEMP ("restore-" + (Get-Date -Format 'yyyyMMddHHmmss') + 
 
 if ($Decrypt) {
   Write-Host "[1/4] AES 解密 $From" -ForegroundColor Cyan
-  $cred = Read-Host -Prompt '备份口令' -AsSecureString
-  $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-    [Runtime.InteropServices.Marshal]::SecureStringToBSTR($cred))
+  if ($Password) {
+    $plain = $Password
+  } else {
+    $cred = Read-Host -Prompt '备份口令' -AsSecureString
+    $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+      [Runtime.InteropServices.Marshal]::SecureStringToBSTR($cred))
+  }
   $bytes = [System.IO.File]::ReadAllBytes($From)
   $salt = $bytes[0..15]; $iv = $bytes[16..31]; $body = $bytes[32..($bytes.Length - 1)]
   $derive = New-Object System.Security.Cryptography.Rfc2898DeriveBytes($plain, [byte[]]$salt, 200000, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
