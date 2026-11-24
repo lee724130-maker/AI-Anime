@@ -1,0 +1,699 @@
+/* =============================================================================
+   Landing（`/` 营销首页）质感样式 · 2026-11-24 批次E
+   作用域：全部规则挂在 .lp-root 下，不外泄、不裸改 .ant-*（见规范 §八）。
+   index.tsx 只做「容器/属性替换」，表单校验、submitContact、openFaq、isMobile
+   断点、navigate 目标一律未改。
+
+   ⚠️ 本页有一处**故意不参与主题切换**的东西：Hero 品牌带。
+      它是一块固定的深紫渐变横幅（#0f0a1e → #6d28d9），浅色主题下也保持深色 ——
+      这是营销页常见的「深色首屏带」，实测两主题对比度都合格（改造前已截图确认）。
+      因此它的文字/按钮色**不能**换成 var(--text)、var(--bg) 这类主题令牌，
+      否则浅色模式下会变成白字压白底直接不可读。
+      这里把它需要的固定色收在 .lp-hero 的局部自定义属性里，集中声明、写明原因，
+      而不是散落在 JSX 内联样式中。
+   ============================================================================= */
+
+.lp-root {
+  min-height: 100vh;
+  background: var(--bg);
+  /* 区块上下留白原值 72px，不在 --sp-* 的 8px 刻度上（--sp-7 是 48px），
+     这里显式声明成本页局部尺度，避免误套 --sp-7 把每个区块压矮 24px。 */
+  --lp-sec-y: 72px;
+}
+
+/* 通用区块外壳：原先每处各写 maxWidth/padding 魔法数字，统一成三档 */
+.lp-wrap {
+  margin: 0 auto;
+  padding: var(--lp-sec-y) var(--sp-5);
+}
+.lp-wrap--narrow { max-width: 700px; }
+.lp-wrap--mid { max-width: 880px; }
+.lp-wrap--form { max-width: 620px; }
+/* 带底色的区块：原页是「外层铺底色+留白、内层只管 max-width」两层结构，
+   内容宽度 = max-width 本身（880）；若把 padding 与 max-width 合到同一元素，
+   内容会变成 880-48=832，四步出片的 minmax(200px,1fr) 会从 4 列塌成 3 列（实测 +197px 高）。
+   所以这里保持两层语义：留白在 band 上，内层 wrap 清掉自身 padding。 */
+.lp-band {
+  padding: var(--lp-sec-y) var(--sp-5);
+  background: var(--bg-secondary);
+}
+.lp-band > .lp-wrap { padding: 0; }
+/* 数据条紧跟上一区块，只要底部留白 */
+.lp-wrap--tight-top { padding-top: 0; }
+
+/* 卡片浮起：原来是 onMouseEnter/onMouseLeave 手写 style 突变，改成纯 CSS */
+.lp-lift {
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.lp-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-2);
+}
+
+/* ── 区块标题（SectionTitle 组件） ────────────────────────────────────── */
+.lp-st { margin-bottom: var(--sp-7); text-align: center; }
+.lp-st__badge {
+  display: inline-block;
+  margin-bottom: var(--sp-4);
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+.lp-st__title {
+  margin: 0 0 var(--sp-2);
+  color: var(--text);
+  font-size: clamp(24px, 3.5vw, 32px);
+  font-weight: 700;
+}
+.lp-st__desc { margin: 0; color: var(--text-muted); font-size: var(--fs-lg); }
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────────── */
+.lp-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 32px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.lp-topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.lp-topbar__logo { font-size: 22px; color: var(--primary); }
+.lp-topbar__name { font-size: 18px; color: var(--text); letter-spacing: -.5px; }
+.lp-topbar__theme { font-size: 18px; color: var(--text-muted); }
+.lp-topbar__right { display: flex; align-items: center; gap: 12px; }
+.lp-topbar__user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px 4px 4px;
+  border: 1px solid var(--border);
+  border-radius: 30px;
+  background: var(--bg);
+  cursor: pointer;
+}
+.lp-topbar__avatar { background-color: var(--primary); }
+.lp-topbar__meta { line-height: 1.2; }
+.lp-topbar__username { font-size: 13px; font-weight: 600; color: var(--text); }
+.lp-topbar__credits { font-size: 11px; font-weight: 500; color: var(--warning); }
+.lp-topbar__signup { background: var(--primary); border: none; border-radius: var(--r-sm); }
+
+/* ── Hero：固定深色品牌带（见文件头说明） ─────────────────────────────── */
+.lp-hero {
+  --hero-ink: #fff;                       /* 主标题：压在深紫上，必须固定白 */
+  --hero-ink-soft: rgba(255, 255, 255, .6);
+  --hero-ink-faint: rgba(255, 255, 255, .75);
+  --hero-accent: #c084fc;                 /* 「动漫短剧」高亮词 */
+  --hero-pill-ink: #d4bffc;
+  --hero-pill-bg: rgba(255, 255, 255, .08);
+  --hero-pill-line: rgba(255, 255, 255, .12);
+  --hero-btn-bg: #fff;
+  --hero-btn-ink: #6d28d9;                /* 白按钮上的紫字，与带尾色呼应 */
+  --hero-shadow: 0 4px 24px rgba(0, 0, 0, .2);
+  --hero-shadow-hover: 0 8px 32px rgba(0, 0, 0, .3);
+
+  position: relative;
+  overflow: hidden;
+  padding: 80px 24px 64px;
+  background: linear-gradient(160deg, #0f0a1e 0%, #1e1145 35%, #3b1a7a 65%, #6d28d9 100%);
+  color: var(--hero-ink);
+}
+.lp-hero__glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.lp-hero__glow--a {
+  top: -100px; right: -100px;
+  width: 400px; height: 400px;
+  background: rgba(139, 92, 246, .12);
+  filter: blur(80px);
+}
+.lp-hero__glow--b {
+  bottom: -80px; left: -80px;
+  width: 300px; height: 300px;
+  background: rgba(236, 72, 153, .08);
+  filter: blur(60px);
+}
+.lp-hero__inner {
+  position: relative;
+  z-index: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+}
+.lp-hero__pill {
+  display: inline-block;
+  margin-bottom: 32px;
+  padding: 6px 18px;
+  border: 1px solid var(--hero-pill-line);
+  border-radius: 999px;
+  background: var(--hero-pill-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--hero-pill-ink);
+  font-size: var(--fs-md);
+  animation: fadeIn .6s ease;
+}
+.lp-hero h1 {
+  margin: 0 0 20px;
+  color: var(--hero-ink);
+  font-size: clamp(34px, 5.5vw, 56px);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -1px;
+  animation: fadeIn .6s ease .1s both;
+}
+.lp-hero h1 em {
+  font-style: normal;
+  color: var(--hero-accent);
+}
+.lp-hero__sub {
+  max-width: 500px;
+  margin: 0 auto 40px;
+  color: var(--hero-ink-soft);
+  font-size: clamp(15px, 2vw, 18px);
+  line-height: 1.7;
+  animation: fadeIn .6s ease .2s both;
+}
+.lp-hero__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  animation: fadeIn .6s ease .3s both;
+}
+.lp-hero__btn {
+  height: 50px;
+  padding: 0 40px;
+  border: none;
+  border-radius: 10px;
+  background: var(--hero-btn-bg);
+  color: var(--hero-btn-ink);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--hero-shadow);
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.lp-hero__btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--hero-shadow-hover);
+}
+.lp-hero__btn--ghost {
+  padding: 0 32px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, .2);
+  color: var(--hero-ink-faint);
+  font-weight: 400;
+  box-shadow: none;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.lp-hero__btn--ghost:hover {
+  transform: none;
+  background: rgba(255, 255, 255, .08);
+  color: var(--hero-ink);
+  box-shadow: none;
+}
+
+/* ── 三步流程条（首屏下方浮起卡） ─────────────────────────────────────── */
+.lp-flow {
+  position: relative;
+  z-index: 2;
+  max-width: 880px;
+  margin: -24px auto 0;
+  padding: 0 var(--sp-5);
+}
+.lp-flow__card {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  box-shadow: var(--shadow-1);
+}
+.lp-flow__item {
+  flex: 1;
+  padding: 28px var(--sp-5);
+  text-align: center;
+}
+.lp-flow__item + .lp-flow__item { border-left: 1px solid var(--border); }
+.lp-flow__emoji { margin-bottom: 10px; font-size: 28px; }
+.lp-flow__num {
+  display: inline-block;
+  margin-bottom: 8px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: .5px;
+}
+.lp-flow__title { margin-bottom: 4px; color: var(--text); font-size: 16px; font-weight: 600; }
+.lp-flow__desc { color: var(--text-muted); font-size: var(--fs-md); line-height: 1.5; }
+
+/* ── 传统 vs AI 对比 ──────────────────────────────────────────────────── */
+.lp-cmp {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.lp-cmp__col { flex: 1; padding: 28px; }
+.lp-cmp__col--old { background: var(--bg-secondary); }
+.lp-cmp__col--new { background: var(--bg); }
+/* 🔴 原来这里写死 #ef4444 / #22c55e：暗色下 --danger 应是更亮的 #f87171 才够对比，
+   且 #22c55e 与全站 --success(#10b981/#34d399) 根本不是同一个绿。令牌化后语义统一。 */
+.lp-cmp__head { margin-bottom: 14px; font-size: var(--fs-sm); font-weight: 600; letter-spacing: .5px; }
+.lp-cmp__head--old { color: var(--danger); }
+.lp-cmp__head--new { color: var(--success); }
+.lp-cmp__row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 11px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.lp-cmp__row--old { color: var(--text-muted); }
+.lp-cmp__row--new { color: var(--text); }
+.lp-cmp__dot { flex-shrink: 0; }
+.lp-cmp__dot--old { color: var(--danger); }
+.lp-cmp__dot--new { color: var(--success); }
+
+/* ── 四步出片 ─────────────────────────────────────────────────────────── */
+.lp-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-4);
+}
+.lp-step {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+/* 色带本身是「插画位」：浅色 pastel 带 + 白色药丸 + 深色序号，两主题都可读，
+   所以保留固定 pastel，但把散在数据数组里的 hex 收进 data-accent 单一来源。 */
+.lp-step__band {
+  position: relative;   /* 序号药丸是绝对定位，这里必须是定位父级 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+}
+.lp-step__badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .85);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.lp-step__emoji { font-size: 36px; }
+.lp-step__body { padding: var(--sp-4) 18px; }
+.lp-step__title { margin-bottom: 4px; color: var(--text); font-size: var(--fs-lg); font-weight: 600; }
+.lp-step__desc { color: var(--text-muted); font-size: var(--fs-md); line-height: 1.5; }
+
+/* accent 单一来源：色带渐变 + 序号字色成对定义，四步与「能做什么」共用一套词表 */
+[data-accent="violet"] { --band: linear-gradient(135deg, #ede9fe, #ddd6fe); --band-ink: #7c3aed; }
+[data-accent="pink"]   { --band: linear-gradient(135deg, #fce7f3, #fbcfe8); --band-ink: #db2777; }
+[data-accent="green"]  { --band: linear-gradient(135deg, #d1fae5, #a7f3d0); --band-ink: #059669; }
+[data-accent="blue"]   { --band: linear-gradient(135deg, #dbeafe, #bfdbfe); --band-ink: #2563eb; }
+[data-accent="indigo"] { --band: linear-gradient(135deg, #667eea, #764ba2); }
+[data-accent="rose"]   { --band: linear-gradient(135deg, #f093fb, #f5576c); }
+[data-accent="cyan"]   { --band: linear-gradient(135deg, #4facfe, #00f2fe); }
+[data-accent="amber"]  { --band: linear-gradient(135deg, #fa709a, #fee140); }
+[data-accent="lilac"]  { --band: linear-gradient(135deg, #a18cd1, #fbc2eb); }
+[data-accent="mint"]   { --band: linear-gradient(135deg, #43e97b, #38f9d7); }
+.lp-step__band, .lp-sc__band { background: var(--band); }
+.lp-step__badge { color: var(--band-ink); }
+
+/* ── 能做什么 ─────────────────────────────────────────────────────────── */
+.lp-sc {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+.lp-sc__card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.lp-sc__band {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64px;
+}
+.lp-sc__emoji { font-size: 28px; }
+.lp-sc__body { padding: 14px 18px; }
+.lp-sc__title { margin-bottom: 3px; color: var(--text); font-size: var(--fs-lg); font-weight: 600; }
+.lp-sc__desc { color: var(--text-muted); font-size: var(--fs-sm); line-height: 1.5; }
+
+/* ── 数据条 ───────────────────────────────────────────────────────────── */
+.lp-stats {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+.lp-stats__item { flex: 1; padding: var(--sp-6) var(--sp-4); text-align: center; }
+.lp-stats__item + .lp-stats__item { border-left: 1px solid var(--border); }
+.lp-stats__val { margin-bottom: 6px; color: var(--primary); font-size: 32px; font-weight: 800; }
+.lp-stats__label { margin-bottom: 2px; color: var(--text); font-size: var(--fs-lg); font-weight: 600; }
+.lp-stats__desc { color: var(--text-muted); font-size: var(--fs-sm); }
+
+/* ── 算力套餐 ─────────────────────────────────────────────────────────── */
+.lp-plans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  justify-content: center;
+}
+.lp-plan {
+  position: relative;
+  flex: 1 1 220px;
+  max-width: 260px;
+  padding: 28px var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  text-align: center;
+}
+.lp-plan--hot {
+  border: 2px solid var(--primary);
+  /* 原来写死 rgba(124,58,237,.12)（旧主色 #7c3aed），换成随主题走的 --glow */
+  box-shadow: var(--glow);
+}
+/* 高亮卡靠「名称多留 8px 顶边」把内容往下让出标签位，不是把整张卡片挪下来 ——
+   挪卡片会让整排顶端错位、并改变区块总高（锚点 diff 实测到才改回来） */
+.lp-plan--hot .lp-plan__name { margin-top: var(--sp-2); }
+.lp-plan__tag {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 14px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;                    /* 压在 --primary 实色上，两主题都是深紫，固定白 */
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.lp-plan__name { margin-bottom: 10px; color: var(--text); font-size: var(--fs-lg); font-weight: 600; }
+.lp-plan__price { margin-bottom: 4px; color: var(--primary); font-size: 36px; font-weight: 800; }
+.lp-plan__credits { margin-bottom: var(--sp-5); color: var(--text-muted); font-size: var(--fs-md); }
+.lp-plan__buy {
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--primary);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--t-fast) var(--ease);
+}
+.lp-plan__buy:hover { opacity: .85; }
+.lp-plan--hot .lp-plan__buy {
+  border-color: transparent;
+  background: var(--primary);
+  color: #fff;
+}
+
+/* ── FAQ ──────────────────────────────────────────────────────────────── */
+.lp-faq__item {
+  margin-bottom: var(--sp-2);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  transition: border-color var(--t-base) var(--ease);
+}
+.lp-faq__item[data-open="1"] { border-left-color: var(--primary); }
+.lp-faq__q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) 20px;
+  cursor: pointer;
+  user-select: none;
+}
+.lp-faq__q:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.lp-faq__qt { font-size: var(--fs-lg); color: var(--text); }
+.lp-faq__icon {
+  flex-shrink: 0;
+  margin-left: 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  transition: transform var(--t-base) var(--ease), color var(--t-base) var(--ease);
+}
+.lp-faq__item[data-open="1"] .lp-faq__icon { color: var(--primary); transform: rotate(-180deg); }
+.lp-faq__a { padding: 0 20px var(--sp-4); animation: fadeIn var(--t-fast) ease; }
+.lp-faq__at { font-size: 14px; line-height: 1.8; color: var(--text-muted); }
+
+/* ── 反馈表单 ─────────────────────────────────────────────────────────── */
+.lp-contact {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  padding: var(--lp-sec-y) var(--sp-5);
+}
+.lp-contact__beam {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+}
+.lp-contact__glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  /* 原来是 rgba(124,58,237,.06/.04) 旧主色硬编码 → 用 color-mix 从 --primary 派生，
+     这样浅色下是紫、暗色下自动跟着 #818cf8 走 */
+  background: radial-gradient(circle, color-mix(in srgb, var(--primary) 6%, transparent) 0%, transparent 70%);
+}
+.lp-contact__glow--a { top: -100px; right: -60px; width: 280px; height: 280px; }
+.lp-contact__glow--b { bottom: -60px; left: -40px; width: 200px; height: 200px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--primary) 4%, transparent) 0%, transparent 70%); }
+.lp-contact__inner { position: relative; max-width: 620px; margin: 0 auto; }
+.lp-contact__card {
+  position: relative;
+  overflow: hidden;
+  padding: 36px var(--sp-6);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+  /* 原来两条 rgba(0,0,0,.06/.04) 固定黑影，暗色下几乎看不见 → 换 --shadow-2（暗色更重） */
+  box-shadow: var(--shadow-2);
+}
+.lp-contact__cardbeam {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--grad-brand);
+}
+.lp-form { display: flex; flex-direction: column; gap: 20px; }
+.lp-form__field { display: flex; flex-direction: column; }
+.lp-form__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--sp-2);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+.lp-form__dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+.lp-form__seg { display: flex; margin-bottom: 10px; }
+.lp-form__segitem {
+  flex: 1;
+  padding: 10px 0;
+  border: 1.5px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  text-align: center;
+  cursor: pointer;
+  transition: background var(--t-base) var(--ease), color var(--t-base) var(--ease), border-color var(--t-base) var(--ease);
+}
+.lp-form__segitem:first-child { border-radius: 10px 0 0 10px; }
+.lp-form__segitem:last-child { border-radius: 0 10px 10px 0; }
+.lp-form__segitem[data-active="1"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.lp-form__input, .lp-form__area {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.lp-form__input { height: 48px; padding: 0 16px; font-size: 14px; }
+.lp-form__area { min-height: 100px; line-height: 1.6; resize: vertical; font-size: 14px; }
+/* 焦点态：原来三处各写一遍 onFocus/onBlur 突变 style（含旧主色 rgba(124,58,237,.12)）
+   → 统一走 :focus，环色用 --ring 令牌 */
+.lp-form__input:focus, .lp-form__area:focus {
+  border-color: var(--primary);
+  box-shadow: var(--ring);
+}
+.lp-form__submit {
+  margin-top: 4px;
+  height: 48px;
+  border: none;
+  border-radius: 10px;
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  box-shadow: var(--glow);
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), opacity var(--t-base) var(--ease);
+}
+.lp-form__submit:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-3);
+}
+.lp-form__submit:disabled { opacity: .6; cursor: not-allowed; }
+.lp-form__note { margin-top: -4px; color: var(--text-muted); font-size: var(--fs-sm); text-align: center; }
+
+/* ── 移动端底部条 ─────────────────────────────────────────────────────── */
+.lp-mbar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 200;
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, .1);
+}
+.lp-mbar__btn {
+  flex: 1;
+  height: 44px;
+  border: none;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--glow);
+}
+.lp-mbar__btn--ghost {
+  flex: none;
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--primary);
+  background: transparent;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+/* ── 页脚 ─────────────────────────────────────────────────────────────── */
+.lp-footer {
+  padding: 20px var(--sp-5);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.lp-footer__inner {
+  display: flex;
+  gap: 32px;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+/* ── 站点公告弹窗（antd Modal 走 body portal，故类挂在弹窗自身） ───────── */
+.lp-notice-modal .lp-notice {
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+/* ── 响应式（11-24 从全局 index.css 搬回本页，全局文件不再持有页面私有规则） ── */
+@media (width <= 768px) {
+  .lp-topbar { height: 56px; padding: 0 var(--sp-4); }
+  .lp-topbar__right { gap: 4px; }
+  .lp-topbar__user { padding: 4px 10px 4px 4px; }
+  .lp-topbar__username, .lp-topbar__credits { display: none; }
+  .lp-hero { padding: 48px var(--sp-4) 40px; }
+  .lp-hero h1 { font-size: 26px; letter-spacing: -.5px; }
+  .lp-hero__sub { margin-bottom: var(--sp-6); font-size: var(--fs-md); }
+  .lp-hero__cta { gap: 10px; }
+  .lp-hero__btn { height: 44px; padding: 0 20px; font-size: var(--fs-md); }
+  .lp-wrap { padding-top: var(--sp-7); padding-bottom: var(--sp-7); }
+  .lp-band { padding: var(--sp-7) var(--sp-5); }
+  .lp-band > .lp-wrap { padding: 0; }
+  .lp-step__band { height: 72px; }
+  .lp-step__emoji { font-size: 28px; }
+  .lp-contact { padding: var(--sp-7) var(--sp-4); }
+  .lp-contact__card { padding: var(--sp-6) var(--sp-4); }
+  .lp-faq { padding: var(--sp-7) var(--sp-4); }
+  .lp-stats__val { font-size: 24px; }
+  .lp-footer__inner { flex-direction: column; gap: 6px; }
+}
+@media (width >= 769px) and (width <= 1024px) {
+  .lp-hero { padding: 64px var(--sp-5) 56px; }
+}
+@media (width <= 600px) {
+  .lp-flow { flex-direction: column; }
+  .lp-flow__card { flex-direction: column; }
+  .lp-flow__item + .lp-flow__item { border-left: none; border-top: 1px solid var(--border); }
+}
+@media (width <= 640px) {
+  .lp-cmp { flex-direction: column; }
+  .lp-cmp__col { padding: var(--sp-5); }
+  .lp-stats { flex-direction: column; }
+  .lp-stats__item { padding: var(--sp-5) var(--sp-4); }
+  .lp-stats__item + .lp-stats__item { border-left: none; border-top: 1px solid var(--border); }
+}
+@media (width <= 520px) {
+  .lp-sc { grid-template-columns: 1fr; }
+}
+@media (width <= 640px) {
+  .lp-plans { flex-direction: column; align-items: center; }
+  .lp-plan { flex: none; width: 100%; max-width: 320px; }
+}

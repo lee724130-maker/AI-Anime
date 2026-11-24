@@ -1,5 +1,66 @@
 # 修复日志
 
+## 2026-11-24（前端质感改造·批次E `/` Landing 首页 ✅ 锚点全量比对通过，**未部署生产**）
+
+> 批次 E：`/`（1317 行 → 528 行，全仓最大单页、硬编码第二多）。营销首页，风险最高，
+> 因此这批次**不只看截图**，改为「锚点计算样式前后全量 diff」做验证（方法见下③）。
+
+### ✅ ① 新增 `pages/Landing/landing.css`（`.lp-*`），112 处内联样式全部收进 CSS
+- 48 处 hex **归零**（`Select-String` 实测 TSX 内 `#[0-9a-fA-F]{3,8}` 命中数 = 0）。
+- 🔴 **两层矛盾容器**：原页大多数区块是「`maxWidth` 与 `padding` 写在同一元素」（内容宽 880−48=832），
+  但「四步出片」和「套餐」是「外层底色+padding、内层只管 `maxWidth`」（内容宽 880）。
+  我一开始统一成一层，**内容宽掉到 832**，`minmax(200px,1fr)` 从 4 列塌成 3 列 → 该区块高 +197px。
+  已按原语义把 padding 移回 band 层，实测区块高度 521→521 完全对齐。
+- **JS 手写 hover/focus 全部改 CSS**：原页有 8 处 `onMouseEnter/onMouseLeave/onFocus/onBlur` 直接突变
+  `element.style`（hero 两个按钮、步骤卡、展示卡、套餐卡、购买按钮、提交按钮、3 个输入框），
+  改成 `:hover` / `:focus` / `:disabled`；提交按钮原来的 `if (submitting) return` 守卫由
+  `:hover:not(:disabled)` 天然覆盖。
+- 语义色令牌化：`#ef4444`/`#22c55e`（对比区）→ `--danger`/`--success`（实测暗色 `rgb(248,113,113)`/`rgb(52,211,153)`、
+  浅色 `rgb(239,68,68)`/`rgb(16,185,129)`）；`rgba(124,58,237,*)`（旧主色 #7c3aed 的硬编码阴影/焦点环）
+  → `--glow`/`--ring`/`color-mix(--primary)`；提交按钮 `var(--primary)→#a855f7` → `--grad-brand`。
+- 步骤/展示色带：原先 10 条渐变字符串散在 JSX 数据数组里，改成 `data-accent` 键 + CSS 单一来源
+  （`[data-accent="violet|pink|green|blue|indigo|rose|cyan|amber|lilac|mint"]`）。
+- 轮询/状态/表单**零改动**：`openFaq`、`isMobile` 断点、`submitContact` 的 5 条校验规则与
+  `POST /api/contact` 字段、`navigate` 目标、套餐/FAQ/展示数据文案全部原样。
+
+### 🔴 ② 一个**故意不参与主题切换**的东西：Hero 品牌带
+`#0f0a1e → #1e1145 → #3b1a7a → #6d28d9` 深紫渐变在浅色主题下**也保持深色**（营销页常见深色首屏带）。
+改造前已截图 + 视觉模型确认两主题对比度均合格，因此**不能**把它的文字换成 `var(--text)`/`var(--bg)`
+—— 那样浅色模式会变成白字压白底直接不可读。处理办法：把固定色收进 `.lp-hero` 的局部自定义属性
+（`--hero-ink`/`--hero-accent`/`--hero-btn-ink` …）集中声明并写明原因，而不是散落内联。
+顺带修掉一个潜在 bug：原来 hero 容器自身没有 `color`，继承 `var(--text)` —— 浅色下是 `rgb(26,26,46)` 近黑，
+任何依赖继承的文字都会黑字压深紫底。现在显式 `color: var(--hero-ink)`。
+
+### ✅ ③ 验证方法升级：锚点计算样式全量 diff（不是只看截图）
+营销页没有 DB 内容，真实数据走查不适用（且反馈表单会写库，**全程未提交**）。改用：
+- `landing-anchor.cjs`：42 个锚点**按文本内容定位**（`byExact` 精确匹配，避免「输入故事」误命中「输入故事大纲」），
+  每点读 18 项计算属性 → 改造前后各存一份 JSON 逐项 diff。用 `git stash push/pop` 切换代码状态，
+  vite 源码热更新即时生效，**无需重新构建**。
+- 首轮 diff 抓出 **46 项差异**，其中两类是真回归，已修：
+  ① 区块上下留白 72px 不在 `--sp-*` 刻度上（`--sp-7` 是 48px），我误套 → 每区块矮 24px；
+     改为页内局部 `--lp-sec-y: 72px`。
+  ② 「最受欢迎」的 8px 顶边距原本在**卡片内的名称**上，我挪到**卡片本身** → 整排顶端错位 + 区块变高；改回。
+  另修 19 处字号/内距漂移（`--fs-md` 13px 误替原 14px、`--sp-6` 32px 误替原 24px 等）。
+- 终轮 diff 剩 42 项，**逐项可归因于有意变更**（令牌化色、`--glow/--shadow-2` 替换旧主色阴影、
+  分隔线由 `border-right` 改 `border-left` 视觉等价、hero 显式白字）。
+- 唯一非颜色差异：整页高度 −6.39px。逐层量化定位到 textarea 字段块，最终确认是
+  **原来 `<textarea>` 作为 inline-block 在块容器里产生的基线下降间隙**（135.19−128.80=6.39，
+  恰为该字体 22.4px 行高的下伸部）；改成 flex 列后子元素变块级，间隙消失。属于修正，非回归。
+- `landing-sections.cjs` 逐区块高度：11 个区块 10 个完全一致，仅联系区 −6.39（即上条）。
+- `npm run build` EXIT=0；`probe-ui / lp` 暗/浅：`rootFound=true`、`rootW=1600`、`scopedBlocks=232`、
+  `antCards=0`、`brokenImgs=0`、`pageErrors=0`。
+- **响应式**（原规则在全局 `index.css` 靠 `!important` 压内联，本页已无内联，故整体搬回 `landing.css` 重写）：
+  375/640/900 三档 × 暗浅实测 `scrollWidth == clientWidth`（无横向溢出）、
+  流程/对比/数据/套餐/页脚在 375 全部 `column`、640 混合、900 全部 `row`、色带 72↔100px、
+  移动端底栏 375/640 存在而 900 消失。登录态另测：375px 用户名/算力 `display:none`、1440px 显示，`jsErr=0`。
+- 全局 `index.css` 删除 41 行 landing 私有规则（381→340 行），保留 `@keyframes fadeIn`（本页动画在用）；
+  已确认全仓无其它文件引用 `landing-*`/`hero-btn`。
+- 视觉模型逐区块复核 8 项：四步出片确为 4 列且序号药丸在色带内左上角、无对比度不足、无溢出裁切。
+
+### ⏭ ④ 下一步
+批次 F `/editor`（admin-only：EditorPage 1116 + Timeline 352 + PropsPanel 222 + index 127）
+→ 共用组件轮（`components/VideoPlayer` 2 处 Card）→ 全部完成后再统一部署生产。
+
 ## 2026-11-24（前端质感改造·批次D `/studio` 创作中心 ✅ 真实数据实测通过，**未部署生产**）
 
 > 批次 D：`/studio`（627 行，全仓硬编码色第二多，47 处）。这是"三步创作向导"页，

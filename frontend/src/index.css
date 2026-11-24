@@ -217,47 +217,6 @@ to{opacity:1;transform:translateY(0)}
 @keyframes fadeIn{0%{opacity:0;transform:translateY(-4px)}
 to{opacity:1;transform:translateY(0)}
 }
-.landing-topbar{padding:0 32px!important}
-.landing-topbar .topbar-right{gap:12px!important}
-.landing-topbar .topbar-user-info{display:flex}
-.landing-topbar .topbar-credits-text,.landing-topbar .topbar-username{display:inline}
-.landing-section-py{padding-top:72px;padding-bottom:72px}
-.landing-contact-max{max-width:620px;margin:0 auto;position:relative}
-@media (width<=768px){.landing-topbar{height:56px!important;padding:0 16px!important}
-.landing-topbar .topbar-right{gap:4px!important}
-.landing-topbar .topbar-user-info{padding:4px 10px 4px 4px!important}
-.landing-topbar .topbar-username,.landing-topbar .topbar-credits-text{display:none!important}
-.landing-hero{padding:48px 16px 40px!important}
-.landing-hero h1{letter-spacing:-.5px!important;font-size:26px!important}
-.landing-hero p{margin-bottom:24px!important;font-size:14px!important}
-.landing-hero .hero-buttons{gap:10px!important}
-.landing-hero .hero-btn{height:44px!important;padding:0 20px!important;font-size:14px!important}
-.landing-section-py{padding-top:48px!important;padding-bottom:48px!important}
-.landing-visual-card-gradient{height:72px!important}
-.landing-visual-card-emoji{font-size:28px!important}
-.landing-contact{padding:48px 16px!important}
-.landing-contact-card{padding:24px 16px!important}
-.landing-faq{padding:48px 16px!important}
-.landing-stats-val{font-size:24px!important}
-.landing-footer-inner{flex-direction:column!important;gap:6px!important}
-}
-@media (width>=769px) and (width<=1024px){.landing-hero{padding:64px 24px 56px!important}
-}
-@media (width<=600px){.landing-workflow{flex-direction:column!important}
-.landing-workflow>div{border-right:none!important;border-bottom:1px solid var(--border)!important}
-.landing-workflow>div:last-child{border-bottom:none!important}
-}
-@media (width<=640px){.landing-comparison{flex-direction:column!important}
-.landing-comparison>div{padding:20px!important}
-.landing-stats{flex-direction:column!important}
-.landing-stats>div{border-right:none!important;border-bottom:1px solid var(--border)!important;padding:20px 16px!important}
-.landing-stats>div:last-child{border-bottom:none!important}
-}
-@media (width<=520px){.landing-showcase{grid-template-columns:1fr!important}
-}
-@media (width<=640px){.landing-pricing{flex-direction:column!important;align-items:center!important}
-.landing-pricing>div{flex:none!important;width:100%!important;max-width:320px!important}
-}
 /* ───── LibTV 首页区块复刻（dashboard：创建卡 / 工具行 / 活动栏+上新+快捷窄条 / TV Show 短剧网格 / 作品展） ───── */
 .ltv-page{display:flex;flex-direction:column;gap:28px}
 .ltv-hero{display:flex;flex-direction:column;gap:24px}
