@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, Typography, Alert, message } from 'antd';
 import api from '../../services/api';
 import { useAuthStore } from '../../stores/authStore';
+import './auth.css';   // 登录/注册共用样式（作用域 .auth-page，详见文件头注释）
 
 const { Text } = Typography;
 
@@ -68,37 +69,19 @@ export default function LoginPage() {
       requiredMark={false}
       style={{ marginBottom: 0 }}
     >
-      <Form.Item
-        name="username"
-        rules={[{ required: true, message: '请输入邮箱或用户名' }]}
-      >
-        <Input
-          placeholder="邮箱或用户名"
-          style={{ height: 48, borderRadius: 8, fontSize: 14, border: '1px solid var(--border)' }}
-        />
+      <Form.Item name="username" rules={[{ required: true, message: '请输入邮箱或用户名' }]}>
+        <Input placeholder="邮箱或用户名" autoComplete="username" />
       </Form.Item>
       <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-        <Input.Password
-          placeholder="密码"
-          style={{ height: 48, borderRadius: 8, fontSize: 14, border: '1px solid var(--border)' }}
-        />
+        <Input.Password placeholder="密码" autoComplete="current-password" />
       </Form.Item>
-      <div style={{ textAlign: 'right', marginBottom: 20, marginTop: -8 }}>
-        <span
-          style={{ color: 'var(--primary)', fontSize: 13, cursor: 'pointer' }}
-          onClick={() => message.info('请联系客服重置密码')}
-        >
+      <div className="auth-forgot">
+        <span className="auth-forgot__btn" onClick={() => message.info('请联系客服重置密码')}>
           忘记密码？
         </span>
       </div>
-      <Form.Item style={{ marginBottom: 16 }}>
-        <Button
-          type="primary"
-          htmlType="submit"
-          loading={loading}
-          block
-          style={{ height: 44, borderRadius: 8, fontSize: 14, fontWeight: 600 }}
-        >
+      <Form.Item style={{ marginBottom: 0 }}>
+        <Button type="primary" htmlType="submit" loading={loading} block className="auth-btn-submit">
           登录
         </Button>
       </Form.Item>
@@ -108,9 +91,9 @@ export default function LoginPage() {
   const verifyForm = (
     <>
       <Alert
+        className="auth-verify-note"
         type="info"
         showIcon
-        style={{ marginBottom: 24, borderRadius: 8 }}
         message={`验证码已发送至 ${maskedEmail}`}
         description="超级管理员登录需邮箱验证码，请查收后输入 6 位验证码完成登录"
       />
@@ -137,39 +120,19 @@ export default function LoginPage() {
         style={{ marginBottom: 0 }}
       >
         <Form.Item name="code" rules={[{ required: true, message: '请输入验证码' }]}>
-          <Input
-            placeholder="6位验证码"
-            maxLength={6}
-            autoFocus
-            style={{ height: 48, borderRadius: 8, fontSize: 20, letterSpacing: 8, textAlign: 'center', border: '1px solid var(--border)' }}
-          />
+          <Input className="auth-code-input" placeholder="6位验证码" maxLength={6} autoFocus inputMode="numeric" />
         </Form.Item>
         <Form.Item style={{ marginBottom: 12 }}>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            block
-            style={{ height: 44, borderRadius: 8, fontSize: 14, fontWeight: 600 }}
-          >
+          <Button type="primary" htmlType="submit" loading={loading} block className="auth-btn-submit">
             验证并登录
           </Button>
         </Form.Item>
       </Form>
-      <div style={{ textAlign: 'center' }}>
-        <Button
-          type="link"
-          onClick={() => void sendCode(false)}
-          disabled={countdown > 0}
-          style={{ fontSize: 13, color: countdown > 0 ? 'var(--text-muted)' : 'var(--primary)', padding: 0 }}
-        >
+      <div className="auth-verify-links">
+        <Button className="auth-resend" type="link" onClick={() => void sendCode(false)} disabled={countdown > 0}>
           {countdown > 0 ? `${countdown}s 后可重发` : '重新发送验证码'}
         </Button>
-        <Button
-          type="link"
-          onClick={() => setStep('login')}
-          style={{ fontSize: 13, color: 'var(--text-muted)', marginLeft: 16, padding: 0 }}
-        >
+        <Button className="auth-back" type="link" onClick={() => setStep('login')}>
           返回登录
         </Button>
       </div>
@@ -177,71 +140,25 @@ export default function LoginPage() {
   );
 
   return (
-    <div
-      className="auth-screen"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '48px 24px',
-        background: 'var(--bg)',
-        minHeight: '100vh',
-      }}
-    >
-      <div style={{ width: '100%', maxWidth: 360 }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div
-            style={{
-              fontSize: 32,
-              fontWeight: 800,
-              letterSpacing: '-1px',
-              background: 'linear-gradient(135deg, #7c3aed, #a855f7, #ec4899)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-              lineHeight: 1.2,
-              marginBottom: 8,
-            }}
-          >
-            AI Anime
-          </div>
-          <Text style={{ display: 'block', fontSize: 14, color: 'var(--text-muted)' }}>
-            {step === 'login' ? '登录你的账号' : '超级管理员安全验证'}
-          </Text>
+    <div className="auth-page">
+      <div className="auth-col">
+        <div className="auth-brand">
+          <div className="auth-wordmark">AI Anime</div>
+          <Text className="auth-brand__sub">{step === 'login' ? '登录你的账号' : '超级管理员安全验证'}</Text>
         </div>
-        <h1
-          style={{
-            fontSize: 24,
-            fontWeight: 400,
-            color: 'var(--text)',
-            marginBottom: 8,
-            textAlign: 'center',
-            lineHeight: 1.4,
-          }}
-        >
-          {step === 'login' ? '欢迎回来' : '邮箱验证'}
-        </h1>
-        <Text
-          style={{
-            display: 'block',
-            textAlign: 'center',
-            fontSize: 14,
-            color: 'var(--text-secondary)',
-            marginBottom: 32,
-          }}
-        >
-          {step === 'login' ? '继续你的创作之旅' : '请输入邮箱收到的 6 位验证码'}
-        </Text>
-        {step === 'login' ? loginForm : verifyForm}
-        {step === 'login' && (
-          <div style={{ textAlign: 'center' }}>
-            <Text style={{ color: 'var(--text-muted)', fontSize: 13 }}>{'还没有账号？ '}</Text>
-            <Link to="/register" style={{ color: 'var(--primary)', fontWeight: 500, fontSize: 13 }}>
-              立即注册
-            </Link>
-          </div>
-        )}
+        <h1 className="auth-title">{step === 'login' ? '欢迎回来' : '邮箱验证'}</h1>
+        <Text className="auth-lede">{step === 'login' ? '继续你的创作之旅' : '请输入邮箱收到的 6 位验证码'}</Text>
+
+        {/* 表单原本直接浮在页面底色上，没有容器层级 → 收进令牌卡 */}
+        <div className="auth-card">
+          {step === 'login' ? loginForm : verifyForm}
+          {step === 'login' && (
+            <div className="auth-foot">
+              {'还没有账号？ '}
+              <Link to="/register">立即注册</Link>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

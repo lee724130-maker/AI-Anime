@@ -1,5 +1,45 @@
 # 修复日志
 
+## 2026-11-24（前端质感改造·批次C `/login` + `/register` ✅ 已推送，**未部署生产**）
+
+> 批次 B 推送在上午被网络卡住（Clash 重启后没自启、直连 GitHub 间歇重置），用户开起来后已补推成功：
+> `23481ed..e184154`，远端 = 本地，领先 0。随后做批次 C。
+
+### ✅ ① 新增 `pages/Auth/auth.css`（`.auth-*`）+ 两页换容器
+这两个页面本来就用了很多 `var()`，所以本轮不是「救火」而是**提质感**，但仍按同一套规矩：
+- 🔴 **品牌字标写死 `linear-gradient(135deg,#7c3aed,#a855f7,#ec4899)`** —— 与全站 `--grad-brand`
+  （浅色 `#6c5ce7→#a5b4fc` / 暗色 `#6366f1→#a5b4fc`）**不是一个颜色**，登录页作为门面却自成一色 → 统一到令牌。
+  实测字标色相已从粉紫变为全站蓝紫，断言 `旧品牌色=false`。
+- 表单原本**直接浮在页面底色上、没有任何容器层级** → 收进 `.auth-card` 令牌卡
+  （`--card` + `--line-strong` 边框 + 双层投影 + 卡头 `--grad-sheen` 微光）。
+- 满屏内联魔法数字（`48/44/360/32/120/8/-8/-12`）→ 令牌刻度与类。
+- 页面底从一片平色 → 加极淡品牌径向底纹（上 10% / 下 7%），首屏不再「素得发虚」。
+- 输入框与主按钮统一 48px / 46px、圆角 `--r-md`、焦点环 `--ring`（原来 focus 没有任何视觉反馈）。
+- 🔴 **密码强度色写死 `#ef4444/#f59e0b/#22c55e`** → `var(--danger)/var(--warning)/var(--success)`；
+  强度条实现从三处内联 style 改成 `data-on` + `--st-color` CSS 变量驱动。
+- 顺手补 `autoComplete`（username / current-password / new-password / email）与验证码 `inputMode="numeric"`。
+- ⚠️ 命名避让：全局 `index.css:20` 已有 `.auth-screen`，本文件**不复用也不覆盖**它，另起 `.auth-page`，
+  免得两条 `min-height` 规则打架。
+- 业务逻辑一字未改：登录 / 2FA 两步 / 注册 / 60s 倒计时（含 `countdownRef` 清理）/
+  `sendCode(auto, token)` 那个「必须显式传 tempToken，否则闭包里是旧值」的既有修复全部保留。
+
+### ✅ ② 验证（不能用 probe-ui，原因记下来）
+`tools/probe-ui.cjs` 会往 `localStorage` 注入 `token`，而这两页外面包着 `AuthGuard` ——
+已登录用户会被弹走，**量不到表单本身**。所以另写了不带 token 的专项检查：
+
+- `npm run build` EXIT=0。
+- 四组（login/register × 暗/浅）全过：卡片底色暗 `rgb(21,31,46)` / 浅 `rgb(255,255,255)`、
+  圆角 22px、输入框实测高度 **48px 全部一致**、`antCards=0`、`jsErr=0`、旧品牌粉紫已消失。
+- 密码强度条单独验：输入 `abc` / `Abcdef12` / `Abcdef12!@#` 三档，实测点亮 **1 / 2 / 3** 格，
+  亮色分别是 `rgb(248,113,113)`、`rgb(251,191,36)`、`rgb(52,211,153)` ——
+  正是暗色主题下 `--danger/--warning/--success` 的取值，证明已从写死 hex 切到令牌。
+  （第一次跑「中」档显示和「弱」一样，查下来是**我的测试输入不对**：`abcdef12` 按评分规则只有 2 分判「弱」，
+  组件行为是正确的 —— 换 `Abcdef12` 后复验通过。别急着改代码，先确认是不是测错了。）
+
+### ⏭ ③ 下一步
+批次 D `/studio`（627）→ E Landing（1317，风险最高单独做）→ F Editor（admin-only，1116+352+222+127）。
+另有共用组件待统一处理：`components/VideoPlayer`（2 处 `Card`，多页共用，不在单页改造里动）。
+
 ## 2026-11-24（前端质感改造·批次B `/video` 四页 ✅ 真实数据实测通过，**未部署生产**）
 
 > 接昨天断点：批次 B `/video`（index 348 / Create 257 / Detail 204 / Stitch 237）。

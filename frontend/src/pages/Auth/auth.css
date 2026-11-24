@@ -1,0 +1,157 @@
+/* =============================================================================
+   /login 与 /register 质感改造（批次C）· 2026-11-24
+   作用域：新增类一律 .auth- 前缀；对 antd 的覆盖写成 `.auth-xxx .ant-yyy`，不外溢。
+   注意：全局 index.css:20 已有 `.auth-screen{background:var(--bg);min-height:100vh}`，
+   本文件**不复用也不覆盖**那个类名，另起 `.auth-page`，避免与全局规则打架。
+   业务逻辑零改动：登录 / 2FA 验证 / 注册 / 验证码倒计时 / 密码强度计算的
+   状态与接口调用完全不动（含 sendCode(auto, token) 那个「必须显式传 tempToken」的修复注释所述逻辑）。
+
+   本轮改的：
+     1. 满屏内联魔法数字（48/44/360/32/120/8/-8/-12…）→ 令牌刻度与类。
+     2. 🔴 品牌字标写死 `linear-gradient(135deg,#7c3aed,#a855f7,#ec4899)`，
+        与全站 --grad-brand（#6c5ce7→#a5b4fc / 暗色 #6366f1→#a5b4fc）**不是一个颜色** → 统一走令牌。
+     3. 登录/注册表单直接浮在页面底色上，没有容器层级 → 给一张令牌卡（边框 + 双层投影 + 卡头微光）。
+     4. 背景是一片平色 → 加极淡的品牌径向底纹，让首屏不那么"素"。
+     5. 输入框/按钮的 focus 没有视觉反馈 → 统一 --ring 焦点环。
+   ============================================================================= */
+
+/* ---------- 页面底 ---------- */
+.auth-page {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: var(--sp-7) var(--sp-4);
+  background: var(--bg);
+  background-image:
+    radial-gradient(80% 60% at 50% 0%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 62%),
+    radial-gradient(70% 50% at 50% 100%, color-mix(in srgb, var(--primary) 7%, transparent), transparent 60%);
+}
+@supports (height: 100dvh) {
+  .auth-page { min-height: 100dvh; }
+}
+.auth-col { width: 100%; max-width: 400px; }
+
+/* ---------- 品牌字标 ---------- */
+.auth-brand { text-align: center; margin-bottom: var(--sp-6); }
+.auth-wordmark {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1.2;
+  margin-bottom: 6px;
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.auth-brand__sub { font-size: var(--fs-md); color: var(--text-muted); }
+
+/* ---------- 标题区 ---------- */
+.auth-title { font-size: var(--fs-2xl); font-weight: 480; color: var(--text); text-align: center; line-height: 1.4; margin: 0 0 6px; }
+.auth-lede { display: block; text-align: center; font-size: var(--fs-md); color: var(--text-secondary); margin-bottom: var(--sp-5); }
+
+/* ---------- 表单卡 ---------- */
+.auth-card {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-5) var(--sp-5) var(--sp-4);
+  overflow: hidden;
+}
+.auth-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 68px;
+  background: var(--grad-sheen);
+  pointer-events: none;
+}
+.auth-card > * { position: relative; }
+.auth-card .ant-form { margin-bottom: 0; }
+.auth-card .ant-form-item { margin-bottom: var(--sp-4); }
+
+/* 输入框：统一高度、圆角与焦点环（去掉逐处内联 48/8/14） */
+.auth-card .ant-input-affix-wrapper,
+.auth-card .ant-input {
+  height: 48px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-lg);
+  background: var(--surface-2) !important;
+  border-color: var(--line-strong) !important;
+}
+.auth-card .ant-input-affix-wrapper > .ant-input { height: auto; background: transparent !important; border: none !important; }
+.auth-card .ant-input-affix-wrapper:hover,
+.auth-card .ant-input:hover { border-color: var(--primary) !important; }
+.auth-card .ant-input-affix-wrapper-focused,
+.auth-card .ant-input:focus { border-color: var(--primary) !important; box-shadow: var(--ring); }
+.auth-card .ant-input-prefix { color: var(--text-muted); margin-inline-end: 8px; }
+
+/* 验证码输入行的「发送验证码」按钮 */
+.auth-code-row { display: flex; gap: var(--sp-2); }
+.auth-code-row .ant-input-affix-wrapper, .auth-code-row .ant-input { flex: 1 1 auto; min-width: 0; }
+.auth-card .auth-btn-code.ant-btn {
+  width: 122px;
+  height: 48px;
+  flex: none;
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+  font-weight: 560;
+  background: var(--surface-2) !important;
+  border-color: var(--line-strong) !important;
+  color: var(--text-secondary) !important;
+}
+.auth-card .auth-btn-code.ant-btn:hover:not(:disabled) { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-bg) !important; }
+.auth-card .auth-btn-code.ant-btn[disabled] { opacity: .6; }
+
+/* 主提交按钮：品牌渐变（与后台其它主按钮同口径） */
+.auth-card .auth-btn-submit.ant-btn {
+  height: 46px;
+  border-radius: var(--r-md);
+  font-size: var(--fs-lg);
+  font-weight: 650;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--shadow-1);
+  transition: filter var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.auth-card .auth-btn-submit.ant-btn:hover { filter: brightness(1.06); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+
+/* 忘记密码 / 底部链接 */
+.auth-forgot { display: flex; justify-content: flex-end; margin: -6px 0 var(--sp-4); }
+.auth-forgot__btn { font-size: var(--fs-md); color: var(--primary); cursor: pointer; background: none; border: none; padding: 0; }
+.auth-forgot__btn:hover { text-decoration: underline; }
+.auth-foot { text-align: center; margin-top: var(--sp-4); font-size: var(--fs-md); color: var(--text-muted); }
+.auth-foot a { color: var(--primary); font-weight: 560; }
+.auth-foot a:hover { text-decoration: underline; }
+.auth-foot__sep { width: 16px; display: inline-block; }
+
+/* ---------- 2FA 验证步 ---------- */
+.auth-card .auth-verify-note.ant-alert { border-radius: var(--r-md); margin-bottom: var(--sp-4); }
+.auth-code-input.ant-input { letter-spacing: 8px; text-align: center; font-size: 20px !important; }
+.auth-verify-links { display: flex; align-items: center; justify-content: center; gap: var(--sp-4); }
+.auth-verify-links .ant-btn { height: auto; padding: 0; font-size: var(--fs-md); }
+.auth-verify-links .auth-resend.ant-btn { color: var(--primary) !important; }
+.auth-verify-links .auth-resend.ant-btn[disabled] { color: var(--text-muted) !important; }
+.auth-verify-links .auth-back.ant-btn { color: var(--text-muted) !important; }
+
+/* ---------- 密码强度条 ---------- */
+.auth-strength { margin: -10px 0 var(--sp-4); }
+.auth-strength__bars { display: flex; gap: 4px; }
+.auth-strength__seg { flex: 1; height: 3px; border-radius: 2px; background: var(--line); transition: background var(--t-base) var(--ease); }
+.auth-strength__seg[data-on="1"] { background: var(--st-color, var(--primary)); }
+.auth-strength__label { font-size: var(--fs-sm); margin-top: 5px; font-weight: 560; color: var(--st-color, var(--text-muted)); }
+
+/* ---------- 浅色 / 暗色补层级 ---------- */
+[data-theme=light] .auth-card { border-color: #e2e7f2; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 24px 56px -28px rgba(16, 24, 40, .3); }
+[data-theme=dark] .auth-card { border-color: var(--line-strong); box-shadow: var(--shadow-3), inset 0 1px 0 rgba(255, 255, 255, .05); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 480px) {
+  .auth-page { padding: var(--sp-5) var(--sp-3); }
+  .auth-card { padding: var(--sp-4) var(--sp-4) var(--sp-3); border-radius: var(--r-lg); }
+  .auth-wordmark { font-size: 28px; }
+}
