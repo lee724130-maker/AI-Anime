@@ -165,6 +165,27 @@ const MOCKS = {
     ]],
   ],
 
+  // /video 桩数据：对齐 GET /api/video/list 的 {items}（本地 video_tasks 是 0 行，靠桩数据渲染）
+  '/video': [
+    [/\/api\/video\/list/, {
+      items: [
+        { id: 5, task_id: 't-5', scriptTitle: '铃与雾 · 第一幕', status: 'completed', progress: 100, video_url: '/static/vid_5_1786011452414.mp4', cover_url: '/static/img_11_正面_1786012806432.png', resolution: '720p', duration: 5, style: 'anime', credit_cost: 10, retry_count: 0, created_at: ago(2 * 864e5) },
+        { id: 4, task_id: 't-4', scriptTitle: '铃与雾 · 第二幕', status: 'processing', progress: 45, video_url: null, cover_url: null, resolution: '720p', duration: 10, style: 'realistic', credit_cost: 20, retry_count: 1, created_at: ago(40 * 6e4) },
+        { id: 3, task_id: 't-3', scriptTitle: '未命名的草稿', status: 'failed', progress: 0, video_url: null, cover_url: null, error_msg: '模型额度不足', resolution: '480p', duration: 5, style: 'anime', credit_cost: 5, retry_count: 3, created_at: ago(5 * 864e5) },
+        { id: 2, task_id: 't-2', scriptTitle: '体面 · 第三集', status: 'pending', progress: 0, video_url: null, cover_url: null, resolution: '1080p', duration: 15, style: 'anime', credit_cost: 40, retry_count: 0, created_at: ago(9 * 864e5) },
+      ],
+      total: 4,
+    }],
+    [/\/api\/video\/defaults/, { models: [], resolutions: ['480p', '720p', '1080p'], ratios: ['9:16', '16:9'] }],
+  ],
+  // /video/create 与 /video/stitch 复用同一条 /api/video/list；剧本与角色另给桩
+  '/video/create': [
+    [/\/api\/script\/list/, [{ id: 11, title: '铃与雾 · 第一幕', status: 'completed' }, { id: 12, title: '体面', status: 'draft' }]],
+    [/\/api\/character\/list/, [{ id: 1, name: '阿雾' }, { id: 2, name: '少年' }]],
+    [/\/api\/admin\/models/, []],
+  ],
+  '/video/stitch': [],
+
   '/generate': [
     [/\/api\/generate\/tts-voices/, []],
     [/\/api\/generate\/credit-rules/, { image_per_image: 5, video_720p_per_5s: 20, video_unit_seconds: 5 }],

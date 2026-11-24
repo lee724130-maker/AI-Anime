@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Card, Typography, Tag, Descriptions, Spin, message, Result, Progress, Space } from 'antd';
+import { Button, Typography, Tag, Spin, message, Result, Progress, Space } from 'antd';
 import {
   ArrowLeftOutlined,
   ClockCircleOutlined,
@@ -12,8 +12,10 @@ import {
 } from '@ant-design/icons';
 import api from '../../services/api';
 import VideoPlayer from '../../components/VideoPlayer';
+import { withDownload } from '../../utils/staticUrl';
+import './video.css';   // 与列表/新建/拼接共用本页样式（作用域 .vid-root）
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Paragraph } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
@@ -84,40 +86,36 @@ export default function VideoDetailPage() {
   const videoSrc = getFullUrl(task.video_url);
 
   return (
-    <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/video')} style={{ marginBottom: 20 }}>
-        返回列表
-      </Button>
+    <div className="vid-root vid-root--narrow">
+      <div className="vid-topbar">
+        <div className="vid-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/video')} />
+          <div className="vid-topbar__titles">
+            <Title level={4} className="vid-topbar__title">视频任务详情</Title>
+            <span className="vid-topbar__sub">页面每 3 秒自动刷新状态</span>
+          </div>
+        </div>
+      </div>
 
-      <Title level={2} style={{ marginBottom: 24 }}>视频任务详情</Title>
-
-      {/* Status banner */}
-      <Card style={{
-        marginBottom: 24,
-        borderRadius: 12,
-        textAlign: 'center',
-        background: task.status === 'completed' ? '#f6ffed'
-          : task.status === 'failed' ? '#fff2f0'
-          : task.status === 'processing' ? '#e6f7ff'
-          : '#fafafa',
-      }}>
-        <Tag icon={cfg.icon} color={cfg.color} style={{ fontSize: 16, padding: '4px 16px', marginBottom: 16 }}>
-          {cfg.label}
-        </Tag>
+      {/* 状态横幅：原先四档写死浅底（#f6ffed/#fff2f0/#e6f7ff/#fafafa）→ 暗色下是一整块白卡；
+          改 data-status + color-mix */}
+      <div className="vid-banner" data-status={task.status}>
+        <Tag className="vid-banner__tag" icon={cfg.icon} color={cfg.color}>{cfg.label}</Tag>
 
         {task.status === 'completed' && videoSrc && (
-          <div style={{ marginTop: 16 }}>
-            <VideoPlayer
-              src={videoSrc}
-              poster={getFullUrl(task.cover_url)}
-              title="AI 生成的动漫短剧"
-            />
-            <Button type="primary" icon={<DownloadOutlined />}
-              href={`${videoSrc}${videoSrc.includes('?') ? '&' : '?'}download=1`}
-              target="_blank" style={{ marginTop: 12, borderRadius: 10 }}>
+          <>
+            <div className="vid-banner__player">
+              <VideoPlayer
+                src={videoSrc}
+                poster={getFullUrl(task.cover_url)}
+                title="AI 生成的动漫短剧"
+              />
+            </div>
+            <Button type="primary" className="vid-btn-primary" icon={<DownloadOutlined />}
+              href={withDownload(videoSrc)} target="_blank">
               下载视频
             </Button>
-          </div>
+          </>
         )}
 
         {task.status === 'completed' && !videoSrc && (
@@ -135,7 +133,7 @@ export default function VideoDetailPage() {
             subTitle={task.error_msg || '未知错误'}
             extra={
               <Space>
-                <Button icon={<ReloadOutlined />} type="primary" onClick={async () => {
+                <Button icon={<ReloadOutlined />} type="primary" className="vid-btn-primary" onClick={async () => {
                   try {
                     await api.post(`/api/video/${id}/retry`);
                     message.success('已重新提交任务');
@@ -153,52 +151,46 @@ export default function VideoDetailPage() {
         )}
 
         {(task.status === 'pending' || task.status === 'processing') && (
-          <div style={{ padding: '24px 0' }}>
+          <>
             <Spin size="large" />
-            <Progress
+            <Progress className="vid-banner__progress"
               percent={task.progress || 0}
               status={task.status === 'processing' ? 'active' : 'normal'}
-              style={{ maxWidth: 420, margin: '20px auto 0' }}
             />
-            <Paragraph type="secondary" style={{ marginTop: 16 }}>
+            <Paragraph className="vid-banner__hint">
               {task.status === 'pending' ? '任务已提交，等待处理...' : 'AI 正在生成视频，请耐心等待...'}
             </Paragraph>
-            <Paragraph type="secondary" style={{ fontSize: 12 }}>
-              页面每 3 秒自动刷新状态
-            </Paragraph>
-          </div>
+            <Paragraph className="vid-banner__hint vid-banner__hint--sm">页面每 3 秒自动刷新状态</Paragraph>
+          </>
         )}
-      </Card>
+      </div>
 
-      {/* Detail info */}
-      <Card title="任务信息" style={{ borderRadius: 12, marginBottom: 24 }}>
-        <Descriptions column={1} bordered size="small">
-          <Descriptions.Item label="任务 ID">{task.task_id}</Descriptions.Item>
-          <Descriptions.Item label="关联剧本">{task.scriptTitle || '无'}</Descriptions.Item>
-          <Descriptions.Item label="当前状态">
-            <Tag icon={cfg.icon} color={cfg.color}>{cfg.label}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="进度">{task.progress || 0}%</Descriptions.Item>
-          <Descriptions.Item label="风格">{task.style === 'realistic' ? '📷 真人' : '🎨 动漫'}</Descriptions.Item>
-          <Descriptions.Item label="规格">{task.resolution || '720p'} · {task.duration || 5} 秒</Descriptions.Item>
-          <Descriptions.Item label="本次算力">{task.credit_cost || 0}（成功完成后扣费）</Descriptions.Item>
-          <Descriptions.Item label="重试次数">{task.retry_count || 0}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{new Date(task.created_at).toLocaleString('zh-CN')}</Descriptions.Item>
+      {/* 任务信息：Card + Descriptions(bordered) → 令牌面板 + 定义列表，字段与取值不变 */}
+      <div className="vid-panel">
+        <div className="vid-panel__head">
+          <div className="vid-panel__title"><span>任务信息</span></div>
+        </div>
+        <dl className="vid-kv">
+          <div className="vid-kv__row"><dt>任务 ID</dt><dd>{task.task_id}</dd></div>
+          <div className="vid-kv__row"><dt>关联剧本</dt><dd>{task.scriptTitle || '无'}</dd></div>
+          <div className="vid-kv__row"><dt>当前状态</dt><dd><Tag icon={cfg.icon} color={cfg.color}>{cfg.label}</Tag></dd></div>
+          <div className="vid-kv__row"><dt>进度</dt><dd>{task.progress || 0}%</dd></div>
+          <div className="vid-kv__row"><dt>风格</dt><dd>{task.style === 'realistic' ? '📷 真人' : '🎨 动漫'}</dd></div>
+          <div className="vid-kv__row"><dt>规格</dt><dd>{task.resolution || '720p'} · {task.duration || 5} 秒</dd></div>
+          <div className="vid-kv__row"><dt>本次算力</dt><dd>{task.credit_cost || 0}（成功完成后扣费）</dd></div>
+          <div className="vid-kv__row"><dt>重试次数</dt><dd>{task.retry_count || 0}</dd></div>
+          <div className="vid-kv__row"><dt>创建时间</dt><dd>{new Date(task.created_at).toLocaleString('zh-CN')}</dd></div>
           {task.completed_at && (
-            <Descriptions.Item label="完成时间">{new Date(task.completed_at).toLocaleString('zh-CN')}</Descriptions.Item>
+            <div className="vid-kv__row"><dt>完成时间</dt><dd>{new Date(task.completed_at).toLocaleString('zh-CN')}</dd></div>
           )}
           {task.video_url && (
-            <Descriptions.Item label="视频地址">
-              <a href={videoSrc} target="_blank" rel="noreferrer">{videoSrc}</a>
-            </Descriptions.Item>
+            <div className="vid-kv__row"><dt>视频地址</dt><dd><a href={videoSrc} target="_blank" rel="noreferrer">打开</a></dd></div>
           )}
           {task.error_msg && (
-            <Descriptions.Item label="错误信息">
-              <Text type="danger">{task.error_msg}</Text>
-            </Descriptions.Item>
+            <div className="vid-kv__row"><dt>错误信息</dt><dd className="vid-kv__err">{task.error_msg}</dd></div>
           )}
-        </Descriptions>
-      </Card>
+        </dl>
+      </div>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Form, Select, Typography, message, Alert, Space } from 'antd';
-import { SendOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Button, Form, Select, Typography, message, Alert } from 'antd';
+import { SendOutlined, ThunderboltOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import './video.css';   // 与列表/详情/拼接共用本页样式（作用域 .vid-root）
 
 const { Title } = Typography;
 
@@ -130,18 +131,23 @@ export default function VideoCreatePage() {
   }));
 
   return (
-    <div style={{ maxWidth: 700, margin: '0 auto', padding: 24 }}>
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<span>←</span>} onClick={() => navigate(-1)}>返回</Button>
-      </Space>
-      <Title level={2}>
-        <VideoCameraIcon /> 新建视频生成任务
-      </Title>
+    <div className="vid-root vid-root--narrow">
+      {/* 顶栏：返回圆钮 + 装饰图标标题（原来是一个「←」文字按钮 + level=2 大标题） */}
+      <div className="vid-topbar">
+        <div className="vid-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} />
+          <span className="vid-deco">🎬</span>
+          <div className="vid-topbar__titles">
+            <Title level={4} className="vid-topbar__title">新建视频生成任务</Title>
+            <span className="vid-topbar__sub">选剧本 → 选角色 → 提交，系统异步生成</span>
+          </div>
+        </div>
+      </div>
 
-      <Alert
+      <Alert className="vid-alert"
         title="视频生成流程"
         description={
-          <ol style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+          <ol className="vid-ol">
             <li>选择一个已完成的剧本</li>
             <li>选择要使用的角色（可选）</li>
             <li>提交任务后，系统将异步处理视频生成</li>
@@ -149,10 +155,9 @@ export default function VideoCreatePage() {
           </ol>
         }
         type="info" showIcon
-        style={{ marginBottom: 24, borderRadius: 12 }}
       />
 
-      <Card style={{ borderRadius: 12 }}>
+      <div className="vid-panel">
         <Form form={form} onFinish={onFinish} layout="vertical">
           <Form.Item name="model" label="模型">
             <Select
@@ -223,35 +228,21 @@ export default function VideoCreatePage() {
 
           <Form.Item shouldUpdate noStyle>
             {({ getFieldValue }) => (
-              <Alert type="warning" showIcon icon={<ThunderboltOutlined />}
+              <Alert className="vid-estimate" type="warning" showIcon icon={<ThunderboltOutlined />}
                 title={`预计消耗 ${estimateCredits(getFieldValue('resolution'), getFieldValue('duration'))} 算力`}
                 description="提交前会检查余额，视频生成成功后才会实际扣费。"
                 style={{ marginBottom: 20 }} />
             )}
           </Form.Item>
 
-          <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">
-                提交生成任务
-              </Button>
-              <Button onClick={() => navigate('/video')} size="large">返回列表</Button>
-            </Space>
-          </Form.Item>
+          <div className="vid-panel__foot">
+            <Button type="primary" className="vid-btn-primary" htmlType="submit" icon={<SendOutlined />} loading={loading} size="large">
+              提交生成任务
+            </Button>
+            <Button onClick={() => navigate('/video')} size="large">返回列表</Button>
+          </div>
         </Form>
-      </Card>
+      </div>
     </div>
-  );
-}
-
-function VideoCameraIcon() {
-  return (
-    <span style={{
-      display: 'inline-block', width: 40, height: 40, borderRadius: 10,
-      background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
-      textAlign: 'center', lineHeight: '40px', marginRight: 8,
-    }}>
-      <span style={{ fontSize: 20 }}>🎬</span>
-    </span>
   );
 }

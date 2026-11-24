@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Checkbox, List, Typography, message, Space, InputNumber, Spin, Empty, Alert } from 'antd';
-import { ScissorOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, DownloadOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { Button, Checkbox, Typography, message, InputNumber, Spin, Empty } from 'antd';
+import { ScissorOutlined, ArrowUpOutlined, ArrowDownOutlined, DeleteOutlined, DownloadOutlined, VideoCameraOutlined, ArrowLeftOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import api from '../../services/api';
+import { withDownload } from '../../utils/staticUrl';
+import './video.css';   // 与列表/详情/新建共用本页样式（作用域 .vid-root）
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 interface VideoItem {
@@ -111,127 +113,111 @@ export default function VideoStitchPage() {
   };
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: 24 }}>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2}><VideoCameraOutlined /> 视频拼接</Title>
-        <Text type="secondary">选择多个已完成视频，调整顺序和裁剪时间，合并为一个长视频</Text>
+    <div className="vid-root">
+      <div className="vid-topbar">
+        <div className="vid-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/video')} />
+          <div className="vid-topbar__titles">
+            <Title level={4} className="vid-topbar__title">视频拼接</Title>
+            <span className="vid-topbar__sub">选择多个已完成视频，调整顺序和裁剪时间，合并为一个长视频</span>
+          </div>
+        </div>
       </div>
 
       {resultUrl && (
-        <Alert
-          type="success"
-          showIcon
-          title="拼接完成"
-          description={
-            <Space orientation="vertical">
-              <span>已生成拼接视频，可以预览或下载。</span>
-              <Space>
-                <a href={`${API_BASE}${resultUrl}`} target="_blank" rel="noreferrer">
-                  <Button type="primary" icon={<VideoCameraOutlined />}>预览视频</Button>
-                </a>
-                <a href={`${API_BASE}${resultUrl}?download=1`}>
-                  <Button icon={<DownloadOutlined />}>下载视频</Button>
-                </a>
-              </Space>
-            </Space>
-          }
-          style={{ marginBottom: 20, borderRadius: 12 }}
-        />
+        <div className="vid-panel">
+          <div className="vid-panel__head">
+            <div className="vid-panel__title"><CheckCircleOutlined /><span>拼接完成</span></div>
+            <div className="vid-panel__acts">
+              <a href={`${API_BASE}${resultUrl}`} target="_blank" rel="noreferrer">
+                <Button type="primary" className="vid-btn-primary" icon={<VideoCameraOutlined />}>预览视频</Button>
+              </a>
+              <a href={withDownload(`${API_BASE}${resultUrl}`)}>
+                <Button icon={<DownloadOutlined />}>下载视频</Button>
+              </a>
+            </div>
+          </div>
+          <p className="vid-panel__hint">已生成拼接视频，可以预览或下载。</p>
+        </div>
       )}
 
-      <Card title="选择已完成视频" style={{ marginBottom: 20, borderRadius: 12 }}>
+      <div className="vid-panel">
+        <div className="vid-panel__head">
+          <div className="vid-panel__title"><span>选择已完成视频</span></div>
+        </div>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+          <div className="vid-loading"><Spin /></div>
         ) : videos.length === 0 ? (
-          <Empty description="暂无已完成视频" />
+          <div className="vid-stage"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无已完成视频" /></div>
         ) : (
-          <List
-            dataSource={videos}
-            renderItem={(video) => {
+          <div className="vid-picks">
+            {videos.map((video) => {
               const isSelected = selected.some(s => s.id === video.id);
               return (
-                <List.Item
-                  style={{ padding: '8px 0' }}
-                  actions={[
-                    <Checkbox
-                      checked={isSelected}
-                      onChange={(e) => toggleVideo(video, e.target.checked)}
-                    />,
-                  ]}
-                >
-                  <List.Item.Meta
-                    title={
-                      <Space>
-                        <Text strong>#{video.id} {video.scriptTitle || ''}</Text>
-                      </Space>
-                    }
-                    description={
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {video.resolution} · {video.duration}s · {video.style === 'anime' ? '动漫' : '真人'}
-                        · {new Date(video.created_at).toLocaleString()}
-                      </Text>
-                    }
-                  />
-                </List.Item>
+                <div className="vid-pick" key={video.id}>
+                  <div className="vid-pick__lead">
+                    <Checkbox checked={isSelected} onChange={(e) => toggleVideo(video, e.target.checked)} />
+                    <span className="vid-pick__name">#{video.id} {video.scriptTitle || ''}</span>
+                    <span className="vid-pick__meta">
+                      {video.resolution} · {video.duration}s · {video.style === 'anime' ? '动漫' : '真人'}
+                      · {new Date(video.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
               );
-            }}
-          />
+            })}
+          </div>
         )}
-      </Card>
+      </div>
 
       {selected.length > 0 && (
-        <Card
-          title={`已选 ${selected.length} 个视频`}
-          style={{ marginBottom: 20, borderRadius: 12 }}
-          extra={
-            <Space>
-              <Button type="primary" onClick={handleStitch} loading={stitching} icon={<ScissorOutlined />}>
+        <div className="vid-panel">
+          <div className="vid-panel__head">
+            <div className="vid-panel__title"><span>已选 {selected.length} 个视频</span></div>
+            <div className="vid-panel__acts">
+              <Button type="primary" className="vid-btn-primary" onClick={handleStitch} loading={stitching} icon={<ScissorOutlined />}>
                 开始拼接
               </Button>
               <Button onClick={() => { setSelected([]); setResultUrl(''); }}>清空</Button>
-            </Space>
-          }
-        >
-          <List
-            dataSource={selected}
-            renderItem={(clip, index) => (
-              <List.Item
-                style={{ padding: '12px 0', borderBottom: '1px solid #f0f0f0' }}
-                actions={[
-                  <Button size="small" icon={<ArrowUpOutlined />} onClick={() => moveUp(index)} disabled={index === 0} />,
-                  <Button size="small" icon={<ArrowDownOutlined />} onClick={() => moveDown(index)} disabled={index === selected.length - 1} />,
-                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removeClip(index)} />,
-                ]}
-              >
-                <div style={{ width: '100%' }}>
-                  <Text strong>{index + 1}. {clip.label}</Text>
-                  <div style={{ marginTop: 8, display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>裁剪：</Text>
-                    <InputNumber
-                      size="small" min={0} placeholder="开始(秒)"
-                      style={{ width: 110 }}
-                      value={clip.start}
-                      onChange={(v) => updateTrim(index, 'start', v)}
-                    />
-                    <Text type="secondary">~</Text>
-                    <InputNumber
-                      size="small" min={0} placeholder="结束(秒)"
-                      style={{ width: 110 }}
-                      value={clip.end}
-                      onChange={(v) => updateTrim(index, 'end', v)}
-                    />
-                    <Text type="secondary" style={{ fontSize: 12 }}>（留空则保留完整片段）</Text>
+            </div>
+          </div>
+          <div className="vid-clips">
+            {selected.map((clip, index) => (
+              <div className="vid-clip" key={clip.id}>
+                <div className="vid-clip__head">
+                  <span className="vid-clip__name">{index + 1}. {clip.label}</span>
+                  <div className="vid-clip__acts">
+                    <Button size="small" icon={<ArrowUpOutlined />} onClick={() => moveUp(index)} disabled={index === 0} />
+                    <Button size="small" icon={<ArrowDownOutlined />} onClick={() => moveDown(index)} disabled={index === selected.length - 1} />
+                    <Button size="small" danger icon={<DeleteOutlined />} onClick={() => removeClip(index)} />
                   </div>
                 </div>
-              </List.Item>
-            )}
-          />
-        </Card>
+                <div className="vid-clip__trim">
+                  <span className="vid-clip__label">裁剪：</span>
+                  <InputNumber
+                    size="small" min={0} placeholder="开始(秒)"
+                    style={{ width: 110 }}
+                    value={clip.start}
+                    onChange={(v) => updateTrim(index, 'start', v)}
+                  />
+                  <span className="vid-clip__label">~</span>
+                  <InputNumber
+                    size="small" min={0} placeholder="结束(秒)"
+                    style={{ width: 110 }}
+                    value={clip.end}
+                    onChange={(v) => updateTrim(index, 'end', v)}
+                  />
+                  <span className="vid-clip__hint">（留空则保留完整片段）</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      <Space>
+      <div className="vid-panel__foot">
         <Button onClick={() => navigate('/video')}>返回视频列表</Button>
-      </Space>
+      </div>
     </div>
   );
 }

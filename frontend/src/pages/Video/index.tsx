@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Typography, Tag, Space, Popconfirm, message, Empty, Progress, Segmented, Row, Col, Tooltip, Input, Select } from 'antd';
+import { Button, Typography, Tag, Popconfirm, message, Empty, Progress, Segmented, Tooltip, Input, Select } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, VideoCameraOutlined,
   ClockCircleOutlined, CheckCircleOutlined, CloseCircleOutlined,
@@ -8,8 +8,10 @@ import {
   AppstoreOutlined, UnorderedListOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import { withDownload } from '../../utils/staticUrl';
+import './video.css';   // 本页质感改造样式（作用域 .vid-root，详见文件头注释）
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 const getUrl = (p: string | null) => p ? (p.startsWith('http') ? p : API_BASE + p) : '';
 
@@ -131,70 +133,40 @@ export default function VideoListPage() {
     const isSelected = selectedIds.includes(item.id);
 
     return (
-      <Card
+      <div
+        className="vid-card"
         key={item.id}
-        hoverable
-        style={{
-          borderRadius: 12, overflow: 'hidden',
-          border: isSelected ? '2px solid #7c3aed' : '1px solid #f0f0f0',
-        }}
-        styles={{ body: { padding: 0 } }}
+        data-selected={isSelected ? '1' : '0'}
         onClick={() => item.status === 'completed' && !isSelected && navigate(`/video/${item.id}`)}
       >
-        {/* Thumbnail */}
-        <div style={{
-          position: 'relative', width: '100%', aspectRatio: '16/9',
-          background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          overflow: 'hidden',
-        }}
-          onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}>
+        {/* 缩略图：点击区是「选中」，与整卡点击进详情分开（逻辑不变） */}
+        <div className="vid-card__thumb" onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}>
           {item.status === 'completed' && videoUrl ? (
             posterUrl ? (
               <img src={posterUrl} alt="封面"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 onError={(e) => { (e.target as HTMLImageElement).src = videoUrl; }} />
             ) : (
-              <video src={videoUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                preload="metadata" muted />
+              <video src={videoUrl} preload="metadata" muted />
             )
           ) : (
-            <VideoCameraOutlined style={{ fontSize: 40, color: '#333' }} />
+            <VideoCameraOutlined className="vid-card__ph" />
           )}
-          {isSelected && <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            background: 'rgba(124, 58, 237, 0.15)',
-          }} />}
-          <Tag color={cfg.color} style={{
-            position: 'absolute', top: 8, left: 8, margin: 0, fontSize: 11,
-          }}>{cfg.label}</Tag>
+          <Tag className="vid-card__status" color={cfg.color}>{cfg.label}</Tag>
           {item.status === 'processing' && (
-            <div style={{
-              position: 'absolute', bottom: 0, left: 0, right: 0,
-              padding: '0 8px 6px',
-            }}>
-              <Progress percent={item.progress || 0} size="small" showInfo={false}
-                strokeColor="#7c3aed" trailColor="rgba(255,255,255,0.2)" />
+            <div className="vid-card__bar">
+              <Progress percent={item.progress || 0} size="small" showInfo={false} />
             </div>
           )}
         </div>
 
-        <div style={{ padding: '10px 14px 14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ fontSize: 13, fontWeight: 600, display: 'block' }} ellipsis>
-                {item.scriptTitle || '未命名'}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {item.style === 'realistic' ? '📷 真人' : '🎨 动漫'} · {item.resolution || '720p'} · {item.duration || 5}秒 · ⚡{item.credit_cost || 0}
-              </Text>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-            <Text type="secondary" style={{ fontSize: 11 }}>
-              {new Date(item.created_at).toLocaleDateString('zh-CN')}
-            </Text>
-            <Space size={4} onClick={e => e.stopPropagation()}>
+        <div className="vid-card__body">
+          <span className="vid-card__name">{item.scriptTitle || '未命名'}</span>
+          <span className="vid-card__meta">
+            {item.style === 'realistic' ? '📷 真人' : '🎨 动漫'} · {item.resolution || '720p'} · {item.duration || 5}秒 · ⚡{item.credit_cost || 0}
+          </span>
+          <div className="vid-card__foot">
+            <span className="vid-card__date">{new Date(item.created_at).toLocaleDateString('zh-CN')}</span>
+            <span className="vid-card__acts" onClick={e => e.stopPropagation()}>
               {item.status === 'failed' && (
                 <Tooltip title="重试">
                   <Button size="small" type="text" icon={<ReloadOutlined />}
@@ -209,7 +181,7 @@ export default function VideoListPage() {
                   </Tooltip>
                   <Tooltip title="下载">
                     <Button size="small" type="text" icon={<DownloadOutlined />}
-                      href={`${API_BASE}${item.video_url}?download=1`} target="_blank" />
+                      href={withDownload(getUrl(item.video_url))} target="_blank" />
                   </Tooltip>
                 </>
               )}
@@ -218,131 +190,129 @@ export default function VideoListPage() {
                   <Button size="small" type="text" danger icon={<DeleteOutlined />} />
                 </Tooltip>
               </Popconfirm>
-            </Space>
+            </span>
           </div>
         </div>
-      </Card>
+      </div>
     );
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f8f9fb' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 24px 0' }}>
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <Title level={2} style={{ margin: 0 }}>作品管理</Title>
+    <div className="vid-root">
+      {/* 顶栏：返回圆钮 + 标题 | 新建 / 拼接（原「居中大标题 + 下面一个返回钮」，
+          且页底写死 #f8f9fb 导致暗色整页亮底） */}
+      <div className="vid-topbar">
+        <div className="vid-topbar__lead">
+          <Button shape="circle" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} />
+          <div className="vid-topbar__titles">
+            <Title level={4} className="vid-topbar__title">作品管理</Title>
+            <span className="vid-topbar__sub">共 {filtered.length} 个任务 · 点缩略图可多选批量删除</span>
+          </div>
         </div>
-        <Button className="back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} style={{ marginBottom: 16 }}>返回</Button>
+        <div className="vid-toolbar__right">
+          <Button type="primary" className="vid-btn-primary" icon={<PlusOutlined />} onClick={() => navigate('/video/create')}>
+            新建任务
+          </Button>
+          <Button icon={<VideoCameraOutlined />} onClick={() => navigate('/video/stitch')}>
+            视频拼接
+          </Button>
+        </div>
       </div>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px 32px' }}>
-        {/* Toolbar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <Segmented value={filter} onChange={(v) => setFilter(v as string)}
-            options={FILTER_OPTIONS} />
-          <Space wrap>
-            <Input
-              placeholder="搜索任务ID/剧本..."
-              prefix={<SearchOutlined />}
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              onPressEnter={() => fetchVideos()}
-              style={{ width: 160 }}
-              allowClear
-              onClear={() => { setSearchText(''); fetchVideos(''); }}
-            />
-            <Select value={resolutionFilter} onChange={v => setResolutionFilter(v)}
-              options={RESOLUTION_OPTIONS} style={{ width: 90 }} />
-            <Select value={sortBy} onChange={v => setSortBy(v)} style={{ width: 110 }}
-              options={[
-                { label: '最新创建', value: 'created_at' },
-                { label: '时长升序', value: 'duration' },
-              ]} />
-            <Segmented value={viewMode} onChange={(v) => setViewMode(v as 'grid' | 'list')}
-              options={[
-                { label: <AppstoreOutlined />, value: 'grid' },
-                { label: <UnorderedListOutlined />, value: 'list' },
-              ]} />
-            {selectedIds.length > 0 && (
-              <>
-                <Button size="small" onClick={selectAll}>
-                  {selectedIds.length === filtered.length ? '取消全选' : '全选'}
-                </Button>
-                <Text type="secondary" style={{ fontSize: 12 }}>已选 {selectedIds.length} 个</Text>
-                <Popconfirm title={`确定删除选中的 ${selectedIds.length} 个视频？`} onConfirm={handleBatchDelete}>
-                  <Button danger icon={<DeleteOutlined />}>批量删除</Button>
-                </Popconfirm>
-              </>
-            )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/video/create')}>
-              新建任务
-            </Button>
-            <Button icon={<VideoCameraOutlined />} onClick={() => navigate('/video/stitch')}>
-              视频拼接
-            </Button>
-          </Space>
-        </div>
 
-        {filtered.length === 0 ? (
-          <Empty description="暂无视频任务" style={{ padding: 60 }}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/video/create')}>
-              创建第一个任务
-            </Button>
-          </Empty>
-        ) : viewMode === 'grid' ? (
-          <Row gutter={[16, 16]}>
-            {filtered.map(item => (
-              <Col xs={24} sm={12} md={8} lg={6} key={item.id}>
-                {renderCard(item)}
-              </Col>
-            ))}
-          </Row>
-        ) : (
-          filtered.map(item => {
+      {/* 工具条：筛选分段 + 搜索 + 分辨率 + 排序 + 视图切换 + 批量操作 */}
+      <div className="vid-toolbar">
+        <Segmented value={filter} onChange={(v) => setFilter(v as string)} options={FILTER_OPTIONS} />
+        <div className="vid-toolbar__right">
+          <Input
+            placeholder="搜索任务ID/剧本..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            onPressEnter={() => fetchVideos()}
+            style={{ width: 160 }}
+            allowClear
+            onClear={() => { setSearchText(''); fetchVideos(''); }}
+          />
+          <Select value={resolutionFilter} onChange={v => setResolutionFilter(v)}
+            options={RESOLUTION_OPTIONS} style={{ width: 90 }} />
+          <Select value={sortBy} onChange={v => setSortBy(v)} style={{ width: 110 }}
+            options={[
+              { label: '最新创建', value: 'created_at' },
+              { label: '时长升序', value: 'duration' },
+            ]} />
+          <Segmented value={viewMode} onChange={(v) => setViewMode(v as 'grid' | 'list')}
+            options={[
+              { label: <AppstoreOutlined />, value: 'grid' },
+              { label: <UnorderedListOutlined />, value: 'list' },
+            ]} />
+          {selectedIds.length > 0 && (
+            <>
+              <Button size="small" onClick={selectAll}>
+                {selectedIds.length === filtered.length ? '取消全选' : '全选'}
+              </Button>
+              <span className="vid-toolbar__count">已选 {selectedIds.length} 个</span>
+              <Popconfirm title={`确定删除选中的 ${selectedIds.length} 个视频？`} onConfirm={handleBatchDelete}>
+                <Button danger icon={<DeleteOutlined />}>批量删除</Button>
+              </Popconfirm>
+            </>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="vid-stage">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无视频任务" />
+          <Button type="primary" className="vid-btn-primary" icon={<PlusOutlined />} onClick={() => navigate('/video/create')}>
+            创建第一个任务
+          </Button>
+        </div>
+      ) : viewMode === 'grid' ? (
+        <div className="vid-grid">
+          {filtered.map(item => renderCard(item))}
+        </div>
+      ) : (
+        <div className="vid-rows">
+          {filtered.map(item => {
             const cfg = statusConfig[item.status] || statusConfig.pending;
             const isSelected = selectedIds.includes(item.id);
             return (
-              <Card key={item.id} style={{
-                marginBottom: 8, borderRadius: 10,
-                border: isSelected ? '2px solid #7c3aed' : '1px solid #f0f0f0',
-              }} hoverable
-                onClick={() => { if (item.status === 'completed' && !isSelected) navigate(`/video/${item.id}`); }}
-                styles={{ body: { padding: '14px 20px' } }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Space>
-                    <span onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}
-                      style={{ cursor: 'pointer', color: isSelected ? '#7c3aed' : '#ccc', fontSize: 18 }}>
-                      {isSelected ? '☑' : '☐'}
-                    </span>
-                    <Tag icon={cfg.icon} color={cfg.color} style={{ margin: 0 }}>{cfg.label}</Tag>
-                    <Text style={{ fontWeight: 500 }}>{item.scriptTitle || '未命名'}</Text>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {item.style === 'realistic' ? '📷 真人' : '🎨 动漫'} · {item.resolution} · {item.duration}秒 · ⚡{item.credit_cost}
-                    </Text>
-                  </Space>
-                  <Space size={4} onClick={e => e.stopPropagation()}>
-                    {item.status === 'failed' && (
-                      <Tooltip title="重试">
-                        <Button size="small" type="text" icon={<ReloadOutlined />}
-                          onClick={() => handleRetry(item.id)} />
-                      </Tooltip>
-                    )}
-                    {item.status === 'completed' && (
-                      <>
-                        <Button size="small" type="text" icon={<EyeOutlined />}
-                          onClick={() => navigate(`/video/${item.id}`)} />
-                        <Button size="small" type="text" icon={<DownloadOutlined />}
-                          href={`${API_BASE}${item.video_url}?download=1`} target="_blank" />
-                      </>
-                    )}
-                    <Popconfirm title="确定删除？" onConfirm={() => handleDelete(item.id)}>
-                      <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                    </Popconfirm>
-                  </Space>
+              <div className="vid-row" key={item.id} data-selected={isSelected ? '1' : '0'}
+                onClick={() => { if (item.status === 'completed' && !isSelected) navigate(`/video/${item.id}`); }}>
+                <div className="vid-row__lead">
+                  <span className="vid-row__pick" onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}
+                    role="button" aria-label={isSelected ? '取消选择' : '选择'}>
+                    {isSelected ? '☑' : '☐'}
+                  </span>
+                  <Tag className="vid-row__status" icon={cfg.icon} color={cfg.color}>{cfg.label}</Tag>
+                  <span className="vid-row__name">{item.scriptTitle || '未命名'}</span>
+                  <span className="vid-row__meta">
+                    {item.style === 'realistic' ? '📷 真人' : '🎨 动漫'} · {item.resolution} · {item.duration}秒 · ⚡{item.credit_cost}
+                  </span>
                 </div>
-              </Card>
+                <div className="vid-row__acts" onClick={e => e.stopPropagation()}>
+                  {item.status === 'failed' && (
+                    <Tooltip title="重试">
+                      <Button size="small" type="text" icon={<ReloadOutlined />}
+                        onClick={() => handleRetry(item.id)} />
+                    </Tooltip>
+                  )}
+                  {item.status === 'completed' && (
+                    <>
+                      <Button size="small" type="text" icon={<EyeOutlined />}
+                        onClick={() => navigate(`/video/${item.id}`)} />
+                      <Button size="small" type="text" icon={<DownloadOutlined />}
+                        href={withDownload(getUrl(item.video_url))} target="_blank" />
+                    </>
+                  )}
+                  <Popconfirm title="确定删除？" onConfirm={() => handleDelete(item.id)}>
+                    <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </div>
+              </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   );
 }

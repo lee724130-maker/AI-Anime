@@ -1,5 +1,74 @@
 # 修复日志
 
+## 2026-11-24（前端质感改造·批次B `/video` 四页 ✅ 真实数据实测通过，**未部署生产**）
+
+> 接昨天断点：批次 B `/video`（index 348 / Create 257 / Detail 204 / Stitch 237）。
+> 开工前环境自检：机器重启过，mysqld（非服务）与前后端进程都没了，Redis 是服务仍在 —— 已重新拉起，
+> 本地库核对仍是 30 表 / users 7，数据完好。
+
+### ✅ ① 新增 `video.css`（`.vid-*`）+ 四页换容器
+- **index 列表**：🔴 **页底写死 `background:'#f8f9fb'` → 暗色下整页亮底**（与 `/user` 同源）；
+  grid 视图 `Card + Row/Col xs24 sm12 md8 lg6` → `.vid-card` + `auto-fill minmax(240px,1fr)`；
+  list 视图 `Card` → `.vid-row`；选中态 `border:'2px solid #7c3aed'`、遮罩 `rgba(124,58,237,.15)`、
+  进度条 `strokeColor:'#7c3aed'`、勾选色 `#7c3aed/#ccc` 全部令牌化；
+  未选中边框 `#f0f0f0`（暗色下不可见）→ `var(--line)`；
+  🔴 **缩略图占位图标写死 `color:'#333'` 压在 `#0a0a0a` 黑底上 → 暗色下等于隐形** → `--text-muted` + 透明度。
+  状态标签改实心胶囊（`color-mix`），暗色下不会被读成空心。
+- **Detail 详情**：🔴 **状态横幅四档写死浅底 `#f6ffed/#fff2f0/#e6f7ff/#fafafa` → 暗色下是一整块白卡** →
+  `.vid-banner[data-status]` + `color-mix`；`Card + Descriptions(bordered)` → `.vid-panel` + `.vid-kv` 定义列表
+  （11 个字段逐一核对，`antDescriptions=0`）；重试/下载按钮走 `--grad-brand`。
+- **Create 新建**：`Card` → `.vid-panel`；`<Button icon={<span>←</span>}>` 这种用文字冒充图标的写法 →
+  返回圆钮 + `ArrowLeftOutlined`；装饰图标写死渐变 `#f59e0b→#ef4444` → `.vid-deco` 品牌渐变；
+  流程说明 `Alert` 与预计消耗 `Alert` 类化。
+- **Stitch 拼接**：`Card + List + List.Item.Meta`（含写死 `borderBottom:'1px solid #f0f0f0'`）→
+  `.vid-panel` + `.vid-picks/.vid-pick` + `.vid-clips/.vid-clip`；预览/下载按钮从 `<a>` 包 `<Button>`
+  的嵌套（无效 HTML）改为 `withDownload()` 直接给 href。
+- 所有轮询（列表 5s、详情 3s）、`seqRef` 防竞态、多选、筛选排序、拼接裁剪逻辑一字未改。
+
+### ✅ ② 顺带修掉昨天签名改造留下的一处隐患（并纠正我自己的错误判断）
+排查发现 3 处对 `/static` URL 追加参数的写法：`Video/index.tsx:212`、`:333`、`Stitch.tsx:132` 都是
+`${url}?download=1`，而 `video_url` 现在已被签名拦截器加上 `?exp=..&sig=..`，再接 `?` 会拼出两个问号。
+
+**我最初推断这会导致 403/坏链接 —— 实测推翻了这个假设**：服务端按**第一个** `?` 截断解析，签名仍然有效，
+`download=1` 被静默丢弃；而 `/static` 本来就没实现 `Content-Disposition`（那是 `video.controller.serveFile` 的逻辑），
+所以**行为与改造前一致，不是回归**。但写法确实错，抽了 `frontend/src/utils/staticUrl.ts` 的 `withDownload()`
+（有 query 用 `&`），三处统一改对 —— 复用 `Detail.tsx` 里本来就已经写对的那套逻辑。
+实测断言：详情页下载 href 里 `?` 的个数 = **1**（暗浅两主题都是）。
+
+⚠️ 改的过程中我自己引入过一个新 bug 并当场发现：`withDownload(item.video_url)` 丢了 `API_BASE` 前缀
+（原来是 `${API_BASE}${item.video_url}`），已改成 `withDownload(getUrl(item.video_url))`，2 处。
+
+### ✅ ③ 验证（双轨，全部实测）
+- `npm run build`（`tsc -b && vite build`）EXIT=0。
+- 桩数据探针：`/video`、`/video/create`、`/video/stitch` × 暗/浅 = 6 次全绿
+  （`root=true / antCards=0 / brokenImgs=0 / pageErrors=0`，scoped 分别 51/13/11）。
+- **真实数据走查**（`video_tasks` 本地是 0 行，灌 4 种状态的临时行，视频/封面指向本地真实文件，
+  **不调任何生成接口**），用 `getComputedStyle` 读实际值：
+
+  | 检查项 | 暗色实测 | 浅色实测 |
+  |---|---|---|
+  | 卡片底色 | `rgb(21,31,46)`（非白）✅ | `rgb(255,255,255)` ✅ |
+  | 页面底色 | `rgb(15,23,42)` | `rgb(255,255,255)` |
+  | 状态横幅 completed | `srgb .115 .210 .250` 深绿 | `.887 .950 .945` 淡绿 |
+  | 缩略图区底色 | `rgb(0,0,0)`（视频信箱黑，故意不跟令牌） | 同 |
+  | 签名封面加载 | **1/1 成功** | 1/1 |
+  | 下载链接 `?` 个数 | **1** | 1 |
+  | JS 错误 | 0 | 0 |
+
+  列表视图 4 行底色同样全是 `rgb(21,31,46)`；详情页 `.vid-kv` 11 行、字段值逐项正确
+  （任务 ID / 关联剧本 / 当前状态 / 进度 / 风格 / 规格 / 本次算力 / 重试次数 / 创建时间 / 完成时间 / 视频地址），
+  `antDescriptions=0`。
+- 视觉复核（读截图报事实）：4 种状态胶囊颜色分明、真实封面已显示、无溢出/重叠/截断/裂图、行高一致。
+- 走查数据已删除，`video_tasks` 回到与生产一致的 **0 行**。
+
+### ⚠️ ④ 未做（有意留下）
+`components/VideoPlayer/index.tsx` 里还有 2 个 `Card`（`:34` 加载失败态、`:45` 播放器外壳）。
+它是 `/video`、`/studio`、后台**多页共用组件**，没有硬编码浅底（暗色靠全局 `index.css` 兜住），
+所以不是可见 bug；但改它会外溢到我这轮没验证的页面，按「一页一 CSS、不外溢」的规矩**留到统一处理共用组件那一轮**再做。
+
+### ⏭ ⑤ 下一步
+批次 C `/login` `/register`（Auth 248 + 231）→ D `/studio`（627）→ E Landing（1317，风险最高单独做）→ F Editor（admin-only，1116+352+222+127）。
+
 ## 2026-11-23（前端质感改造·批次A `/character` + `/script` ✅ 已推送 `21e353e`，**未部署生产**）
 
 > 清单 7 页收官后用户拍板「继续铺清单外页面」。批次 A 先做最小、最安全的两组 CRUD 页（7 个文件）。
