@@ -1,5 +1,74 @@
 # 修复日志
 
+## 2026-11-24（前端质感改造·批次F `/editor` + `/editor/:id` ✅ 真实数据实测通过，**未部署生产**）
+
+> 批次 F（最后一个页面批次）：`Editor/index.tsx` 127 + `EditorPage.tsx` 1116 +
+> `components/Timeline.tsx` 352 + `components/PropsPanel.tsx` 222 = 1817 行，
+> 86 处 hex、171 处内联样式。admin-only 页面，用真实 `editor_projects` 行走查。
+
+### ✅ ① 新增 `pages/Editor/editor.css`（413 行，两个作用域 `.edl-root` / `.ed-root`）
+- 🔴 **最严重的主题缺陷在时间线**：`Timeline.tsx` 整块写死浅色外壳 —— 面板 `#fff`、
+  轨道 `#fcfcfd`、标签列 `#fafafa`、标尺 `#fff`、分隔线 `#f0f0f0`/`#f6f6f6`、底部工具条 `#fff`、
+  小按钮 `#fff`+`#333`+禁用 `#bbb`。暗色主题下编辑器主区是一整块亮白面板，与周围深色完全脱节。
+  实测修复后：暗色 `rgb(21,31,46)`（外壳）/`rgb(27,38,55)`（轨道），浅色 `rgb(255,255,255)`/`rgb(247,248,252)`。
+- 左/右面板 `background:'#fff'`、列表卡片 `#fff`、空态 `#fff + #e5e7eb` 同样令牌化。
+- `#7c3aed`（旧主色）按钮底色/进度条/选中环/hover 边框 → `--primary`；`#f5222d` → `--danger`；
+  `#16a34a` → `--success`；`#888`/`#666`/`#555` → `--text-secondary`/`--text-muted`。
+- **JS 手写交互全部改 CSS**：列表卡 `onMouseEnter/Leave` 改 boxShadow+transform；
+  两处音频卡各写一套 hover 边框色（紫 / 绿）→ `--accent` 变量 + `:hover`；
+  素材分组分隔线原来是三元拼 `marginTop/paddingTop/borderTop` → `data-sep="1"`。
+- 片段块底色不再拼字符串 `${color}cc`，改 `color-mix(... 80%, transparent)`，轨道色由
+  `--track-color` 注入（`TRACK_META.color` 是数据，保留在数据层）。
+- PropsPanel 21 处重复的 `style={{marginBottom:12}}` 与标签/提示/分隔线全部收进 `.ed-pp__*`；
+  保留 12 处 `{ width: '100%' }` —— 那是 antd 控件的 API 尺寸，不是主题样式。
+- **零逻辑改动**：拖拽/resize/seek、分割/合成/撤销重做栈、`pxPerSec`、上传、保存、渲染轮询、
+  `normalizeTimeline` 字段默认值、`AssetCard` 调用方式全部原样。
+
+### ✅ ② 两类「看似硬编码但必须保留」的颜色，已在 CSS 文件头写明原因
+1. **预览舞台 `--ed-stage: #111` / `--ed-stage-black: #000`**：剪辑器画布两主题都必须近黑，
+   否则看不出实际画面；列表页缩略图共用同一语义。
+2. **片段块上的白字 `--ed-block-ink: #fff`**：块底是轨道强调色（深紫/天蓝/翠绿实底），
+   白字在两主题都成立，换成 `var(--text)` 浅色下就废了。
+   另外 `--ed-audio: #0ea5e9` 是音频语义色（与 `TRACK_META` 音频轨同色），不是主题色。
+3. 文字叠加默认色 `t.color || '#fff'`、`color:'#FFFFFF'`、颜色选择器非法值回退 `'#ffffff'`
+   属于**用户内容数据**，不在样式层，未动。
+
+### 🔴 ③ 实测抓到一个我自己引入的回归（已修）
+片段块标题用的是 antd `Typography.Text`，我的 `.ed-tl__block-title` 与 antd 的 `.ant-typography`
+**同特异性、后加载者胜**，于是文字色回落到 antd 主题色：
+暗色恰好是 `rgb(241,245,249)` 看着像白色（骗过了肉眼），**浅色是 `rgba(0,0,0,0.88)` 压在半透明紫块上不可读**。
+补 `.ed-tl__block .ant-typography { color: var(--ed-block-ink) }` 后两主题实测均为 `rgb(255,255,255)`。
+→ 教训：把内联 `color` 换成类时，凡是 antd 排版组件（Text/Title/Paragraph）都必须用
+`.父 .ant-typography` 提权，否则会被 antd 主题色接管。
+
+### ✅ ④ 验证
+- `npm run build` EXIT=0（含删除改造后不再使用的 `TRACK_HEIGHT` 常量）。
+- **真实数据走查**（建 1 条含 2 视频 + 1 音频 + 1 文字片段的 `editor_projects`，媒体指向本地真实文件，
+  **绝不点导出渲染/保存/上传/合成**），暗/浅各测：
+  时间线外壳/轨道/标尺/标签列/底栏、面板、舞台、播放头、mini 按钮、渲染按钮、列表卡片与新按钮、
+  片段数与底色、行高 52px / 标签列宽 72px（与 `TRACK_HEIGHT`/`HEADER_W` 原值一致）、
+  网格列 `224px×5`、`scrollWidth == clientWidth` 无横向溢出、**JS 错误 0**。
+- **交互态补测**：点选片段 → 块底 `rgb(124,58,237)`（轨道数据色）、选中环随主题
+  （暗 `rgb(21,31,46)`+`rgb(129,140,248)` / 浅 白+`rgb(108,92,231)`）、块内文字两主题均白、
+  属性面板渲染 5 个字段、`jsErr=0`。
+- ⚠️ 走查脚本第一版**卡在 `browser.close()`**（页面有 `preload="auto"` 的视频流不返回），
+  导致清理没跑、被超时杀掉。已把尾部改成「先落盘 → 再清库 → 尽力关浏览器 + 强制 exit」，
+  并核对 `editor_projects` 回到 1 行（那 1 行是生产原有的「测试」项目，创建于 8-25，未动）。
+- 视觉模型逐区复核：暗色下时间线/面板/工具条不再发白、片段文字两主题可读、三栏无错位溢出。
+
+### ⏭ ⑤ 已知遗留（本批未做，属后续独立轮）
+1. **左栏素材卡片暗色下仍是白底**：`AssetCard` 来自 `../Canvas/components/AssetPanel`，
+   是 Canvas 与 Editor **共用的组件**，按「一页一 CSS、不得跨页串样式」约定不在本页样式里动它
+   → 归入**共用组件轮**（与 `components/VideoPlayer` 的 2 处 antd `Card` 一并处理）。
+2. `--text-muted` 在暗色下对 `--bg-secondary` 只有约 3.07:1（12px 次要文字偏暗）。
+   这是**全站 15 个页面共用的既有令牌**，非本批引入；改它会牵动所有页面，需单独决策。
+3. 我的对比度脚本按 RGB 解析**忽略了 alpha**，浅色那组 19.95/21 是虚高的无效值，
+   不能当证据使用；如需继续量化对比度，要先做 alpha 合成。
+4. `Canvas/Editor.tsx:486` 也有一处 `#7c3aed` 内联提示条（与本页同款），属 Canvas 页遗留，未动。
+
+### ⏭ ⑥ 下一步
+页面批次 A–F 已全部完成。剩：共用组件轮（`AssetPanel`/`VideoPlayer` 等）→ 之后再讨论统一部署生产。
+
 ## 2026-11-24（前端质感改造·批次E `/` Landing 首页 ✅ 锚点全量比对通过，**未部署生产**）
 
 > 批次 E：`/`（1317 行 → 528 行，全仓最大单页、硬编码第二多）。营销首页，风险最高，

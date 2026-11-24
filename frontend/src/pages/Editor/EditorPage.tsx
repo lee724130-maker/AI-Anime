@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import './editor.css';   // 批次F：编辑器页与 Timeline / PropsPanel 共用样式（作用域 .ed-root）
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Typography, Button, Input, Select, Spin, message, Empty, Upload, Progress, Tag, Radio,
@@ -374,19 +375,21 @@ export default function EditorPage() {
     const videos = items.filter(it => it.type === 'video');
     const images = items.filter(it => it.type === 'image');
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="ed-groups">
         {videos.length > 0 && (
           <div>
-            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🎬 视频素材 ({videos.length})</Text>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Text strong className="ed-groups__label">🎬 视频素材 ({videos.length})</Text>
+            <div className="ed-groups__list">
               {videos.map((it, i) => <AssetCard key={`v${assetTab}${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
             </div>
           </div>
         )}
         {images.length > 0 && (
-          <div style={{ marginTop: videos.length > 0 ? 8 : 0, paddingTop: videos.length > 0 ? 8 : 0, borderTop: videos.length > 0 ? '1px solid #f0f0f0' : 'none' }}>
-            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🖼️ 图片素材 ({images.length})</Text>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          // 原三元拼出来的 marginTop/paddingTop/borderTop 三个值改成 data-sep 标记，
+          // 分隔线颜色交给 --line（原来写死 #f0f0f0，暗色下几乎看不见）
+          <div className="ed-groups__sub" data-sep={videos.length > 0 ? '1' : '0'}>
+            <Text strong className="ed-groups__label">🖼️ 图片素材 ({images.length})</Text>
+            <div className="ed-groups__list">
               {images.map((it, i) => <AssetCard key={`i${assetTab}${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
             </div>
           </div>
@@ -866,48 +869,48 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
   const totalItems = timeline.video.length + timeline.audio.length + timeline.text.length;
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: '100px 0' }}><Spin size="large" /></div>;
+    return <div className="ed-state"><Spin size="large" /></div>;
   }
 
   if (loadError) {
     return (
-      <div style={{ textAlign: 'center', padding: '100px 0' }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+      <div className="ed-state">
+        <div className="ed-state__icon">⚠️</div>
         <Text strong style={{ fontSize: 15 }}>项目加载失败</Text>
-        <div style={{ color: '#f5222d', margin: '10px 0 20px', fontSize: 13 }}>{loadError}</div>
-        <Button onClick={() => navigate('/editor')} style={{ borderRadius: 10 }}>返回剪辑列表</Button>
+        <div className="ed-state__msg">{loadError}</div>
+        <Button className="ed-state__back" onClick={() => navigate('/editor')}>返回剪辑列表</Button>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '12px 16px', height: 'calc(100vh - 64px)', display: 'flex', flexDirection: 'column', overflowX: 'auto' }}>
-      <div className="mobile-only-hint" style={{ flexShrink: 0, background: '#7c3aed', color: '#fff', textAlign: 'center', fontSize: 12, padding: '6px 12px', borderRadius: 8, marginBottom: 8 }}>
+    <div className="ed-root">
+      <div className="mobile-only-hint ed-hint">
         剪辑编辑器为桌面端工具，建议在电脑浏览器（宽屏 ≥1024px）中操作，当前视口已启用横向滚动
       </div>
-      <div style={{ minWidth: 1024, height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className="ed-canvas">
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexShrink: 0 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/editor')} style={{ borderRadius: 10 }} />
-        <Input value={name} onChange={e => setName(e.target.value)} style={{ width: 180, borderRadius: 10, fontWeight: 600 }} placeholder="剪辑项目名称" />
-        <Select value={ratio} onChange={setRatio} style={{ width: 80, borderRadius: 10 }}
+      <div className="ed-topbar">
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/editor')} />
+        <Input className="ed-topbar__name" value={name} onChange={e => setName(e.target.value)} placeholder="剪辑项目名称" />
+        <Select className="ed-topbar__ratio" value={ratio} onChange={setRatio}
           options={RATIOS.map(r => ({ value: r, label: r }))} />
-        <Select value={resolution} onChange={setResolution} style={{ width: 84, borderRadius: 10 }}
+        <Select className="ed-topbar__res" value={resolution} onChange={setResolution}
           options={RESOLUTIONS.map(r => ({ value: r, label: r }))} />
-        <Text type="secondary" style={{ fontSize: 12 }}>
+        <Text type="secondary" className="ed-topbar__meta">
           总长 {totalDur.toFixed(1)}s · {totalItems}/{MAX_ITEMS} 素材
         </Text>
-        <Tag color="orange" style={{ marginLeft: 4 }}>免费</Tag>
+        <Tag color="orange" className="ed-topbar__free">免费</Tag>
 
-        <div style={{ flex: 1 }} />
+        <div className="ed-topbar__spacer" />
         {saved && <Tag color="success">已保存</Tag>}
-        <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10 }}>保存</Button>
-        <Button type="primary" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
-          onClick={handleRender} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}>
+        <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave}>保存</Button>
+        <Button type="primary" className="ed-topbar__render" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
+          onClick={handleRender}>
           导出渲染
         </Button>
         {render?.status === 'completed' && render.result_url && (
-          <Button type="primary" icon={<DownloadOutlined />} href={render.result_url} download style={{ borderRadius: 10, background: '#16a34a', borderColor: '#16a34a' }}>
+          <Button type="primary" className="ed-topbar__download" icon={<DownloadOutlined />} href={render.result_url} download>
             下载成片
           </Button>
         )}
@@ -915,32 +918,30 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
 
       {/* Render progress */}
       {render?.status === 'rendering' && (
-        <div style={{ marginBottom: 10, flexShrink: 0 }}>
-          <Progress percent={render.progress || 0} status="active" strokeColor="#7c3aed" size="small" />
+        <div className="ed-progress">
+          <Progress percent={render.progress || 0} status="active" size="small" />
         </div>
       )}
       {render?.status === 'failed' && (
-        <div style={{ marginBottom: 10, flexShrink: 0, color: '#f5222d', fontSize: 12 }}>
-          渲染失败: {render.error_msg}
-        </div>
+        <div className="ed-error">渲染失败: {render.error_msg}</div>
       )}
 
       {/* Main */}
-      <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
+      <div className="ed-main">
         {/* Left: assets */}
-        <div style={{ width: 210, flexShrink: 0, background: '#fff', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid #eceef1', display: 'flex', flexDirection: 'column' }}>
-          <Text strong style={{ fontSize: 13, marginBottom: 8 }}>素材库</Text>
-          <Upload.Dragger beforeUpload={(file) => { handleUpload(file); return false; }} showUploadList={false} style={{ marginBottom: 10, borderRadius: 10, padding: '4px 0' }}>
-            <Text style={{ fontSize: 11, color: '#666' }}>{uploading ? '上传中...' : '上传视频/图片/音频'}</Text>
+        <div className="ed-panel ed-assets">
+          <Text strong className="ed-assets__title">素材库</Text>
+          <Upload.Dragger className="ed-assets__drop" beforeUpload={(file) => { handleUpload(file); return false; }} showUploadList={false}>
+            <Text className="ed-assets__drop-hint">{uploading ? '上传中...' : '上传视频/图片/音频'}</Text>
           </Upload.Dragger>
-          <Button block size="small" icon={<FontSizeOutlined />} onClick={addText} style={{ marginBottom: 10, borderRadius: 8, color: '#10b981' }}>
+          <Button className="ed-assets__text" block size="small" icon={<FontSizeOutlined />} onClick={addText}>
             添加文字
           </Button>
           <Radio.Group
+            className="ed-assets__tabs"
             size="small"
             value={assetTab}
             onChange={(e) => setAssetTab(e.target.value)}
-            style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}
           >
             <Radio.Button value="ai">AI 历史</Radio.Button>
             <Radio.Button value="assets">资产库</Radio.Button>
@@ -950,81 +951,79 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
           </Radio.Group>
 {assetTab !== 'audio' ? (
             assetLoading
-              ? <Spin size="small" style={{ margin: '20px auto', display: 'block' }} />
+              ? <Spin className="ed-assets__loading" size="small" />
               : renderAssetGroups(
                   assetTab === 'ai' ? aiTasks : assetTab === 'assets' ? globalAssets : assetTab === 'viral' ? viralProjects : dramaClips
                 )
           ) : (
             <div>
-              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>
+              <Text type="secondary" className="ed-assets__note">
                 上传 mp3/wav/m4a 音频作为 BGM 或配音；点击左侧「上传」后自动加入音频轨
               </Text>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="ed-assets__list">
                 {globalAssets.filter(it => it.type === 'audio').map((it, i) => (
                   <div key={`global-audio-${i}`}
+                    className="ed-acard ed-acard--ai"
                     onClick={() => handleAddFromAssetPanel(it)}
-                    style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 12, background: '#fff', cursor: 'pointer', transition: 'border-color .2s' }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#7c3aed')}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#f0f0f0')}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <SoundOutlined style={{ fontSize: 22, color: '#0ea5e9' }} />
-                      <Text style={{ fontSize: 11, color: '#888', flex: 1 }} ellipsis={{ tooltip: it.title }}>{it.title}</Text>
+                    <div className="ed-acard__head">
+                      <SoundOutlined className="ed-acard__icon" />
+                      <Text className="ed-acard__title" ellipsis={{ tooltip: it.title }}>{it.title}</Text>
                       <Tag color="blue">大资产库</Tag>
                     </div>
-                    <audio src={toStaticUrl(it.url)} controls onClick={e => e.stopPropagation()} style={{ width: '100%' }} />
+                    <audio src={toStaticUrl(it.url)} controls onClick={e => e.stopPropagation()} />
                   </div>
                 ))}
                 {audioItems.map((it, i) => (
                   <div key={`upload-${i}`}
+                    className="ed-acard ed-acard--upload"
                     onClick={() => handleAddFromAssetPanel(it)}
-                    style={{ border: '1px solid #f0f0f0', borderRadius: 10, padding: 12, background: '#fff', cursor: 'pointer', transition: 'border-color .2s' }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = '#10b981')}
-                    onMouseLeave={e => (e.currentTarget.style.borderColor = '#f0f0f0')}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <SoundOutlined style={{ fontSize: 22, color: '#0ea5e9' }} />
-                      <Text style={{ fontSize: 11, color: '#888', flex: 1 }} ellipsis={{ tooltip: it.title }}>{it.title}</Text>
+                    <div className="ed-acard__head">
+                      <SoundOutlined className="ed-acard__icon" />
+                      <Text className="ed-acard__title" ellipsis={{ tooltip: it.title }}>{it.title}</Text>
                       <Tag color="green">上传</Tag>
                     </div>
-                    <audio src={toStaticUrl(it.url)} controls onClick={e => e.stopPropagation()} style={{ width: '100%' }} />
+                    <audio src={toStaticUrl(it.url)} controls onClick={e => e.stopPropagation()} />
                   </div>
                 ))}
                 {(globalAssets.filter(it => it.type === 'audio').length === 0 && audioItems.length === 0) && (
-                  <Empty description="暂无音频" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ margin: '12px 0' }} />
+                  <Empty className="ed-assets__empty" description="暂无音频" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
-                <Text type="secondary" style={{ fontSize: 10, textAlign: 'center' }}>点击卡片将音频添加到音频轨</Text>
+                <Text type="secondary" className="ed-assets__tip">点击卡片将音频添加到音频轨</Text>
               </div>
             </div>
           )}
         </div>
 
         {/* Center: player + timeline */}
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {/* Player */}
-          <div ref={previewWrapRef} style={{ background: previewImgShown ? '#000' : '#111', borderRadius: 12, height: 300, flexShrink: 0, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="ed-center">
+          {/* Player —— 舞台两主题都必须近黑，见 editor.css 文件头 ① */}
+          <div ref={previewWrapRef} className={`ed-stage${previewImgShown ? ' ed-stage--img' : ''}`}>
             {/* hidden audio element drives the audio-track (BGM/narration) during preview */}
             <audio ref={audioRef} preload="auto" style={{ display: 'none' }} />
             {!showVideoEl ? (
               <video ref={videoRef} onTimeUpdate={handleTimeUpdate} preload="auto" style={{ display: 'none' }} />
             ) : (
-              <video ref={videoRef} src={playerSrc && !isImageUrl(playerSrc) ? playerSrc : undefined} onTimeUpdate={handleTimeUpdate} preload="auto"
-                style={{ width: '100%', height: '100%', objectFit: 'contain', display: previewImgShown ? 'none' : undefined,
+              <video ref={videoRef} className="ed-stage__video" src={playerSrc && !isImageUrl(playerSrc) ? playerSrc : undefined} onTimeUpdate={handleTimeUpdate} preload="auto"
+                style={{ display: previewImgShown ? 'none' : undefined,
                   filter: previewFilter !== 'none' ? (CSS_FILTERS[previewFilter] || 'none') : undefined }} />
             )}
             {transitionOpacity > 0 && (
-              <div style={{ position: 'absolute', inset: 0, background: '#000', opacity: transitionOpacity * 0.6, zIndex: 15, pointerEvents: 'none', transition: 'opacity 0.2s' }} />
+              <div className="ed-stage__fade" style={{ opacity: transitionOpacity * 0.6 }} />
             )}
             {previewImgShown && (
-              <img src={previewImgShown} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', zIndex: 10 }} />
+              <img className="ed-stage__img" src={previewImgShown} alt="" />
             )}
             {!playerSrc && !previewImgShown && timeline.video.length === 0 && timeline.text.length === 0 && (
-              <div style={{ textAlign: 'center', color: '#555' }}>
-                <VideoCameraOutlined style={{ fontSize: 40 }} />
-                <div style={{ fontSize: 12, marginTop: 8 }}>点击左侧素材添加到时间线，选中片段后可预览</div>
+              <div className="ed-stage__empty">
+                <VideoCameraOutlined />
+                <div className="ed-stage__empty-hint">点击左侧素材添加到时间线，选中片段后可预览</div>
               </div>
             )}
-            {/* text overlay (timeline preview only; final render bakes text into the video) */}
+            {/* text overlay (timeline preview only; final render bakes text into the video)
+                left/top/fontSize/opacity/color 全部来自片段数据（用户内容），保留内联；
+                与主题无关的描边、层级、换行规则见 .ed-stage__text */}
             {!renderOK && timeline.text.map((t) => {
               const inRange = currentTime >= (t.start || 0) && currentTime < (t.start || 0) + (t.duration || 0);
               const isSel = selected?.track === 'text' && selected.id === t.id;
@@ -1032,37 +1031,32 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
               // only when paused does a selected block show regardless of time (so its content/position can be edited)
               if (!inRange && !(isSel && !playing)) return null;
               return (
-                <div key={t.id} onMouseDown={(e) => startTextDrag(t, e)} style={{
-                  position: 'absolute', left: `${((t.x ?? 0.5)) * 100}%`, top: `${(t.y ?? 0.5) * 100}%`,
-                  transform: 'translate(-50%,-50%)', color: t.color || '#fff',
+                <div key={t.id} className="ed-stage__text" onMouseDown={(e) => startTextDrag(t, e)} style={{
+                  left: `${((t.x ?? 0.5)) * 100}%`, top: `${(t.y ?? 0.5) * 100}%`,
+                  color: t.color || '#fff',
                   fontSize: Math.max(10, Math.round((t.fontSize || 36) * 300 / 1280)),
-                  opacity: t.opacity ?? 1, textShadow: '0 0 8px rgba(0,0,0,.85), 0 2px 4px rgba(0,0,0,.5)',
-                  zIndex: 20, pointerEvents: 'auto', cursor: 'move', userSelect: 'none',
-                  whiteSpace: 'pre-wrap', textAlign: 'center',
-                  maxWidth: '92%', fontWeight: 600, lineHeight: 1.25,
+                  opacity: t.opacity ?? 1,
                 }}>
                   {t.text}
                 </div>
               );
             })}
-            <div style={{ position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+            <div className="ed-transport">
               <Button
                 icon={playing ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
                 disabled={!playerCanPlay}
-                style={{ borderRadius: 20, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}
                 onClick={() => setPlaying(!playing)}
               />
               <Button
                 icon={<ReloadOutlined />}
                 disabled={!playerCanPlay}
-                style={{ borderRadius: 20, background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none' }}
                 onClick={() => { setPlayhead(0); setPlaying(false); const v = videoRef.current; if (v) { v.currentTime = 0; v.pause(); } }}
               />
             </div>
           </div>
 
           {/* Timeline */}
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div className="ed-timeline-wrap">
             <Timeline
               timeline={timeline}
               currentTime={currentTime}
@@ -1086,7 +1080,7 @@ const bindSeg = useCallback((v: HTMLVideoElement, seg: TimelineVideoItem, segOff
         </div>
 
         {/* Right: props */}
-        <div style={{ width: 270, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #eceef1', overflow: 'hidden', minHeight: 0 }}>
+        <div className="ed-panel ed-props">
           <PropsPanel selected={selected} timeline={timeline} onTimelineChange={commitTimeline} />
         </div>
       </div>

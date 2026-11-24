@@ -1,0 +1,413 @@
+/* =============================================================================
+   Editor 质感样式 · 2026-11-24 批次F
+   两个作用域：.edl-root = /editor 列表页；.ed-root = /editor/:id 编辑器页
+   （Timeline / PropsPanel 只被编辑器页使用，故并入 .ed-root 命名空间）。
+   index.tsx / EditorPage.tsx / Timeline.tsx / PropsPanel.tsx 只做容器与属性替换：
+   拖拽、分割/合成、撤销栈、pxPerSec、seek、渲染轮询、上传、保存、
+   以及时间线数据结构与 normalizeTimeline 的字段默认值一律未改。
+
+   ⚠️ 两类「看起来像硬编码但其实必须保留」的颜色，这里显式区分：
+   ① 视频预览舞台（--ed-stage）：剪辑器的画布在两个主题下都必须是近黑，
+      否则视频自带白边会刺眼、也看不出实际画面。
+   ② 时间线片段块上的白字（--ed-block-ink）：片段块底色是轨道强调色
+      （#7c3aed / #0ea5e9 / #10b981 一类深色实底），白字在两主题都成立，
+      不能换成 var(--text)。轨道色本身是数据（TRACK_META.color），保留为变量注入。
+   文字叠加的默认色（t.color || '#fff'）属于**用户内容数据**，不在样式层，未动。
+   ============================================================================= */
+
+/* ── /editor 列表页 ───────────────────────────────────────────────────── */
+.edl-root {
+  --ed-stage: #111;   /* 与编辑器页同一语义：缩略图底也是近黑舞台 */
+  padding: 20px 24px;
+}
+.edl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.edl-head__sub { font-size: var(--fs-sm); }
+.edl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.edl-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  cursor: pointer;
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), border-color var(--t-base) var(--ease);
+}
+/* 原页用 onMouseEnter/onMouseLeave 手写 boxShadow+transform，且阴影色是旧主色 #7c3aed 的 rgba
+   → 改 CSS 伪类，阴影走 --glow（随主题） */
+.edl-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: var(--glow), var(--shadow-2);
+}
+.edl-card__thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 9 / 16;
+  max-height: 200px;
+  background: var(--ed-stage, #111);
+}
+.edl-card__thumb video { width: 100%; height: 100%; object-fit: cover; }
+.edl-card__ph { font-size: 36px; color: var(--text-muted); }
+.edl-card__body { padding: 10px 12px; }
+.edl-card__row { display: flex; align-items: center; gap: 6px; }
+.edl-card__row + .edl-card__row { margin-top: 6px; }
+.edl-card__name { flex: 1; font-size: var(--fs-md); }
+.edl-card__tag { margin: 0; flex-shrink: 0; }
+.edl-card__meta { font-size: var(--fs-xs); }
+.edl-card__spacer { flex: 1; }
+.edl-empty {
+  padding: 100px 0;
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  text-align: center;
+}
+.edl-empty__icon { font-size: 48px; color: var(--text-muted); }
+.edl-empty__title { margin-top: 12px; color: var(--text-secondary); font-size: var(--fs-lg); }
+.edl-empty__desc { display: block; margin: 8px 0 20px; font-size: var(--fs-sm); }
+.edl-loading { padding: 80px 0; text-align: center; }
+.edl-btn-new.ant-btn {
+  border-radius: 10px;
+  /* 原页写死 #7c3aed（旧主色）当按钮底色，两主题都是同一个紫，
+     与全站 --primary（浅 #6c5ce7 / 暗 #818cf8）脱节 → 交回 antd 主色 + 圆角 */
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ── /editor/:id 编辑器页 ─────────────────────────────────────────────── */
+.ed-root {
+  --ed-stage: #111;            /* 预览舞台：两主题都近黑，见文件头 ①；列表页缩略图同色 */
+  --ed-stage-black: #000;
+  --ed-block-ink: #fff;        /* 片段块上的白字，见文件头 ② */
+  --ed-audio: #0ea5e9;         /* 音频语义色：与 TRACK_META 音频轨同色，非主题色，两主题固定 */
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 64px);
+  padding: 12px 16px;
+  overflow-x: auto;
+}
+.ed-canvas { display: flex; flex-direction: column; min-width: 1024px; height: 100%; }
+.ed-hint {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.ed-topbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.ed-topbar__name.ant-input { width: 180px; border-radius: 10px; font-weight: 600; }
+.ed-topbar__ratio.ant-select { width: 80px; }
+.ed-topbar__res.ant-select { width: 84px; }
+.ed-topbar__meta { font-size: var(--fs-sm); }
+.ed-topbar__free { margin-left: 4px; }
+.ed-topbar__spacer { flex: 1; }
+.ed-topbar .ant-btn { border-radius: 10px; }
+.ed-topbar__render.ant-btn { background: var(--primary); border-color: var(--primary); }
+.ed-topbar__download.ant-btn { background: var(--success); border-color: var(--success); }
+.ed-progress { flex-shrink: 0; margin-bottom: 10px; }
+.ed-progress .ant-progress-bg { background: var(--primary) !important; }
+.ed-error { flex-shrink: 0; margin-bottom: 10px; color: var(--danger); font-size: var(--fs-sm); }
+.ed-main { display: flex; flex: 1; gap: 12px; min-height: 0; }
+
+/* 左：素材库 */
+.ed-panel {
+  flex-shrink: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+.ed-assets { display: flex; flex-direction: column; width: 210px; padding: 10px; overflow: auto; }
+.ed-assets__title { margin-bottom: 8px; font-size: var(--fs-md); }
+.ed-assets__drop.ant-upload-wrapper { margin-bottom: 10px; }
+.ed-assets__drop .ant-upload { padding: 4px 0; border-radius: 10px; }
+.ed-assets__drop-hint { color: var(--text-secondary); font-size: var(--fs-xs); }
+.ed-assets__text.ant-btn { margin-bottom: 10px; border-radius: 8px; color: var(--success); }
+.ed-assets__tabs.ant-radio-group { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.ed-assets__loading { display: block; margin: 20px auto; }
+.ed-assets__note { display: block; margin-bottom: 8px; font-size: var(--fs-xs); }
+.ed-assets__list { display: flex; flex-direction: column; gap: 8px; }
+/* 素材分组（视频 / 图片）：AssetCard 本身来自 Canvas 页的共用组件，
+   不在本页样式里碰它，这里只负责分组标题与分隔 */
+.ed-groups { display: flex; flex-direction: column; gap: 12px; }
+.ed-groups__label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: var(--fs-xs); }
+.ed-groups__list { display: flex; flex-direction: column; gap: 8px; }
+.ed-groups__sub[data-sep="1"] {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.ed-assets__tip { font-size: 10px; text-align: center; }
+.ed-assets__empty { margin: 12px 0; }
+/* 音频卡片：原来两处各写一套 onMouseEnter 改 borderColor（一处紫一处绿）→ 伪类 + 变量 */
+.ed-acard {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.ed-acard:hover { border-color: var(--accent, var(--primary)); box-shadow: var(--shadow-1); }
+.ed-acard--ai { --accent: var(--primary);   /* 只影响 hover 边框，图标色见 --ed-audio */ }
+.ed-acard--upload { --accent: var(--success); }
+.ed-acard__head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.ed-acard__icon { font-size: 22px; color: var(--ed-audio); }
+.ed-acard__title { flex: 1; color: var(--text-secondary); font-size: var(--fs-xs); }
+.ed-acard audio { width: 100%; }
+
+/* 中：预览 + 时间线 */
+.ed-center { display: flex; flex: 1; flex-direction: column; gap: 10px; min-width: 0; }
+.ed-stage {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--ed-stage);
+}
+.ed-stage--img { background: var(--ed-stage-black); }
+.ed-stage__video { width: 100%; height: 100%; object-fit: contain; }
+.ed-stage__fade {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+  background: var(--ed-stage-black);
+  transition: opacity .2s;
+}
+.ed-stage__img { position: absolute; inset: 0; z-index: 10; width: 100%; height: 100%; object-fit: contain; }
+.ed-stage__empty { color: var(--text-muted); text-align: center; }
+.ed-stage__empty .anticon { font-size: 40px; }
+.ed-stage__empty-hint { margin-top: 8px; font-size: var(--fs-sm); }
+/* 文字叠加预览：位置/字号/透明度是数据驱动，留在内联；这里只管与主题无关的描边与层级 */
+.ed-stage__text {
+  position: absolute;
+  z-index: 20;
+  max-width: 92%;
+  transform: translate(-50%, -50%);
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  text-shadow: 0 0 8px rgba(0, 0, 0, .85), 0 2px 4px rgba(0, 0, 0, .5);
+  white-space: pre-wrap;
+  cursor: move;
+  user-select: none;
+  pointer-events: auto;
+}
+.ed-transport {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  display: flex;
+  gap: 8px;
+  transform: translateX(-50%);
+}
+.ed-transport .ant-btn {
+  border: none;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, .6);   /* 浮在视频画面上，两主题都必须是半透明黑 */
+  color: #fff;
+}
+.ed-timeline-wrap { flex: 1; min-height: 0; }
+
+/* 右：属性面板 */
+.ed-props { width: 270px; overflow: hidden; }
+
+/* ── 时间线 ───────────────────────────────────────────────────────────── */
+.ed-tl {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  /* 🔴 原页整块写死 #fff / #fcfcfd / #fafafa / #f0f0f0 / #f6f6f6 ——
+     暗色主题下编辑器主区是一块亮白面板，与周围深色完全脱节。全部令牌化。 */
+}
+/* 元素同时保留全局 .tl-scroller（负责隐藏滚动条），这里只补布局 */
+.ed-tl__scroller { flex: 1; min-height: 186px; overflow-x: auto; overflow-y: hidden; }
+.ed-tl__ruler {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  flex-shrink: 0;
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+.ed-tl__head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  border-right: 1px solid var(--line);
+}
+.ed-tl__head--track {
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface-2);
+}
+.ed-tl__time { font-size: var(--fs-md); }
+.ed-tl__label { font-size: 10px; }
+.ed-tl__track { position: relative; flex: 1; cursor: crosshair; }
+.ed-tl__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+}
+.ed-tl__playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  width: 2px;
+  pointer-events: none;
+  background: var(--danger);
+}
+.ed-tl__row {
+  display: flex;
+  height: 52px;
+  border-bottom: 1px solid var(--line);
+}
+.ed-tl__lane {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background: var(--surface-2);
+  cursor: grab;
+}
+.ed-tl__lane-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.ed-tl__lane-empty .ed-tl__label { font-size: var(--fs-xs); }
+.ed-tl__icon { font-size: var(--fs-md); color: var(--track-color, var(--primary)); }
+/* 片段块：底色 = 轨道强调色（数据注入 --track-color），未选中时降透明度；
+   白字固定（见文件头 ②）；选中环原来是 '0 0 0 2px #fff, 0 0 0 4px #7c3aed'
+   —— 白色内环在暗色下反而正确（把片段从同色轨道里抠出来），保留但改用变量声明 */
+.ed-tl__block {
+  position: absolute;
+  top: 3px;
+  height: 44px;
+  padding: 5px 8px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--track-color) 80%, transparent);
+  color: var(--ed-block-ink);
+  cursor: grab;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+  user-select: none;
+  touch-action: none;
+}
+.ed-tl__block[data-sel="1"] {
+  background: var(--track-color);
+  box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--primary);
+}
+.ed-tl__block-title { display: block; font-size: var(--fs-xs); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-tl__block-sub { display: block; font-size: 10px; }
+/* 块内文字是 antd Typography，默认色会跟随主题（浅色下 rgba(0,0,0,.88) 压在半透明紫块上不可读），
+   必须显式压回固定白 —— 原代码是内联 color:'#fff'，改类后由这条兜住（实测抓出来的回归） */
+.ed-tl__block .ant-typography { color: var(--ed-block-ink); }
+.ed-tl__block .ed-tl__block-sub { color: color-mix(in srgb, var(--ed-block-ink) 75%, transparent); }
+.ed-tl__handle { position: absolute; top: 0; right: 0; bottom: 0; width: 10px; cursor: ew-resize; }
+.ed-tl__bar {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+  row-gap: 6px;
+}
+.ed-tl__now { flex-shrink: 0; color: var(--primary); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ed-tl__sep { flex-shrink: 0; width: 1px; height: 18px; background: var(--line-strong); }
+.ed-tl__spacer { flex: 1; }
+.ed-tl__zoom { font-size: var(--fs-xs); }
+.ed-tl__dur { width: 46px; font-size: var(--fs-xs); white-space: nowrap; }
+.ed-tl__slider.ant-slider { flex-shrink: 0; width: 110px; margin: 6px 0; }
+.ed-mini {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.ed-mini:hover:not(:disabled) { border-color: var(--primary); }
+.ed-mini--danger { color: var(--danger); }
+.ed-mini--active { border-color: var(--primary); background: var(--primary); color: #fff; }
+.ed-mini:disabled { color: var(--text-muted); cursor: not-allowed; opacity: .6; }
+.ed-mini__icon { font-size: var(--fs-sm); }
+
+/* ── 属性面板（PropsPanel，只被编辑器页使用） ─────────────────────────── */
+.ed-pp { height: 100%; padding: 14px; overflow-y: auto; }
+.ed-pp__title { display: block; margin-bottom: 12px; color: var(--primary); font-size: var(--fs-md); }
+.ed-pp__field { margin-bottom: 12px; }
+.ed-pp__flabel { display: block; margin-bottom: 4px; font-size: var(--fs-sm); }
+.ed-pp__hint { display: block; margin-top: 4px; font-size: var(--fs-xs); }
+.ed-pp__hint--tight { margin-top: 2px; }
+.ed-pp__note { display: block; font-size: var(--fs-md); }
+.ed-pp__check { font-size: var(--fs-md); }
+.ed-pp__textarea.ant-input { border-radius: 8px; font-size: var(--fs-md); }
+.ed-pp__color {
+  width: 100%;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  cursor: pointer;
+}
+.ed-pp__divider.ant-divider { margin: 14px 0; }
+.ed-pp__foot { display: block; margin-top: 10px; font-size: var(--fs-xs); line-height: 1.6; }
+.ed-pp__empty-wrap { padding: 16px; }
+.ed-pp__empty { display: block; margin-top: 8px; font-size: var(--fs-sm); line-height: 1.7; text-align: center; }
+
+/* ── 加载 / 错误态 ────────────────────────────────────────────────────── */
+.ed-state { padding: 100px 0; text-align: center; }
+.ed-state__icon { margin-bottom: 12px; font-size: 40px; }
+.ed-state__msg { margin: 10px 0 20px; color: var(--danger); font-size: var(--fs-md); }
+.ed-state__back.ant-btn { border-radius: 10px; }
+
+/* 提示条的显隐沿用全局 .mobile-only-hint 既有规则（基础 display:none，≤768px 显示），
+   本页不另加媒体查询，避免改变原有断点行为。 */

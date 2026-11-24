@@ -4,6 +4,7 @@ import { Typography, Button, Spin, Tag, message, Modal } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import { toStaticUrl } from './types';
+import './editor.css';   // 批次F：/editor 与 /editor/:id 共用样式（作用域 .edl-root / .ed-root）
 
 const { Text, Title } = Typography;
 
@@ -64,56 +65,51 @@ export default function EditorList() {
   };
 
   return (
-    <div style={{ padding: '20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+    <div className="edl-root">
+      <div className="edl-head">
         <div>
           <Title level={4} style={{ margin: 0 }}>视频剪辑</Title>
-          <Text type="secondary" style={{ fontSize: 12 }}>
+          <Text type="secondary" className="edl-head__sub">
             多轨时间线剪辑：视频 / 音频 / 文字 + 转场 / 滤镜 / 配乐，免费导出（总长 ≤60 秒）
           </Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/editor/new')}
-          style={{ background: '#7c3aed', borderColor: '#7c3aed', borderRadius: 10 }}>
+        <Button type="primary" icon={<PlusOutlined />} className="edl-btn-new" onClick={() => navigate('/editor/new')}>
           新建剪辑项目
         </Button>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '80px 0' }}><Spin size="large" /></div>
+        <div className="edl-loading"><Spin size="large" /></div>
       ) : items.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '100px 0', background: '#fff', borderRadius: 14, border: '1px dashed #e5e7eb' }}>
-          <PlayCircleOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />
-          <div style={{ fontSize: 15, color: '#666', marginTop: 12 }}>还没有剪辑项目</div>
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', margin: '8px 0 20px' }}>
+        <div className="edl-empty">
+          <PlayCircleOutlined className="edl-empty__icon" />
+          <div className="edl-empty__title">还没有剪辑项目</div>
+          <Text type="secondary" className="edl-empty__desc">
             把 AI 生成的视频 / 图片 / 短剧片段拖进时间线，加文字、配乐、转场，一键导出成片
           </Text>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/editor/new')}
-            style={{ background: '#7c3aed', borderColor: '#7c3aed', borderRadius: 10 }}>
+          <Button type="primary" icon={<PlusOutlined />} className="edl-btn-new" onClick={() => navigate('/editor/new')}>
             创建第一个项目
           </Button>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+        <div className="edl-grid">
           {items.map((p) => (
-            <div key={p.id} onClick={() => navigate(`/editor/${p.id}`)}
-              style={{ background: '#fff', borderRadius: 14, border: '1px solid #eceef1', overflow: 'hidden', cursor: 'pointer', transition: 'all .2s' }}
-              onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 18px rgba(124,58,237,.12)'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none'; }}>
-              <div style={{ aspectRatio: '9/16', background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', maxHeight: 200 }}>
+            <div key={p.id} className="edl-card" onClick={() => navigate(`/editor/${p.id}`)}>
+              <div className="edl-card__thumb">
                 {p.cover_url ? (
-                  <video src={toStaticUrl(p.cover_url)} muted playsInline preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <video src={toStaticUrl(p.cover_url)} muted playsInline preload="metadata" />
                 ) : (
-                  <PlayCircleOutlined style={{ fontSize: 36, color: '#444' }} />
+                  <PlayCircleOutlined className="edl-card__ph" />
                 )}
               </div>
-              <div style={{ padding: '10px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
-                  <Text strong ellipsis style={{ fontSize: 13, flex: 1 }}>{p.name}</Text>
-                  <Tag color={STATUS_TAG[p.status]?.color || 'default'} style={{ margin: 0, flexShrink: 0 }}>{STATUS_TAG[p.status]?.label || p.status}</Tag>
+              <div className="edl-card__body">
+                <div className="edl-card__row">
+                  <Text strong ellipsis className="edl-card__name">{p.name}</Text>
+                  <Tag color={STATUS_TAG[p.status]?.color || 'default'} className="edl-card__tag">{STATUS_TAG[p.status]?.label || p.status}</Tag>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-                  <Text type="secondary" style={{ fontSize: 11 }}>{p.ratio} · {p.resolution}</Text>
-                  <div style={{ flex: 1 }} />
+                <div className="edl-card__row">
+                  <Text type="secondary" className="edl-card__meta">{p.ratio} · {p.resolution}</Text>
+                  <div className="edl-card__spacer" />
                   <Button size="small" type="text" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); navigate(`/editor/${p.id}`); }} />
                   <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); handleDelete(p); }} />
                 </div>
