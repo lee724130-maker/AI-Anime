@@ -143,10 +143,17 @@ export default function VideoListPage() {
         <div className="vid-card__thumb" onClick={e => { e.stopPropagation(); toggleSelect(item.id); }}>
           {item.status === 'completed' && videoUrl ? (
             posterUrl ? (
+              /* 同 /studio：封面→视频首帧→都失败就藏掉，不露浏览器裂图图标 */
               <img src={posterUrl} alt="封面"
-                onError={(e) => { (e.target as HTMLImageElement).src = videoUrl; }} />
+                onError={(e) => {
+                  const el = e.target as HTMLImageElement;
+                  if (el.dataset.fallback === '1') { el.style.visibility = 'hidden'; return; }
+                  el.dataset.fallback = '1';
+                  el.src = videoUrl;
+                }} />
             ) : (
-              <video src={videoUrl} preload="metadata" muted />
+              <video src={videoUrl} preload="metadata" muted
+                onError={(e) => { (e.target as HTMLVideoElement).style.visibility = 'hidden'; }} />
             )
           ) : (
             <VideoCameraOutlined className="vid-card__ph" />

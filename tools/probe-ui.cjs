@@ -186,6 +186,22 @@ const MOCKS = {
   ],
   '/video/stitch': [],
 
+  // /studio 创作中心：默认参数 + 历史 + 角色/剧本引用（字段对齐真实接口）
+  '/studio': [
+    [/\/api\/video\/defaults/, { resolution: '720p', ratio: '9:16', duration: 5, style: 'anime', model: 'happyhorse-1.1-t2v' }],
+    [/\/api\/video\/list/, {
+      items: [
+        { id: 5, status: 'completed', video_url: '/static/vid_5_1786011452414.mp4', cover_url: '/static/img_11_正面_1786012806432.png', scriptTitle: '铃与雾 · 第一幕', created_at: ago(2 * 864e5) },
+        { id: 4, status: 'processing', video_url: null, cover_url: null, scriptTitle: '体面 · 第三集', created_at: ago(30 * 6e4) },
+        { id: 3, status: 'failed', video_url: null, cover_url: null, scriptTitle: '未命名', error_msg: '模型额度不足', created_at: ago(5 * 864e5) },
+        { id: 2, status: 'pending', video_url: null, cover_url: null, scriptTitle: '异世界剑士', created_at: ago(9 * 864e5) },
+      ],
+      total: 4,
+    }],
+    [/\/api\/character\/list/, [{ id: 1, name: '阿雾', description: '齐肩黑发，琥珀瞳' }, { id: 2, name: '少年', description: '短发，清瘦' }]],
+    [/\/api\/script\/list/, [{ id: 11, title: '铃与雾 · 第一幕' }, { id: 12, title: '体面' }]],
+  ],
+
   '/generate': [
     [/\/api\/generate\/tts-voices/, []],
     [/\/api\/generate\/credit-rules/, { image_per_image: 5, video_720p_per_5s: 20, video_unit_seconds: 5 }],

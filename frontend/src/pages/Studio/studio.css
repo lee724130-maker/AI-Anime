@@ -1,0 +1,302 @@
+/* =============================================================================
+   /studio AI 动漫创作中心 质感改造（批次D）· 2026-11-24
+   沿用 /generate 样板的方向 B：令牌化 + 只换容器。
+   作用域：所有规则以 .stu- 前缀；antd 覆盖一律写成 `.stu-xxx .ant-yyy`，不外溢。
+   业务逻辑零改动：/api/video 的 generate/defaults/list、/api/script 的选择与场景读写、
+   两个 5s 轮询、charSlots 增删改（上限 5、角色去重禁用）、handleGenerateAll/handleStitchAll、
+   estimateCredits 估算与模型下拉选项全部原样保留。
+
+   本轮修掉的根因（这页是全仓硬编码色第二多，47 处）：
+     1. 页底写死 `background:'#f8f9fb'` → 暗色下整页亮底（同 /user、/video）。
+     2. 🔴 两层互相矛盾的容器：外层标题区 maxWidth:1000，内容区却 maxWidth:1100 → 标题与内容左右不对齐。
+     3. 步骤徽章三处写死渐变（1 粉橙 #ec4899→#f59e0b、2 紫 #7c3aed→#a855f7、3 橙红 #f59e0b→#ef4444），
+        与全站 --grad-brand 脱节 → 统一品牌渐变，仅用色相区分步骤。
+     4. 角色定位色写死 5 个 hex（#ec4899/#7c3aed/#f59e0b/#3b82f6/#6b7280）→ CSS 变量注入令牌色。
+     5. 场景卡状态底色又是写死浅色系（#f6fff6/#fff6f6/#fff + #b7eb8f/#ffa39e/#f0f0f0）→ 暗色下白卡，
+        与 /script 同源 → data-status + color-mix。
+     6. 角色槽位卡 `background:#fafafa + border:#f0f0f0`、输入框前缀图标 `#bbb`、
+        历史空态 `color:#bbb`、占位图标 `#999` → 暗色下全部看不见或发灰。
+     7. 主 CTA 写死 `#7c3aed→#ec4899` 渐变 + rgba(124,58,237,.3) 阴影；拼接卡边框写死 #52c41a；
+        历史项边框 #f5f5f5、播放图标 #7c3aed → 令牌化。
+   ============================================================================= */
+
+/* ---------- 骨架：单层容器 + 双栏 ---------- */
+.stu-root {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--sp-6) var(--sp-4) var(--sp-7);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.stu-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+/* ---------- 顶栏 ---------- */
+.stu-topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; }
+.stu-topbar__lead { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.stu-topbar__titles { display: flex; flex-direction: column; gap: 2px; }
+.stu-topbar__title { font-size: var(--fs-xl); font-weight: 650; color: var(--text); letter-spacing: .01em; margin: 0 !important; }
+.stu-topbar__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.stu-root .stu-topbar .ant-btn-circle {
+  background: var(--surface-2) !important;
+  border-color: var(--line) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.stu-root .stu-topbar .ant-btn-circle:hover {
+  background: var(--surface-3) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+
+/* ---------- 面板 ---------- */
+.stu-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+  transition: border-color var(--t-base) var(--ease);
+}
+.stu-panel:hover { border-color: var(--line-strong); }
+.stu-panel__head { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.stu-panel__head .anticon { color: var(--warning); }
+
+/* ---------- 步骤区块 ---------- */
+.stu-step { padding-bottom: var(--sp-5); margin-bottom: var(--sp-5); border-bottom: 1px solid var(--line); }
+.stu-step:last-of-type { border-bottom: none; margin-bottom: var(--sp-4); }
+.stu-step__head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.stu-step__no {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--grad-brand);
+  color: #fff;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  box-shadow: var(--shadow-1);
+}
+/* 三步只靠色相深浅区分，不再各写一套渐变 */
+.stu-step[data-tone="2"] .stu-step__no { filter: hue-rotate(-12deg); }
+.stu-step[data-tone="3"] .stu-step__no { filter: hue-rotate(14deg); }
+.stu-step__title { font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.stu-step__hint { font-size: var(--fs-sm); color: var(--text-muted); }
+.stu-step__spacer { flex: 1 1 auto; }
+.stu-step__tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.stu-step .ant-tag { margin-inline-end: 0; border-radius: 999px; padding: 1px 9px; font-size: var(--fs-xs); line-height: 1.75; }
+.stu-step .ant-tag-purple { background: color-mix(in srgb, var(--primary) 22%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--primary) 46%, var(--line)) !important; color: var(--primary) !important; }
+.stu-step .ant-tag-success { background: color-mix(in srgb, var(--success) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 48%, var(--line)) !important; color: var(--success) !important; }
+.stu-step .ant-tag-default { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+
+/* ---------- 角色槽位 ---------- */
+.stu-slots { display: flex; flex-direction: column; gap: var(--sp-3); }
+.stu-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--role-color, var(--primary));
+  border-radius: var(--r-md);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.stu-slot:hover { border-color: var(--line-strong); border-left-color: var(--role-color, var(--primary)); box-shadow: var(--shadow-1); }
+.stu-slot__head { display: flex; align-items: center; gap: var(--sp-3); }
+.stu-slot__no {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--role-color, var(--primary));
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 650;
+}
+.stu-slot__spacer { flex: 1 1 auto; }
+.stu-slot__fields { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-2); }
+.stu-slot .ant-input-affix-wrapper { border-radius: var(--r-sm); background: var(--card) !important; border-color: var(--line-strong) !important; }
+.stu-slot .ant-input-affix-wrapper:hover,
+.stu-slot .ant-input-affix-wrapper-focused { border-color: var(--primary) !important; box-shadow: var(--ring); }
+.stu-slot .ant-input-prefix { color: var(--text-muted); margin-inline-end: 6px; }
+.stu-slot__del.ant-btn { width: 26px; height: 26px; min-width: 26px; padding: 0; border-radius: var(--r-sm); }
+.stu-slot__del.ant-btn:hover { background: var(--danger-bg) !important; }
+.stu-btn-add.ant-btn {
+  height: 44px;
+  border-radius: var(--r-md);
+  border-style: dashed !important;
+  background: transparent !important;
+  border-color: var(--line-strong) !important;
+  color: var(--text-secondary) !important;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.stu-btn-add.ant-btn:hover { border-color: var(--primary) !important; color: var(--primary) !important; background: var(--primary-bg) !important; }
+
+/* ---------- 剧情模式切换 + 输入 ---------- */
+.stu-mode { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.stu-mode .ant-segmented { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 3px; }
+.stu-mode .ant-segmented .ant-segmented-item { border-radius: var(--r-sm); color: var(--text-secondary); }
+.stu-mode .ant-segmented .ant-segmented-item-selected { background: var(--grad-brand) !important; box-shadow: var(--glow); }
+.stu-mode .ant-segmented .ant-segmented-item-selected .ant-segmented-item-label { color: #fff !important; }
+.stu-story.ant-input-textarea, .stu-story textarea { border-radius: var(--r-md); }
+.stu-story textarea {
+  font-size: var(--fs-lg);
+  line-height: 1.8;
+  background: var(--surface-2) !important;
+  border-color: var(--line-strong) !important;
+}
+.stu-story textarea:focus { border-color: var(--primary) !important; box-shadow: var(--ring); }
+.stu-story .ant-input-textarea-show-count::after { font-size: var(--fs-xs); color: var(--text-muted); }
+
+/* ---------- 场景卡（同 /script 同源问题） ---------- */
+.stu-scenes { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+.stu-scenes__bar { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.stu-scene {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px var(--sp-3) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.stu-scene:hover { border-color: var(--line-strong); box-shadow: var(--shadow-1); }
+.stu-scene[data-status="completed"] { border-color: color-mix(in srgb, var(--success) 46%, var(--line)); background: color-mix(in srgb, var(--success) 9%, var(--surface-2)); }
+.stu-scene[data-status="failed"] { border-color: color-mix(in srgb, var(--danger) 48%, var(--line)); background: color-mix(in srgb, var(--danger) 9%, var(--surface-2)); }
+.stu-scene[data-status="processing"] { border-color: color-mix(in srgb, var(--info) 46%, var(--line)); background: color-mix(in srgb, var(--info) 9%, var(--surface-2)); }
+.stu-scene__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.stu-scene__no {
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px; flex: none;
+  border-radius: var(--r-sm);
+  background: var(--grad-brand);
+  color: #fff; font-size: var(--fs-xs); font-weight: 650;
+}
+.stu-scene[data-status="completed"] .stu-scene__no { background: var(--success); }
+.stu-scene[data-status="failed"] .stu-scene__no { background: var(--danger); }
+.stu-scene[data-status="processing"] .stu-scene__no { background: var(--info); }
+.stu-scene__spacer { flex: 1 1 auto; }
+.stu-scene__meta { font-size: var(--fs-xs); color: var(--text-muted); }
+.stu-scene__preview { height: 32px; border-radius: var(--r-sm); background: #000; }
+.stu-scene__row { display: flex; gap: var(--sp-2); align-items: flex-start; }
+.stu-scene__prompt.ant-input { flex: 1; font-size: var(--fs-md); line-height: 1.6; border-radius: var(--r-sm); background: var(--card) !important; border-color: var(--line-strong) !important; }
+.stu-scene__prompt.ant-input:focus { border-color: var(--primary) !important; box-shadow: var(--ring); }
+.stu-scene__err { font-size: var(--fs-xs); color: var(--danger); }
+
+/* ---------- 视频设置 ---------- */
+.stu-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--sp-4); }
+.stu-opt { display: flex; flex-direction: column; gap: 7px; }
+.stu-opt__label { display: flex; align-items: center; gap: 5px; font-size: var(--fs-md); color: var(--text-secondary); }
+.stu-opt--wide { grid-column: 1 / -1; }
+
+/* ---------- 主 CTA ---------- */
+.stu-cta.ant-btn {
+  height: 52px;
+  border-radius: var(--r-lg);
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  box-shadow: var(--glow), var(--shadow-2);
+  transition: filter var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.stu-cta.ant-btn:hover { filter: brightness(1.06); transform: translateY(-2px); box-shadow: var(--glow), var(--shadow-3) !important; }
+.stu-cta.ant-btn[disabled] { opacity: .55; transform: none; box-shadow: none; }
+
+/* ---------- 拼接结果 ---------- */
+.stu-stitch { margin-top: var(--sp-4); border: 1px solid color-mix(in srgb, var(--success) 46%, var(--line)); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4) var(--sp-4); background: color-mix(in srgb, var(--success) 7%, var(--surface-2)); }
+.stu-stitch__title { display: block; font-size: var(--fs-md); font-weight: 640; color: var(--text); margin-bottom: var(--sp-2); }
+.stu-stitch video { width: 100%; max-height: 320px; border-radius: var(--r-sm); background: #000; }
+
+/* ---------- 右栏：生成历史 ---------- */
+.stu-side { display: flex; flex-direction: column; gap: var(--sp-3); }
+.stu-hist {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.stu-hist__head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-4) var(--sp-4) var(--sp-3); border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: var(--fs-lg); font-weight: 650; color: var(--text); }
+.stu-hist__head .anticon { color: var(--warning); }
+.stu-hist__count { margin-left: auto; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+.stu-hist__body { padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); max-height: calc(100vh - 220px); overflow-y: auto; }
+.stu-hitem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.stu-hitem:hover { border-color: var(--primary); background: var(--hover); transform: translateX(2px); }
+.stu-hitem__thumb {
+  position: relative;
+  width: 48px;
+  height: 64px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: #000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.stu-hitem__thumb img, .stu-hitem__thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stu-hitem__spin { color: var(--primary); font-size: 18px; }
+.stu-hitem__ph { color: var(--text-muted); font-size: 17px; }
+.stu-hitem__main { flex: 1 1 auto; min-width: 0; }
+.stu-hitem__line { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+.stu-hitem .ant-tag { margin-inline-end: 0; padding: 0 8px; font-size: var(--fs-xs); border-radius: 999px; line-height: 1.7; }
+.stu-hitem .ant-tag-default { background: color-mix(in srgb, var(--text-secondary) 18%, var(--surface-3)) !important; border-color: var(--line-strong) !important; color: var(--text-secondary) !important; }
+.stu-hitem .ant-tag-processing { background: color-mix(in srgb, var(--info) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--info) 48%, var(--line)) !important; color: var(--info) !important; }
+.stu-hitem .ant-tag-success { background: color-mix(in srgb, var(--success) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--success) 48%, var(--line)) !important; color: var(--success) !important; }
+.stu-hitem .ant-tag-error { background: color-mix(in srgb, var(--danger) 24%, var(--surface-3)) !important; border-color: color-mix(in srgb, var(--danger) 48%, var(--line)) !important; color: var(--danger) !important; }
+.stu-hitem__time { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.stu-hitem__title { display: block; font-size: var(--fs-md); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stu-hitem__err { display: block; font-size: var(--fs-xs); color: var(--danger); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stu-hitem__play { color: var(--primary); font-size: 19px; margin-top: 10px; flex: none; }
+
+/* ---------- 空态 ---------- */
+.stu-empty { display: grid; place-items: center; gap: 6px; padding: var(--sp-7) var(--sp-4); color: var(--text-muted); font-size: var(--fs-md); text-align: center; }
+.stu-empty .anticon { font-size: 34px; opacity: .45; margin-bottom: 4px; }
+
+/* ---------- 浅色补层级 ---------- */
+[data-theme=light] .stu-panel,
+[data-theme=light] .stu-hist,
+[data-theme=light] .stu-slot,
+[data-theme=light] .stu-hitem { border-color: #e2e7f2; box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 18px 40px -26px rgba(16, 24, 40, .26); }
+
+/* ---------- 暗色补层级 ---------- */
+[data-theme=dark] .stu-panel,
+[data-theme=dark] .stu-hist { border-color: var(--line-strong); box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05); }
+[data-theme=dark] .stu-slot,
+[data-theme=dark] .stu-scene,
+[data-theme=dark] .stu-hitem { border-color: var(--line-strong); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 1100px) {
+  .stu-cols { grid-template-columns: minmax(0, 1fr); }
+  .stu-hist__body { max-height: 420px; }
+}
+@media (max-width: 720px) {
+  .stu-slot__fields { grid-template-columns: minmax(0, 1fr); }
+  .stu-opts { grid-template-columns: minmax(0, 1fr); }
+  .stu-panel { padding: var(--sp-4); }
+}
