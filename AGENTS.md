@@ -1,5 +1,69 @@
 # 修复日志
 
+## ⭐ 剩余工作清单（2026-11-24 盘点，明天从这里接）
+
+> **更正**：本日曾记「页面批次 A–F 全部完成」，该说法**不准确**。全仓实测盘点后发现
+> 11-23 那轮只做了 Drama / Viral / Canvas 的**主列表页（index.tsx）**，它们的**子页与内部组件
+> 完全没有 CSS import、整片未纳入改造**。以下清单来自脚本实测（`inventory.cjs`，按
+> 「疑似暗色发白的浅色底」+「旧主色」计数，比单纯数 hex 更能反映必修程度）。
+> 盘点口径：A 类 18 文件 / 282 处 hex / 28 处浅色底；B 类 12 文件 / 31 处；
+> C 类 11 文件 / 32 处（多为内容默认色，核对即可）；另有主题配置 41 处与 /dashboard 9 处按约定不动。
+
+### 批次 G — Canvas 模块（4 个组件 + 编辑器页，工作量最大）
+| 文件 | hex | 浅色底 | 旧主色 | 内联 | 说明 |
+|---|---|---|---|---|---|
+| `pages/Canvas/Editor.tsx` | 70 | 3 | 15 | 88 | `/canvas/editor/:id` 全屏编辑器；`:474` 错误态 `background:'#fff'` 暗色发白、`:486` `#7c3aed` 提示条 |
+| `pages/Canvas/components/WorkflowCanvas.tsx` | 30 | 2 | 4 | 26 | 画布主体 |
+| `pages/Canvas/components/NodeCard.tsx` | 20 | 1 | 3 | 29 | 节点卡 |
+| `pages/Canvas/components/AssetPanel.tsx` | 14 | 2 | 1 | 12 | **即批次 F 遗留的 `AssetCard`**，做完可同时修好 `/editor/:id` 左栏白卡 |
+| `pages/Canvas/components/PropertiesPanel.tsx` | 3 | 0 | 0 | 55 | 主要是内联 |
+| `pages/Canvas/components/WorkflowTypes.ts` | 6 | 0 | 1 | 0 | 多为节点类型色（数据），核对后可能不用改 |
+
+做法与前六批一致：新建/扩 `canvas.css` 的 `.cnv-*` 作用域（注意 `canvas.css` 现只被 `Canvas/index.tsx` 引用，
+编辑器页与组件需另建 `canvas-editor.css` 或扩到同一文件但要保证 `.cnv-editor-root` 独立作用域），
+只换容器、不动节点拖拽/连线/生成逻辑与计费调用。
+
+### 批次 H — Drama 子页
+| 文件 | hex | 浅色底 | 旧主色 | 内联 |
+|---|---|---|---|---|
+| `pages/Drama/Assets.tsx` | 21 | **4** | 9 | 44 |
+| `pages/Drama/EpisodeDetail.tsx` | 22 | 1 | 10 | 83 |
+| `pages/Drama/GlobalAssets.tsx` | 15 | 1 | 0 | 91 |
+| `pages/Drama/Detail.tsx` | 8 | 0 | 6 | 23 |
+| `pages/Drama/Create.tsx` / `Episodes.tsx` / `EditAnalysis.tsx` | 各 2 | 0 | 1–2 | 9 / 21 / 26 |
+
+`drama.css` 目前只被 `Drama/index.tsx` 引用 → 子页需各自 import 同一文件并扩 `.drama-*` 作用域，
+或按页面拆分。注意 `/drama/:id/assets` 与 `/global-assets` 是不同路由。
+
+### 批次 I — Viral 子页
+| 文件 | hex | 浅色底 | 旧主色 | 内联 |
+|---|---|---|---|---|
+| `pages/Viral/ProjectDetail.tsx` | 17 | 3 | 8 | 39 |
+| `pages/Viral/TemplateDetail.tsx` | 14 | 3 | 5 | 53 |
+| `pages/Viral/components/GlobalAssetPicker.tsx` | 8 | 3 | 4 | 11 |
+| `pages/Viral/CreateTemplate.tsx` | 10 | 2 | 5 | 51 |
+| `pages/Viral/components/ProgressPanel.tsx` | 8 | 1 | 4 | 14 |
+| `pages/Viral/CoverThumb.tsx` | 4 | 1 | 0 | 5 |
+| `pages/Viral/components/SceneEditor.tsx` | 3 | 1 | 1 | 11 |
+| `pages/Viral/ProjectList.tsx` / `TemplateList.tsx` / `components/VideoPreview.tsx` | 9 / 6 / 3 | 0 | 2–5 | 19 / 23 / 6 |
+
+### 批次 J — 共用组件 + 收尾总复核（必须在部署前做完）
+1. `components/Logo.tsx`（3 hex，2 处旧主色渐变）、`components/SessionExpiredModal.tsx`（2）、
+   `components/VideoPlayer/index.tsx`（2 hex / 10 内联，且含 2 处 antd `Card` 未消除）。
+   共用组件要建 `components/*.css` 并保证**不依赖任何单页作用域**，否则会串页。
+2. 全局 `index.css` 仍留有其它页面的私有规则，逐个搬回页面 CSS（Landing 已搬完，381→340 行）。
+3. C 类 11 个文件逐一确认剩余 hex 是否都是**内容/数据默认色**（如 `Studio` 7、`Generate` 6、
+   `Editor/EditorPage` 4、`Editor/components/Timeline` 3 的 `TRACK_META` 轨道色）——是则不动。
+4. **全站双主题总复核**：`probe-ui.cjs` 跑全部路由 × 暗浅（现成工具），加一遍真实数据走查，
+   确认 `antCards=0 / brokenImgs=0 / pageErrors=0` 且无暗色发白区块。
+5. 复核 `--text-muted` 暗色对比度约 3.07:1 的问题（全站共用令牌，改动影响 15+ 页面，**需用户先决策**）。
+
+### 之后才是部署生产
+G/H/I/J 全部完成并总复核无误后，由**用户明确授权**再一并更新生产（`https://anime.leesystem.xyz`，
+当前仍是 11-09 构建，本地领先是有意的）。部署要点见下文 11-23 记录：
+`backend/scripts/backup-local-mysql.ps1`、签名 URL 变更需同步 `JWT_SECRET`、
+`/static` 中间件顺序、`DB_SYNCHRONIZE` 与 `REDIS_DB=5` 等差异。
+
 ## 2026-11-24（前端质感改造·批次F `/editor` + `/editor/:id` ✅ 真实数据实测通过，**未部署生产**）
 
 > 批次 F（最后一个页面批次）：`Editor/index.tsx` 127 + `EditorPage.tsx` 1116 +
