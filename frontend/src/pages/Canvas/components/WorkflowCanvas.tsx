@@ -1,3 +1,17 @@
+/**
+ * 节点画布（WorkflowCanvas）· 主题说明（2026-11-25 批次G 定档）
+ *
+ * 本组件是**固定深色的画布舞台**，刻意不跟随应用主题切换 —— 与剪辑器的预览台
+ * （editor.css 的 --ed-stage）同一范式：外壳跟主题，舞台保持深色。
+ * 因此以下颜色**不是漏改**，请勿"顺手令牌化"：
+ *   - 画布底 #1a1c20 / 点阵 #3a3f4a / 连线 #9aa4b2 与高亮 #8b5cf6 / 框选 #8b5cf6
+ *   - 节点卡 #fff 与描边 #e3e6ea、正文灰 #8a94a6、状态徽标 #22c55e
+ *     （白卡浮在深底上，两主题都成立；若改成 var(--card)，暗色下会变成
+ *      「深底 + 深卡」，节点轮廓反而消失）
+ *   - 端口圆点 #fff / 连接态 #8b5cf6
+ *   - 画布内浮层（多选工具条、连接提示、底部操作提示）同样是舞台层
+ * 页面外壳（根 / 顶栏 / 左右侧栏 / 底部预览条）的主题化在 Editor.tsx 完成。
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Typography } from 'antd';

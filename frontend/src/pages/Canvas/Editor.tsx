@@ -281,23 +281,23 @@ export default function CanvasEditor() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {videos.length > 0 && (
           <div>
-            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🎬 视频素材 ({videos.length})</Text>
+            <Text strong style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>🎬 视频素材 ({videos.length})</Text>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {videos.map((it, i) => <AssetCard key={`${prefix}v${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
             </div>
           </div>
         )}
         {images.length > 0 && (
-          <div style={{ marginTop: videos.length > 0 ? 8 : 0, paddingTop: videos.length > 0 ? 8 : 0, borderTop: videos.length > 0 ? '1px solid #f0f0f0' : 'none' }}>
-            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🖼️ 图片素材 ({images.length})</Text>
+          <div style={{ marginTop: videos.length > 0 ? 8 : 0, paddingTop: videos.length > 0 ? 8 : 0, borderTop: videos.length > 0 ? '1px solid var(--line)' : 'none' }}>
+            <Text strong style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>🖼️ 图片素材 ({images.length})</Text>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {images.map((it, i) => <AssetCard key={`${prefix}i${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
             </div>
           </div>
         )}
         {audios.length > 0 && (
-          <div style={{ marginTop: (videos.length > 0 || images.length > 0) ? 8 : 0, paddingTop: (videos.length > 0 || images.length > 0) ? 8 : 0, borderTop: (videos.length > 0 || images.length > 0) ? '1px solid #f0f0f0' : 'none' }}>
-            <Text strong style={{ fontSize: 11, color: '#888', marginBottom: 6, display: 'block' }}>🔊 音频素材 ({audios.length})</Text>
+          <div style={{ marginTop: (videos.length > 0 || images.length > 0) ? 8 : 0, paddingTop: (videos.length > 0 || images.length > 0) ? 8 : 0, borderTop: (videos.length > 0 || images.length > 0) ? '1px solid var(--line)' : 'none' }}>
+            <Text strong style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>🔊 音频素材 ({audios.length})</Text>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {audios.map((it, i) => <AssetCard key={`${prefix}a${i}`} item={it} onClick={handleAddFromAssetPanel} />)}
             </div>
@@ -462,7 +462,7 @@ export default function CanvasEditor() {
 
   if (loading) {
     return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#17181c' }}>
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <Spin size="large" />
       </div>
     );
@@ -470,11 +470,11 @@ export default function CanvasEditor() {
 
   if (loadError) {
     return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#17181c' }}>
-        <div style={{ textAlign: 'center', background: '#fff', padding: '40px 60px', borderRadius: 16 }}>
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div style={{ textAlign: 'center', background: 'var(--card)', padding: '40px 60px', borderRadius: 16 }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
           <Text strong style={{ fontSize: 15 }}>项目加载失败</Text>
-          <div style={{ color: '#f5222d', margin: '10px 0 20px', fontSize: 13 }}>{loadError}</div>
+          <div style={{ color: 'var(--danger)', margin: '10px 0 20px', fontSize: 13 }}>{loadError}</div>
           <Button onClick={() => navigate('/canvas')} style={{ borderRadius: 10 }}>返回画布列表</Button>
         </div>
       </div>
@@ -482,32 +482,32 @@ export default function CanvasEditor() {
   }
 
   return (
-    <div style={{ height: '100vh', width: '100vw', overflowX: 'auto', overflowY: 'hidden', background: '#17181c', display: 'flex', flexDirection: 'column' }}>
-      <div className="mobile-only-hint" style={{ flexShrink: 0, background: '#7c3aed', color: '#fff', textAlign: 'center', fontSize: 12, padding: '6px 12px' }}>
+    <div style={{ height: '100vh', width: '100vw', overflowX: 'auto', overflowY: 'hidden', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+      <div className="mobile-only-hint" style={{ flexShrink: 0, background: 'var(--primary)', color: '#fff', textAlign: 'center', fontSize: 12, padding: '6px 12px' }}>
         画布编辑器为桌面端工具，建议在电脑浏览器（宽屏 ≥1024px）中操作，当前视口已启用横向滚动
       </div>
       <div style={{ minWidth: 1000, height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Top bar — full-screen workbench header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 52, flexShrink: 0, background: '#1f2126', borderBottom: '1px solid #2c2f36' }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/canvas')} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }} />
-        <Input value={name} onChange={e => setName(e.target.value)} style={{ width: 220, borderRadius: 10, fontWeight: 600, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }} placeholder="画布名称" />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px', height: 52, flexShrink: 0, background: 'var(--bg-secondary)', borderBottom: '1px solid var(--line)' }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/canvas')} style={{ borderRadius: 10, background: 'var(--surface-3)', borderColor: 'var(--line-strong)', color: 'var(--text)' }} />
+        <Input value={name} onChange={e => setName(e.target.value)} style={{ width: 220, borderRadius: 10, fontWeight: 600, background: 'var(--surface-3)', borderColor: 'var(--line-strong)', color: 'var(--text)' }} placeholder="画布名称" />
         <Select value={ratio} onChange={setRatio} style={{ width: 80, borderRadius: 10 }}
           options={['9:16', '16:9', '1:1', '3:4', '4:3', '2:3'].map(r => ({ value: r, label: r }))} />
         <Select value={resolution} onChange={setResolution} style={{ width: 84, borderRadius: 10 }}
           options={['480p', '720p', '1080p'].map(r => ({ value: r, label: r }))} />
-        <Text style={{ color: '#9aa4b2', fontSize: 12 }}>{workflow.nodes.length} 节点 · {workflow.edges.length} 连线</Text>
+        <Text style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{workflow.nodes.length} 节点 · {workflow.edges.length} 连线</Text>
 
         <div style={{ flex: 1 }} />
 
         {saved && <Tag color="success" icon={<CheckCircleOutlined />}>已保存</Tag>}
-        <Button icon={<QuestionCircleOutlined />} onClick={() => setHelpOpen(true)} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }}>使用教程</Button>
-        <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10, background: '#2c2f36', borderColor: '#3a3d46', color: '#e8eaed' }}>保存</Button>
+        <Button icon={<QuestionCircleOutlined />} onClick={() => setHelpOpen(true)} style={{ borderRadius: 10, background: 'var(--surface-3)', borderColor: 'var(--line-strong)', color: 'var(--text)' }}>使用教程</Button>
+        <Button icon={<SaveOutlined />} loading={saving} onClick={handleSave} style={{ borderRadius: 10, background: 'var(--surface-3)', borderColor: 'var(--line-strong)', color: 'var(--text)' }}>保存</Button>
         <Button type="primary" icon={<PlayCircleOutlined />} loading={render?.status === 'rendering'}
-          onClick={handleRender} style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed' }}>
+          onClick={handleRender} style={{ borderRadius: 10, background: 'var(--primary)', borderColor: 'var(--primary)' }}>
           导出渲染
         </Button>
         {render?.status === 'completed' && render.result_url && (
-          <Button type="primary" icon={<DownloadOutlined />} href={render.result_url} download style={{ borderRadius: 10, background: '#16a34a', borderColor: '#16a34a' }}>
+          <Button type="primary" icon={<DownloadOutlined />} href={render.result_url} download style={{ borderRadius: 10, background: 'var(--success)', borderColor: 'var(--success)' }}>
             下载成片
           </Button>
         )}
@@ -515,12 +515,12 @@ export default function CanvasEditor() {
 
       {/* Render progress strip */}
       {render?.status === 'rendering' && (
-        <div style={{ flexShrink: 0, background: '#17181c', padding: '4px 14px 0' }}>
-          <Progress percent={render.progress || 0} status="active" strokeColor="#7c3aed" size="small" />
+        <div style={{ flexShrink: 0, background: 'var(--bg)', padding: '4px 14px 0' }}>
+          <Progress percent={render.progress || 0} status="active" strokeColor="var(--primary)" size="small" />
         </div>
       )}
       {render?.status === 'failed' && (
-        <div style={{ flexShrink: 0, background: '#17181c', padding: '6px 14px', color: '#ff7875', fontSize: 12 }}>
+        <div style={{ flexShrink: 0, background: 'var(--bg)', padding: '6px 14px', color: 'var(--danger)', fontSize: 12 }}>
           渲染失败: {render.error_msg}
         </div>
       )}
@@ -530,12 +530,12 @@ export default function CanvasEditor() {
         {/* Left: palette (collapsible) */}
         {leftCollapsed ? (
           <div onClick={toggleLeft} title="展开素材面板"
-            style={{ width: 34, flexShrink: 0, borderRadius: 12, background: '#1f2126', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 12, cursor: 'pointer' }}>
-            <DoubleRightOutlined style={{ color: '#9aa4b2', fontSize: 13 }} />
-            <Text style={{ color: '#9aa4b2', fontSize: 11, writingMode: 'vertical-rl', letterSpacing: 3 }}>节点 / 素材</Text>
+            style={{ width: 34, flexShrink: 0, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 12, cursor: 'pointer' }}>
+            <DoubleRightOutlined style={{ color: 'var(--text-secondary)', fontSize: 13 }} />
+            <Text style={{ color: 'var(--text-secondary)', fontSize: 11, writingMode: 'vertical-rl', letterSpacing: 3 }}>节点 / 素材</Text>
           </div>
         ) : (
-        <div style={{ width: 240, flexShrink: 0, background: '#fff', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: 240, flexShrink: 0, background: 'var(--card)', borderRadius: 12, padding: 10, overflow: 'auto', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexShrink: 0 }}>
             <Text strong style={{ fontSize: 13 }}>节点 / 素材</Text>
             <Button type="text" size="small" icon={<DoubleLeftOutlined />} onClick={toggleLeft} title="收起面板" />
@@ -544,7 +544,7 @@ export default function CanvasEditor() {
           {/* Local upload */}
           <Upload.Dragger beforeUpload={(file) => { handleUpload(file); return false; }} showUploadList={false} style={{ marginBottom: 10, borderRadius: 10 }}>
             <div style={{ padding: '4px 0' }}>
-              <Text style={{ fontSize: 11, color: '#666' }}>{uploading ? '上传中...' : '上传本地视频/图片'}</Text>
+              <Text style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{uploading ? '上传中...' : '上传本地视频/图片'}</Text>
             </div>
           </Upload.Dragger>
 
@@ -605,12 +605,12 @@ export default function CanvasEditor() {
         {/* Right: properties (collapsible) */}
         {rightCollapsed ? (
           <div onClick={toggleRight} title="展开属性面板"
-            style={{ width: 34, flexShrink: 0, borderRadius: 12, background: '#1f2126', border: '1px solid #2c2f36', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 12, cursor: 'pointer' }}>
-            <DoubleLeftOutlined style={{ color: '#9aa4b2', fontSize: 13 }} />
-            <Text style={{ color: '#9aa4b2', fontSize: 11, writingMode: 'vertical-rl', letterSpacing: 3 }}>属性</Text>
+            style={{ width: 34, flexShrink: 0, borderRadius: 12, background: 'var(--bg-secondary)', border: '1px solid var(--line)', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 12, cursor: 'pointer' }}>
+            <DoubleLeftOutlined style={{ color: 'var(--text-secondary)', fontSize: 13 }} />
+            <Text style={{ color: 'var(--text-secondary)', fontSize: 11, writingMode: 'vertical-rl', letterSpacing: 3 }}>属性</Text>
           </div>
         ) : (
-        <div style={{ width: 280, flexShrink: 0, background: '#fff', borderRadius: 12, border: '1px solid #2c2f36', overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: 280, flexShrink: 0, background: 'var(--card)', borderRadius: 12, border: '1px solid var(--line)', overflow: 'hidden', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px 0', flexShrink: 0 }}>
             <Text strong style={{ fontSize: 13 }}>属性{selectedIds.length > 1 ? `（${selectedIds.length} 节点）` : ''}</Text>
             <Button type="text" size="small" icon={<DoubleRightOutlined />} onClick={toggleRight} title="收起面板" />
@@ -618,7 +618,7 @@ export default function CanvasEditor() {
           <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {selectedIds.length > 1 ? (
             <div style={{ padding: 16, textAlign: 'center' }}>
-              <Empty description={<span>已选中 <span style={{ color: '#7c3aed', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Empty description={<span>已选中 <span style={{ color: 'var(--primary)', fontWeight: 700 }}>{selectedIds.length}</span> 个节点</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
               <Text type="secondary" style={{ fontSize: 12, display: 'block', margin: '10px 0 14px' }}>
                 拖动任意选中节点可整体移动，Delete 键可批量删除
               </Text>
@@ -647,8 +647,8 @@ export default function CanvasEditor() {
 
       {/* Bottom: result preview */}
       {render?.status === 'completed' && render.result_url && (
-        <div style={{ flexShrink: 0, display: 'flex', gap: 12, background: '#1f2126', borderTop: '1px solid #2c2f36', padding: '8px 14px', alignItems: 'center' }}>
-          <Text strong style={{ fontSize: 12, color: '#e8eaed', flexShrink: 0 }}>成片预览</Text>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 12, background: 'var(--bg-secondary)', borderTop: '1px solid var(--line)', padding: '8px 14px', alignItems: 'center' }}>
+          <Text strong style={{ fontSize: 12, color: 'var(--text)', flexShrink: 0 }}>成片预览</Text>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <video key={render.result_url || projectId} src={render.result_url || undefined} controls preload="metadata"
               onClick={() => setPreviewOpen(true)}
@@ -659,8 +659,8 @@ export default function CanvasEditor() {
               onClick={() => setPreviewOpen(true)}
               style={{ position: 'absolute', right: 2, bottom: 2, width: 24, height: 24, minWidth: 24, padding: 0, fontSize: 12, lineHeight: '20px' }} />
           </div>
-          <Text style={{ color: '#9aa4b2', fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。点击视频可放大查看。</Text>
-          <Button type="primary" size="small" icon={<DownloadOutlined />} href={render.result_url} download style={{ background: '#16a34a', borderColor: '#16a34a' }}>下载成片</Button>
+          <Text style={{ color: 'var(--text-secondary)', fontSize: 11, flex: 1 }}>渲染已完成，可下载或继续调整画布后重新渲染。点击视频可放大查看。</Text>
+          <Button type="primary" size="small" icon={<DownloadOutlined />} href={render.result_url} download style={{ background: 'var(--success)', borderColor: 'var(--success)' }}>下载成片</Button>
         </div>
       )}
 
@@ -675,7 +675,7 @@ export default function CanvasEditor() {
       {/* Help / tutorial modal */}
       <Modal title="画布使用教程" open={helpOpen} onCancel={() => setHelpOpen(false)} footer={null} width={640}>
         <div style={{ fontSize: 13, lineHeight: 1.8 }}>
-          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>一、鼠标操作</Text>
+          <Text strong style={{ fontSize: 14, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>一、鼠标操作</Text>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14 }}>
             <tbody>
               {[
@@ -687,15 +687,15 @@ export default function CanvasEditor() {
                 ['节点右侧圆点 → 拖到左侧圆点', '建立节点之间的连线'],
                 ['节点右上角 ×', '删除该节点（及其连线）'],
               ].map(([k, v]) => (
-                <tr key={k} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <tr key={k} style={{ borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '4px 10px 4px 0', whiteSpace: 'nowrap', fontWeight: 600, width: 210 }}>{k}</td>
-                  <td style={{ padding: '4px 0', color: '#555' }}>{v}</td>
+                  <td style={{ padding: '4px 0', color: 'var(--text-secondary)' }}>{v}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>二、快捷键</Text>
+          <Text strong style={{ fontSize: 14, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>二、快捷键</Text>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 14 }}>
             <tbody>
               {[
@@ -704,29 +704,29 @@ export default function CanvasEditor() {
                 ['Ctrl + A', '全选所有节点'],
                 ['Ctrl + S', '保存项目'],
               ].map(([k, v]) => (
-                <tr key={k} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <tr key={k} style={{ borderBottom: '1px solid var(--line)' }}>
                   <td style={{ padding: '4px 10px 4px 0', whiteSpace: 'nowrap', fontWeight: 600, width: 210 }}>{k}</td>
-                  <td style={{ padding: '4px 0', color: '#555' }}>{v}</td>
+                  <td style={{ padding: '4px 0', color: 'var(--text-secondary)' }}>{v}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>三、左侧「节点 / 素材」面板</Text>
-          <div style={{ color: '#555', marginBottom: 14 }}>
+          <Text strong style={{ fontSize: 14, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>三、左侧「节点 / 素材」面板</Text>
+          <div style={{ color: 'var(--text-secondary)', marginBottom: 14 }}>
             · <b>节点</b>：6 种节点（视频 / 图片 / 文字 / 音频 / 转场滤镜 / 输出），点击即添加到画布，也可拖拽摆放。<br />
             · <b>素材</b>：从「AI 历史 / 大资产库 / 热门创作 / 短剧片段」四个来源选择素材，点击或拖拽添加到画布；上方还可上传本地视频/图片。<br />
             · <b>连线规则</b>：视频/图片 → 输出（主链）；效果节点放两段视频之间 = 转场，直接连单个视频 = 滤镜；文字/音频 → 输出（叠加层/音轨）。
           </div>
 
-          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>四、顶部工具栏按钮</Text>
-          <div style={{ color: '#555', marginBottom: 14 }}>
+          <Text strong style={{ fontSize: 14, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>四、顶部工具栏按钮</Text>
+          <div style={{ color: 'var(--text-secondary)', marginBottom: 14 }}>
             · <b>名称</b>：项目名称。<b>比例 / 分辨率</b>：成片输出规格（如 9:16 竖屏 720p）。<br />
             · <b>保存</b>：保存画布（或 Ctrl+S）。<b>导出渲染</b>：按画布生成成片（需节点齐全并连接到输出）。<b>下载成片</b>：渲染完成后下载视频。
           </div>
 
-          <Text strong style={{ fontSize: 14, color: '#7c3aed', display: 'block', marginBottom: 4 }}>五、右侧属性面板</Text>
-          <div style={{ color: '#555' }}>
+          <Text strong style={{ fontSize: 14, color: 'var(--primary)', display: 'block', marginBottom: 4 }}>五、右侧属性面板</Text>
+          <div style={{ color: 'var(--text-secondary)' }}>
             选中节点后可编辑：素材时长、替换素材、文字内容 / 字号 / 动画 / 颜色 / 位置、音频音量 / 淡入淡出、转场样式与时长、滤镜效果等；多选节点时显示批量操作（整体移动 / 删除）。
           </div>
         </div>
