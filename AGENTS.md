@@ -1,5 +1,44 @@
 # 修复日志
 
+## 2026-11-25（前端质感改造 · 批次H `/drama` 子页 7 个文件 ✅ 真实数据实测通过，**未部署到生产**）
+
+**改了哪些**（每个子页一份页作用域 CSS，只换容器；Form/state/接口字段/轮询/生成与合成与采纳逻辑零改动）
+
+| 文件 | 新 CSS | 修掉的真实缺陷（不是观感微调） |
+|---|---|---|
+| `EpisodeDetail.tsx` | `episode-detail.css`（`.edp-`） | 🔴 候选版本卡 `background:'#fff'`、片段卡 `'#fafafa'`、选中态 `'#f9f5ff'` → 暗色下是一排亮白卡；边框 `#f0f0f0` 暗色不可见；空态舞台 `#f5f5f5` 亮灰板；提示词 `#595959` 深灰压深底读不出 |
+| `Assets.tsx` | `assets.css`（`.das-`） | 🔴🔴 **原第 332 行有一段写在 JSX 里的全局 `<style>`**：`.publish-btn{background:#f5f5f5!important}` —— 既不受本页作用域约束（全仓任何 `.publish-btn` 都会被染色），又在暗色下把按钮钉成亮灰。已收进 CSS 改名 `.das-publish` 并限定 `.das-root` 下；另修占位块 `#f5f5f5`+`#ccc`、提示词 `#8c8c8c`、分隔线 `#f0f0f0` |
+| `GlobalAssets.tsx` | `global-assets.css`（`.dga-`） | 🔴 图片缩略图容器 `#f0f0f0`（图挂了/未出图时暗色是一块亮白）；🔴 新增虚线卡 hover 写死 `rgba(124,58,237,.04)`（旧主色的 alpha 形式）→ `color-mix(var(--primary))`；4 处 `onMouseEnter/onMouseLeave` 直接改 DOM style 的 hover → 改 CSS 伪类 |
+| `Detail.tsx` | `detail.css`（`.ddn-`） | 🔴🔴 **封面 `background: url(cover_url)` 完全没有过 `getUrl()`** —— 本地开发（前端 5173 / 后端 3000）时 `/static` 不在 vite 代理范围 → 图必然挂；且后端 `cover_url` 会回落成 mp4（`drama.service.ts:113-117`）当背景画不出画面；签名改造后 URL 带 `?exp&sig`，CSS `url()` 不加引号还会踩 `&`。→ 改成真实 `<img>`/`<video>` + 永远在底的占位层，与本页列表页 `coverOf()` 同一套做法。另修简介 `#595959` |
+| `Create.tsx` / `EditAnalysis.tsx` / `Episodes.tsx` | 无（各只 1 处色） | `#7c3aed` → `var(--primary)`；`strokeColor` 的 `#52c41a/#7c3aed` → `var(--success)/var(--primary)` |
+
+**为什么这三处不是「直接删内联就行」**：查了 `ThemeContext.tsx`，`LIGHT_TOKENS` 里**没有 `colorPrimary`**，浅色分支下 antd 主色走默认 `#1677ff`（蓝）。所以若只删写死的 `#7c3aed`，浅色下按钮会变成蓝色、与全站品牌紫不符。改 `var(--primary)`（浅 `#6c5ce7` / 暗 `#818cf8`）才是对的，且不动全局 token。
+> 顺带记一笔：这意味着**未纳入改造的页面在浅色下 antd 主按钮本来就是蓝的**。要不要给 `LIGHT_TOKENS` 补 `colorPrimary` 是个全站决定，归入批次J 一起拍板，本轮没动。
+
+**验证（五轮，全部实测；本地后端 + 生产镜像库真数据，零生成接口调用）**
+
+- `npm run build`（`tsc -b && vite build`）**EXIT=0**
+- 第 1 轮 `drama-walk.cjs`：5 个子页 × 暗/浅 = 10 次，36 项计算样式全达标，`antCards=0`、`broken=0`、`jsErr=0`
+- 第 2 轮 `drama-walk2.cjs`：插 1 条临时项目（description + cover_url 指向本地已存在的真实中文名图片）→ `.ddn-desc` 暗 `rgb(163,177,197)` / 浅 `rgb(79,87,101)`；封面 `<img>` `naturalWidth=720`、`broken=false`（两种主题都过）。走完查删干净，`drama_projects` 回到 3 行
+- 第 3 轮 `drama-walk3.cjs`：插临时 episode+2 segments+3 candidates → 16 项全过，行数精确回到 `{ep:6, seg:10, cand:1}`
+- 第 4 轮 `drama-walk4.cjs`：**专治第 3 轮的两处空测** —— ① `querySelector('.edp-item')` 拿到的第一项正好是选中项，未选中态（原本写死 `#fff` 的那个）根本没量到；② 品牌按钮用渐变，渐变在 `backgroundImage` 里，读 `backgroundColor` 永远是 `rgba(0,0,0,0)`。改成按索引逐个量 + 读 `backgroundImage` 后：未选中候选卡暗色 **`rgb(27,38,55)`**（原 `#fff`）、片段卡 `rgb(27,38,55)`（原 `#fafafa`）、4 个品牌钮渐变随主题正确解析、3 个真实签名 mp4 在浏览器里 `ready=4 / err=0 / videoWidth 406·720·720`。22 项全过，清理精确
+- 第 5 轮 `drama-walk5.cjs`：把弹窗内的元素真开一遍 —— `.das-publish`、`.das-card__ph`、`.das-hint`、`.das-pick`（含 `data-on` 选中态）、`.das-pick__ph`、`.dga-thumb--*`、详情弹窗 `.dga-modal__prompt`/`__acts`/`__kv-label` 共 40 项全过（这轮纯读，不写库）
+- 补测 `dga-gradient-check.cjs`：音频色带 `linear-gradient(135deg, rgb(102,126,234), rgb(118,75,162))` 确实渲染、块内白图标 28px 可见（`backgroundColor` 透明不等于没背景）
+- 总回归 `probe-ui` 12 路由 × 暗/浅 = **24/24 全绿**（`root=true / broken=0 / jsErr=0`）
+- 视觉复核（暗/浅全页 + 导入弹窗）：无发白块、无对比度不足、无溢出/重叠/截断、缩略图真出画面、挑选卡网格整齐
+
+**过程中踩到 / 纠正的**
+
+1. 🔴 **探针自己有个假通过**：`addInitScript` 每次导航都会执行，我第一版在里面写死 `frontend-theme='dark'`，之后用 `evaluate` 设 `light` 会被下一次导航的 init script 覆盖 → 暗/浅两批量到**同一组数值**看着"全绿"。把主题作为参数传进 init script，并加了一条 `data-theme === 要求主题` 的硬断言（不满足就判 FAIL 并跳过测量），之后才拿到真实的双主题数据。教训：**双主题对比必须先证明主题真的切了**，否则整个 diff 是无意义的。
+2. 空测风险（见第 4 轮）：断言"元素存在"不等于"断言了目标状态"。选中/未选中、`backgroundColor`/`backgroundImage` 都要显式覆盖。
+3. `episode 2` 是**孤儿数据**（`project_id=7` 在 `drama_projects` 里不存在），`GET /api/drama/episodes/2` 直接报错，所以库里唯一那条真实候选永远进不去页面 —— 不是代码 bug，是生产遗留脏数据。因此改用插入临时 episode 的方式验证候选卡。
+4. 第一版走查脚本给第三个候选拼了个不存在的 mp4 文件名，会误判成「视频加载出错」，换成真实存在的 `vid_3_1786009142351.mp4`。
+
+**盘点结果**：`node tools/ui-inventory.cjs` → A 类（暗色发白/旧主色）从 **15 文件/189 hex/22 浅色底** 降到 **11 文件/123 hex/16 浅色底**。
+> 注意 A 类里 `Canvas/components/WorkflowCanvas.tsx`（hex=41）和 `Editor/components/Timeline.tsx`（hex=3）是**有意保留的固定深色舞台**，批次G/F 已分别在文件头注明并非漏改；真正剩下的 A 类工作集中在 Viral 子页（9 个文件）。
+
+**待办不变**：批次 I（Viral 子页 10 文件）→ 批次 J（共用组件 `Logo`/`SessionExpiredModal`/`VideoPlayer` + 全局 `index.css` 私有规则回收 + 全站总复核）→ 然后才是生产部署（等授权）。`CleanupService` 的 collation bug 仍未修。
+
 ## ⭐ 批次G 进度（2026-11-25，第 2 轮已完成）
 
 **第 2 轮（已提交）—— Canvas 编辑器页外壳主题化（按你选的方案A）**
@@ -79,7 +118,7 @@
   只把散落的硬编码色收进一组带注释的局部变量，并把 `#fff` 侧栏改成与深色外壳协调的色。
   改动小、风险低，但意味着这个页面**永远不跟随浅色主题**。
 
-## ⭐ 剩余工作清单（2026-11-24 盘点，明天从这里接）
+## ⭐ 剩余工作清单（2026-11-24 盘点；G/H 已完成 ✅，从批次 I 接）
 
 > **更正**：本日曾记「页面批次 A–F 全部完成」，该说法**不准确**。全仓实测盘点后发现
 > 11-23 那轮只做了 Drama / Viral / Canvas 的**主列表页（index.tsx）**，它们的**子页与内部组件
@@ -88,7 +127,7 @@
 > 盘点口径：A 类 18 文件 / 282 处 hex / 28 处浅色底；B 类 12 文件 / 31 处；
 > C 类 11 文件 / 32 处（多为内容默认色，核对即可）；另有主题配置 41 处与 /dashboard 9 处按约定不动。
 
-### 批次 G — Canvas 模块（4 个组件 + 编辑器页，工作量最大）
+### 批次 G — Canvas 模块 ✅ 已完成（11-25，见本页顶部两个「批次G」章节：组件轮 + 编辑器页方案A）
 | 文件 | hex | 浅色底 | 旧主色 | 内联 | 说明 |
 |---|---|---|---|---|---|
 | `pages/Canvas/Editor.tsx` | 70 | 3 | 15 | 88 | `/canvas/editor/:id` 全屏编辑器；`:474` 错误态 `background:'#fff'` 暗色发白、`:486` `#7c3aed` 提示条 |
@@ -102,7 +141,7 @@
 编辑器页与组件需另建 `canvas-editor.css` 或扩到同一文件但要保证 `.cnv-editor-root` 独立作用域），
 只换容器、不动节点拖拽/连线/生成逻辑与计费调用。
 
-### 批次 H — Drama 子页
+### 批次 H — Drama 子页 ✅ 已完成（11-25，见本页最顶部「批次H」章节；子页各自新建 CSS，未共用 `drama.css`）
 | 文件 | hex | 浅色底 | 旧主色 | 内联 |
 |---|---|---|---|---|
 | `pages/Drama/Assets.tsx` | 21 | **4** | 9 | 44 |
@@ -135,7 +174,11 @@
    `Editor/EditorPage` 4、`Editor/components/Timeline` 3 的 `TRACK_META` 轨道色）——是则不动。
 4. **全站双主题总复核**：`probe-ui.cjs` 跑全部路由 × 暗浅（现成工具），加一遍真实数据走查，
    确认 `antCards=0 / brokenImgs=0 / pageErrors=0` 且无暗色发白区块。
-5. 复核 `--text-muted` 暗色对比度约 3.07:1 的问题（全站共用令牌，改动影响 15+ 页面，**需用户先决策**）。
+5. ~~复核 `--text-muted` 暗色对比度约 3.07:1 的问题~~ ✅ 已解决（11-25：CSS 令牌层 `3057ba2` + antd token 层 `0f32964`，
+   暗色 muted 2.79→4.52、placeholder 1.93→3.58；浅色 muted 2.25→4.56、placeholder 1.84→3.67）。
+6. 🔴 **新增待拍板项**：`ThemeContext.tsx` 的 `LIGHT_TOKENS` 里**没有 `colorPrimary`**，所以浅色主题下
+   antd 原生主色组件（未纳入改造的页面、以及各页残留的 `type="primary"` 按钮）走的是 antd 默认蓝 `#1677ff`，
+   与全站品牌紫 `--primary #6c5ce7` 不一致。补 `colorPrimary` 会影响浅色下所有 antd 主色控件，属全站决定。
 
 ### 之后才是部署生产
 G/H/I/J 全部完成并总复核无误后，由**用户明确授权**再一并更新生产（`https://anime.leesystem.xyz`，
