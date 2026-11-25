@@ -1,5 +1,62 @@
 # 修复日志
 
+## 2026-11-25（前端质感改造 · 批次I Viral 子页 11 个文件 ✅ 真实数据实测通过，**未部署到生产**）
+
+**改了哪些**（6 份 CSS；Form/state/接口字段/step 状态机/轮询/生成与保存逻辑零改动）
+
+| 文件 | CSS | 修掉的真实缺陷 |
+|---|---|---|
+| `Viral/CoverThumb.tsx`（**跨 5 页共用**，含 Canvas/index） | 新建 `cover-thumb.css`（`.cth-`） | 🔴 图片容器写死 `#f0f0f0` → 暗色下图片加载瞬间是一块亮白。渐变占位带 `#667eea→#764ba2` 与视频 `#000` 是**有意固定**，文件头注明原因 |
+| `Viral/ProjectDetail.tsx` | 新建 `project-detail.css`（`.vpd-`） | 🔴 返回钮 `#666`；🔴 场景行 `#f9f9fb`；🔴 原视频缺失块 `#f5f7fa`+`#999`；🔴 错误块 `#fff2f0`；徽标旧紫 `#7c3aed20` 与**旧 antd 蓝 `#1890ff20`** → `color-mix(var(--primary)/var(--info))`；8 个 `Card` 清零 |
+| `Viral/components/ProgressPanel.tsx` | 同上（`.vpp-`，自作用域） | 🔴 场景行 `#f9f9fb`、序号 `#7c3aed20`、未开始图标 `#bbb`（暗色隐形）；语义色 `#52c41a/#ff4d4f` → `var(--success)/var(--danger)` |
+| `Viral/components/VideoPreview.tsx` | 同上（`.vpv-`） | 全屏钮浮在视频上（半透黑底+白字，**有意固定**）；下载钮旧紫 → 组件自带 `.vpv-btn-dl`，不借用页面类 |
+| `Viral/TemplateDetail.tsx` | 新建 `template-detail.css`（`.vtd-`） | 🔴 参考链接条与场景行 `#fafafa`+边框 `#f0f0f0`（暗色边框消失）；🔴 选中遮罩 `rgba(124,58,237,.25)` → `color-mix`；🔴 添加素材虚线钮 `#d9d9d9`；`Row/Col xs24 lg14/lg10` → `.vtd-split` |
+| `Viral/components/GlobalAssetPicker.tsx` | 同上（`.vgp-`，自作用域） | 🔴 占位 `#f0f0f0` + 图标 `#ccc`；`Row/Col` → `auto-fill` 栅格 |
+| `Viral/ProjectList.tsx` | 新建 `project-list.css`（`.vpl-`） | 🔴 `List(split=false)` 只为渲一层 `Card` → 去掉空壳；🔴 状态图标色是**字符串比较挑 hex**（`sm.color==='success'?'#52c41a':...`）→ `data-tone` + 令牌；🔴 右箭头 `#bbb` 暗色隐形 |
+| `Viral/TemplateList.tsx` | 新建 `template-list.css`（`.vtl-`） | 🔴 竖条与主按钮 `#7c3aed`；`xs24/sm12/md8/lg6` → `auto-fill minmax(240px,1fr)` |
+| `Viral/CreateTemplate.tsx` | 新建 `create-template.css`（`.vct-`） | 🔴 变量行 `#fafafa`+`#f0f0f0`；🔴 Alert 里 `<b style="color:#7c3aed">` 比例高亮；两处返回钮 `#666` |
+| `Viral/components/SceneEditor.tsx` | 同上（`.vse-`） | 🔴 场景行 `#fafafa`+`#f0f0f0`；`Row xs12 sm6/sm3/sm6/sm9` 四列 → CSS 栅格（实测 `181.6px 92px 165.1px 297.2px`） |
+| `Viral/components/VariableForm.tsx` | 🗑 **死代码，已删**（回收站可恢复） | 全仓无任何 import；`CreateTemplate.tsx:15` 自己声明了同名 `VariableItem` 接口，所以连类型都没在用它。同批次G 的 `NodeCard.tsx` |
+
+**🔴 顺带修掉一个用户天天会看到的产品缺陷（不只是样式）**
+
+实测发现 `/viral/templates/1` 有 **6 张裂图**。查清链路：
+- 后端 `GET /api/viral/templates` 把 `cover_url` 填成 `/static/viral_frames_1786097336124/seg_0_02.jpg`；
+- 而 `viral_frames_*` 目录**在磁盘上根本不存在** —— 本地 `output/` 是生产的逐字节镜像（59 文件/295,503,302 B），所以**生产上同样缺**；
+- `CoverThumb` 自己有 `onError → 渐变占位` 分支，所以列表页 `brokenImgs=0`（兜住了）；
+- 但 `TemplateDetail` 的参考帧网格用的是 antd `Image`，**没有任何兜底** → 用户看到的就是一排浏览器裂图图标 + alt 文字。
+
+修法：`onError` 藏掉 `<img>` 并给容器打 `data-broken="1"`，CSS 用 `::after` 出「无截图」占位；`.vtd-frame` 补 `min-height:56px` 防栅格塌成 0 高。同样补到 `.vtd-picked__cell` 与 `.vgp-cell`。
+视觉复核确认：6 张全部变成干净的深色「无截图」块，无裂图图标。
+
+**验证（两轮 + 总回归，全部实测；零生成接口调用、零写库）**
+
+- `npm run build` EXIT=0
+- 第 1 轮 `viral-walk.cjs`：6 路由 × 暗浅 = 12 次，**42 项达标 / 0 问题**；`antCards=0`、`root=true`、`jsErr=0`
+- 第 2 轮 `viral-walk2.cjs`：把第 1 轮没触发到的两块真点开 —— `/viral/create` 进 `step='edit'`（点「手动创建模板」，纯前端状态）验 `.vse-root/.vse-row/.vct-row/.vct-bar--var`，以及 `/viral/templates/1` 开大资产库弹窗验 `.vgp-cell/.vgp-ok/选中态`。**16→20 项达标 / 0 问题**
+- 总回归 `probe-ui` 12 路由 × 暗浅 = **24/24 全绿**（重点确认 `CoverThumb` 这个共用组件没打坏 `/canvas`）
+- 视觉复核 6 项：无发白块、无对比度不足、无溢出/重叠/截断、缺失帧变干净占位、两徽标清晰、弹窗网格整齐
+
+**过程中我自己踩到 / 纠正的 4 个探针问题（都是"假信号"，不修就会误判）**
+
+1. `root=false` 全路由报红 —— 我 `r.root.slice(1)` 把 `.vpl-root` 的点号削掉了，变成标签选择器。修掉后全部 `root=true`。
+2. `brokenImgs=6` 修完仍不动 —— 因为 `visibility:hidden` **保留布局**（`offsetWidth>0`），我的内联检测规则把已藏掉的图继续算成裂图。改用 `probe-ui.cjs` 的官方口径（`offsetParent!==null && visibility!=='hidden' && display!=='none'`）。
+3. 光看 `broken=0` 分不清「兜底生效」和「页面根本没图」→ 新增 `已兜底藏掉=N` 计数，并对 `templateDetail` 硬断言 `hiddenBroken>0`，这才证明 `onError` 真的触发了（实测 6）。
+4. 两类网络噪音要排除才算干净：`ERR_ABORTED`（视频元素卸载时浏览器取消 range 请求，正常行为）、`favicon.svg` 缺失、`useForm is not connected`（既有告警：loading 期间 Form 未挂载就用实例）。
+
+另外 `.vct-bar--var` 的 `#ec4899` 我没换成主题令牌 —— 它是本页区分「场景分镜 / 替换变量」两类区块的标记色（高饱和、两主题都可读），抽成本地变量 `--vct-accent-var` 并注明，而不是当魔法数字散着。
+
+**盘点结果**：`node tools/ui-inventory.cjs` → A 类从 **11 文件/123 hex/16 浅色底** 降到 **2 文件/44 hex/2 浅色底**。
+剩下的 2 个正是**有意保留的固定深色舞台**：`Canvas/components/WorkflowCanvas.tsx`(41，批次G 已在文件头注明)、`Editor/components/Timeline.tsx`(3，批次F 已注明)。
+> 也就是说：**A 类必修项已清零**。剩下 B 类 7 个文件（21 hex，无浅色底）里，`Logo`/`SessionExpiredModal`/`VideoPlayer`/`PropsPanel` 归批次J 共用组件轮；`Generate/HistoryTable` 与 `Canvas/Editor.tsx` 的内联量较大但都不发白。
+
+**发现两条数据质量问题（我没动，供你决定）**
+
+1. `viral_templates.cover_url` 指向已删除的 `viral_frames_*` 帧文件（见上），生产同样缺 → 列表页模板封面实际一直是渐变占位。
+2. `viral_projects.scenes` 里的 `videoPath` 存的是**绝对服务器路径** `/home/www/ai-anime/backend/output/viral_scene_1_0.mp4`，不是 `/static/...` 相对路径。本地永远读不到；前端目前没直接用它才没暴露。要不要清理成相对路径，等你定。
+
+**待办**：批次 J（共用组件 `Logo`/`SessionExpiredModal`/`VideoPlayer` + 全局 `index.css` 私有规则回收 + `LIGHT_TOKENS.colorPrimary` 拍板 + 全站总复核）→ 然后才是生产部署（等授权）。`CleanupService` 的 collation bug 仍未修。
+
 ## 2026-11-25（前端质感改造 · 批次H `/drama` 子页 7 个文件 ✅ 真实数据实测通过，**未部署到生产**）
 
 **改了哪些**（每个子页一份页作用域 CSS，只换容器；Form/state/接口字段/轮询/生成与合成与采纳逻辑零改动）
@@ -118,7 +175,7 @@
   只把散落的硬编码色收进一组带注释的局部变量，并把 `#fff` 侧栏改成与深色外壳协调的色。
   改动小、风险低，但意味着这个页面**永远不跟随浅色主题**。
 
-## ⭐ 剩余工作清单（2026-11-24 盘点；G/H 已完成 ✅，从批次 I 接）
+## ⭐ 剩余工作清单（2026-11-24 盘点；G/H/I 已完成 ✅，从批次 J 接）
 
 > **更正**：本日曾记「页面批次 A–F 全部完成」，该说法**不准确**。全仓实测盘点后发现
 > 11-23 那轮只做了 Drama / Viral / Canvas 的**主列表页（index.tsx）**，它们的**子页与内部组件
@@ -153,7 +210,11 @@
 `drama.css` 目前只被 `Drama/index.tsx` 引用 → 子页需各自 import 同一文件并扩 `.drama-*` 作用域，
 或按页面拆分。注意 `/drama/:id/assets` 与 `/global-assets` 是不同路由。
 
-### 批次 I — Viral 子页
+### 批次 I — Viral 子页 ✅ 已完成（11-25，见本页顶部「批次I」章节：11 文件 / 6 份新 CSS / 删 1 个死代码）
+> 顺带修掉 `/viral/templates/:id` 的 **6 张裂图**（`viral_frames_*` 帧文件磁盘上不存在，生产同样缺；
+> `CoverThumb` 本来就有 `onError` 兜底所以列表页没事，但详情页用的是 antd `Image` 无兜底）。
+> `node tools/ui-inventory.cjs` 重跑后 **A 类必修项已清零**（剩 2 文件是有意保留的固定深色舞台）。
+
 | 文件 | hex | 浅色底 | 旧主色 | 内联 |
 |---|---|---|---|---|
 | `pages/Viral/ProjectDetail.tsx` | 17 | 3 | 8 | 39 |
