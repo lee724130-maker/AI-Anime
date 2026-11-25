@@ -1,0 +1,135 @@
+/* =============================================================================
+   /drama/:id 短剧项目详情 质感改造 · 2026-11-25（批次H）
+   作用域：规则一律以 .ddn- 前缀书写（ddn = drama detail），只命中本页容器。
+   业务逻辑零改动：STATUS_MAP / Steps 步骤 / 分析、确认、跳转事件 / Descriptions 字段不动。
+
+   本轮修掉的真实缺陷：
+     1. 🔴 封面用 CSS `background: url(cover_url)` 简写，且**没有过 getUrl()**：
+          · 本地开发（前端 5173 / 后端 3000）时 /static 不在 vite 代理范围内 → 图必然挂；
+          · 后端 cover_url 会回落成 mp4（drama.service.ts:113-117）→ 视频当背景画不出任何东西；
+          · 签名改造后 cover_url 带 ?exp&sig，URL 里的 & 未加引号会让 CSS 解析出问题。
+        → 改成真实 <img>/<video> + 永远在底的占位层，与本页列表页 coverOf() 同一套做法。
+     2. 🔴 项目简介写死 color:'#595959' → 暗色下深灰压深底，读不出来。
+     3. 封面占位渐变与图标写死 #7c3aed20 / #ec489920 / #7c3aed40 → 走 --primary/--danger 的 color-mix。
+     4. 主按钮写死 #7c3aed → var(--grad-brand)。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.ddn-root { display: flex; flex-direction: column; gap: var(--sp-5); }
+.ddn-loading { display: grid; place-items: center; padding: 80px 0; }
+.ddn-back { align-self: flex-start; }
+.ddn-back .ant-btn-link { padding: 0; color: var(--text-secondary); }
+.ddn-back .ant-btn-link:hover { color: var(--primary); }
+
+/* ---------- 面板外壳（取代 antd Card） ---------- */
+.ddn-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.ddn-panel__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  background-image: var(--grad-sheen);
+  border-bottom: 1px solid var(--line);
+}
+.ddn-panel__hd .ant-typography { font-size: var(--fs-lg); font-weight: 620; color: var(--text); }
+.ddn-panel__bd { padding: var(--sp-5); }
+
+/* ---------- 头部：封面 + 信息 ---------- */
+.ddn-hero { display: flex; gap: var(--sp-6); flex-wrap: wrap; }
+.ddn-info { flex: 1; min-width: 260px; display: flex; flex-direction: column; gap: var(--sp-3); }
+.ddn-info__title { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.ddn-info__title h4.ant-typography { margin: 0 !important; font-size: var(--fs-2xl) !important; font-weight: 640 !important; }
+/* 原写死 #595959 → 令牌 */
+.ddn-desc { font-size: var(--fs-md); line-height: 1.6; color: var(--text-secondary); }
+
+/* 封面：4/3 定比例舞台，占位层永远在底 */
+.ddn-cover {
+  position: relative;
+  width: 200px;
+  height: 150px;
+  flex-shrink: 0;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface-3);
+  background-image: linear-gradient(135deg,
+    color-mix(in srgb, var(--primary) 14%, transparent),
+    color-mix(in srgb, var(--danger) 12%, transparent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ddn-cover__ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: 48px; color: var(--primary); opacity: .3; }
+.ddn-cover__media { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.ddn-root .ant-descriptions-item-label { color: var(--text-muted); }
+.ddn-root .ant-descriptions-item-content { color: var(--text-secondary); }
+
+/* ---------- 步骤卡 ---------- */
+.ddn-steps { margin-bottom: var(--sp-5); }
+.ddn-outline { white-space: pre-wrap; display: block; margin-bottom: var(--sp-3); color: var(--text-secondary); line-height: 1.6; }
+.ddn-stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ddn-row { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+/* ---------- 品牌主按钮 ---------- */
+.ant-btn.ddn-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  font-weight: 600;
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.ant-btn.ddn-btn-brand:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+.ant-btn.ddn-btn-brand:disabled { opacity: .5; transform: none; box-shadow: none; }
+
+/* ---------- 分集条目（原 Card type="inner"） ---------- */
+.ddn-eps { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ddn-ep {
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.ddn-ep:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.ddn-ep__hd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ddn-ep__hd .ant-typography { font-size: var(--fs-md); color: var(--text); }
+.ddn-ep__hd .ant-tag { margin-inline-end: 0; }
+.ddn-ep__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.ddn-ep__summary { display: block; margin-top: 4px; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); }
+
+/* ---------- 资产分组 ---------- */
+.ddn-groups { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ddn-group__label { display: block; margin-bottom: var(--sp-2); font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.ddn-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ddn-chips .ant-tag { margin-inline-end: 0; }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .ddn-panel {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -22px rgba(16, 24, 40, .26);
+}
+[data-theme=dark] .ddn-panel {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .ddn-hero { gap: var(--sp-4); }
+  .ddn-cover { width: 100%; height: 180px; }
+  .ddn-panel__bd { padding: var(--sp-4); }
+}

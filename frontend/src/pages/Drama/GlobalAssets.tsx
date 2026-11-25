@@ -12,6 +12,7 @@ import {
   EditOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import './global-assets.css';   // 本页质感改造样式（作用域 .dga-，详见文件头注释）
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -343,64 +344,48 @@ export default function GlobalAssetsPage() {
   const renderThumb = (asset: GlobalAsset, height = 200) => {
     const isVideo = asset.type === 'video';
     const isAudio = asset.type === 'audio';
-    const overlay = (
-      <div style={{
-        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
-        background: 'rgba(0,0,0,0.5)', borderRadius: '50%', width: 48, height: 48,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <PlayCircleFilled style={{ fontSize: 30, color: '#fff' }} />
-      </div>
+    /* 只有 height 是动态值（调用方会传），保留一处内联；其余全部走 .dga-thumb* 类 */
+    const box = (cls: string, children?: React.ReactNode) => (
+      <div className={`dga-thumb ${cls}`} style={{ height }}>{children}</div>
+    );
+    const play = (
+      <div className="dga-thumb__play"><PlayCircleFilled /></div>
     );
     if (isVideo) {
       if (asset.image_url) {
-        return (
-          <div style={{ position: 'relative', height, overflow: 'hidden', background: '#000' }}>
-            <img src={getUrl(asset.image_url)} alt={asset.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            {overlay}
-          </div>
-        );
+        return box('dga-thumb--media', <>
+          <img className="dga-thumb__media" src={getUrl(asset.image_url)} alt={asset.name} />
+          {play}
+        </>);
       }
       if (asset.video_url) {
-        return (
-          <div style={{ position: 'relative', height, overflow: 'hidden', background: '#000' }}>
-            <video src={getUrl(asset.video_url)} preload="metadata" muted style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            {overlay}
-          </div>
-        );
+        return box('dga-thumb--media', <>
+          <video className="dga-thumb__media" src={getUrl(asset.video_url)} preload="metadata" muted />
+          {play}
+        </>);
       }
-      return (
-        <div style={{ height, background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-          <VideoCameraOutlined style={{ fontSize: 36, color: 'rgba(255,255,255,0.3)' }} />
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>暂无预览</span>
-        </div>
-      );
+      return box('dga-thumb--video-ph', <>
+        <VideoCameraOutlined className="dga-thumb__ph-icon" />
+        <span className="dga-thumb__ph-text">暂无预览</span>
+      </>);
     }
     if (isAudio) {
-      return (
-        <div style={{ height, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 12, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <AudioOutlined style={{ fontSize: 28, color: '#fff' }} />
-          </div>
-        </div>
-      );
+      return box('dga-thumb--audio', <>
+        <div className="dga-audio-badge"><AudioOutlined /></div>
+      </>);
     }
     if (asset.image_url) {
-      return (
-        <div style={{ height, overflow: 'hidden', background: '#f0f0f0' }}>
-          <Image src={getUrl(asset.image_url)} alt={asset.name} preview={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-        </div>
+      return box('dga-thumb--img',
+        <Image className="dga-thumb__media" src={getUrl(asset.image_url)} alt={asset.name} preview={false} />
       );
     }
-    return (
-      <div style={{ height, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-        <PictureOutlined style={{ fontSize: 36, color: 'var(--text-muted)' }} />
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>暂无图片</span>
-      </div>
-    );
+    return box('dga-thumb--none', <>
+      <PictureOutlined />
+      <span>暂无图片</span>
+    </>);
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
+  if (loading) return <div className="dga-loading"><Spin size="large" /></div>;
 
   const filterItems = [
     { key: 'all', label: `全部 (${stats?.total || 0})` },
@@ -417,48 +402,41 @@ export default function GlobalAssetsPage() {
   const detailGenerating = selected ? generatingSet.has(selected.id) : false;
 
   return (
-    <div style={{ maxWidth: 1400, margin: '0 auto' }}>
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')} style={{ padding: 0 }}>
+    <div className="dga-root">
+      <div className="dga-back">
+        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/dashboard')}>
           返回工作台
         </Button>
-      </Space>
+      </div>
 
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+      <div className="dga-head">
+        <div className="dga-head__row">
           <div>
-            <Title level={3} style={{ margin: 0 }}>大资产库</Title>
-            <Text type="secondary">管理您的人物、场景、道具、视频和音频资产</Text>
+            <Title level={3} className="dga-head__title">大资产库</Title>
+            <Text className="dga-head__sub">管理您的人物、场景、道具、视频和音频资产</Text>
           </div>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setAddModal(true)}
-            style={{ background: 'var(--primary)', borderColor: 'var(--primary)', height: 40, paddingInline: 24, fontWeight: 500 }}
-          >
+          <Button type="primary" icon={<PlusOutlined />}
+            onClick={() => setAddModal(true)} className="dga-btn-new">
             新增资产
           </Button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div className="dga-tools">
           <Input
-            prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
+            className="dga-search"
+            prefix={<SearchOutlined />}
             placeholder="搜索资产名称..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ width: 280, borderRadius: 8 }}
             allowClear
           />
-          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-secondary)', borderRadius: 8, padding: 4 }}>
+          <div className="dga-tabs">
             {filterItems.map(it => (
               <button
                 key={it.key}
+                type="button"
+                className="dga-tab"
+                data-on={activeTab === it.key ? '1' : '0'}
                 onClick={() => setActiveTab(it.key)}
-                style={{
-                  padding: '6px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                  background: activeTab === it.key ? 'var(--primary)' : 'transparent',
-                  color: activeTab === it.key ? '#fff' : 'var(--text-secondary)',
-                  fontSize: 13, fontWeight: activeTab === it.key ? 500 : 400, transition: 'all 0.2s',
-                }}
               >
                 {it.label}
               </button>
@@ -467,79 +445,42 @@ export default function GlobalAssetsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+      <div className="dga-grid">
         {filteredAssets.map(asset => (
-          <div
-            key={asset.id}
-            onClick={() => setSelected(asset)}
-            onMouseEnter={e => {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)';
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
-            style={{
-              background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12,
-              overflow: 'hidden', cursor: 'pointer', transition: 'all 0.2s', position: 'relative',
-            }}
-          >
+          <div key={asset.id} className="dga-card" onClick={() => setSelected(asset)}>
             {renderThumb(asset)}
-            <div style={{ padding: '12px 14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                <Text strong style={{ fontSize: 14, lineHeight: 1.3, flex: 1 }} ellipsis={{ tooltip: asset.name }}>
+            <div className="dga-card__body">
+              <div className="dga-card__title">
+                <Text strong className="dga-card__name" ellipsis={{ tooltip: asset.name }}>
                   {asset.name}
                 </Text>
-                <Tag color={TYPE_COLOR[asset.type]} style={{ fontSize: 11, marginLeft: 6, flexShrink: 0 }}>
+                <Tag className="dga-card__tag" color={TYPE_COLOR[asset.type]}>
                   {TYPE_LABEL[asset.type]}
                 </Tag>
               </div>
               {asset.tags && (
-                <Space size={2} wrap style={{ marginBottom: 6 }}>
+                <div className="dga-card__chips">
                   {asset.tags.split(',').slice(0, 3).map(t => (
-                    <Tag key={t} style={{ fontSize: 10, padding: '0 6px', margin: 0 }}>{t.trim()}</Tag>
+                    <Tag key={t}>{t.trim()}</Tag>
                   ))}
-                </Space>
+                </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text type="secondary" style={{ fontSize: 11 }}>{timeAgo(asset.updated_at || asset.created_at)}</Text>
-                {generatingSet.has(asset.id) && (
-                  <SyncOutlined spin style={{ color: 'var(--primary)', fontSize: 14 }} />
-                )}
+              <div className="dga-card__foot">
+                <Text className="dga-card__time">{timeAgo(asset.updated_at || asset.created_at)}</Text>
+                {generatingSet.has(asset.id) && <SyncOutlined spin className="dga-card__spin" />}
               </div>
             </div>
           </div>
         ))}
-        <div
-          onClick={() => setAddModal(true)}
-          onMouseEnter={e => {
-            e.currentTarget.style.borderColor = 'var(--primary)';
-            e.currentTarget.style.background = 'rgba(124,58,237,0.04)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.borderColor = 'var(--border)';
-            e.currentTarget.style.background = 'transparent';
-          }}
-          style={{
-            border: '2px dashed var(--border)', borderRadius: 12, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', minHeight: 260, cursor: 'pointer',
-            transition: 'all 0.2s', gap: 12,
-          }}
-        >
-          <div style={{
-            width: 56, height: 56, borderRadius: 12, border: '2px dashed var(--border)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <PlusOutlined style={{ fontSize: 24, color: 'var(--text-muted)' }} />
-          </div>
-          <Text type="secondary" style={{ fontSize: 13 }}>新增资产</Text>
+        <div className="dga-add" onClick={() => setAddModal(true)}>
+          <div className="dga-add__badge"><PlusOutlined /></div>
+          <Text className="dga-add__label">新增资产</Text>
         </div>
       </div>
 
       {filteredAssets.length === 0 && !loading && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-          <PictureOutlined style={{ fontSize: 48, marginBottom: 12, opacity: 0.4 }} />
+        <div className="dga-empty">
+          <PictureOutlined />
           <div>暂无资产，点击上方「新增资产」或右下角卡片添加</div>
         </div>
       )}
@@ -557,78 +498,70 @@ export default function GlobalAssetsPage() {
             className="global-asset-detail-modal"
             styles={{ body: { maxHeight: 'calc(100vh - 120px)', overflowY: 'auto', overflowX: 'hidden', padding: 0 } }}
           >
-            <div style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '20px 24px 0' }}>
-                <Title level={4} style={{ margin: 0 }}>{asset.name}</Title>
-                <Space size={8} wrap style={{ marginTop: 8 }}>
+            <div className="dga-modal__media-wrap">
+              <div className="dga-modal__head">
+                <Title level={4} className="dga-modal__title">{asset.name}</Title>
+                <div className="dga-modal__tags">
                   <Tag color={TYPE_COLOR[asset.type]}>{TYPE_LABEL[asset.type]}</Tag>
                   <Tag color={detailFile ? 'success' : 'default'}>{detailFile ? '已上传' : '无文件'}</Tag>
                   {asset.usage_count > 0 && <Tag>引用 {asset.usage_count} 次</Tag>}
                   {asset.tags && asset.tags.split(',').map(t => <Tag key={t}>{t.trim()}</Tag>)}
-                </Space>
+                </div>
               </div>
 
               {asset.type === 'video' ? (
                 asset.video_url ? (
-                  <div style={{ margin: '16px 0', background: '#000' }}>
+                  <div className="dga-modal__video">
                     <video
                       src={getUrl(asset.video_url)}
                       controls
                       playsInline
                       preload="metadata"
-                      style={{ width: '100%', maxHeight: 400, objectFit: 'contain', display: 'block' }}
                     />
                   </div>
                 ) : (
-                  <div style={{ margin: '16px -24px', height: 200, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Text type="secondary">暂无视频</Text>
-                  </div>
+                  <div className="dga-modal__missing">暂无视频</div>
                 )
               ) : asset.type === 'audio' ? (
-                <div style={{ margin: '16px -24px', height: 160, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 12 }}>
-                  <AudioOutlined style={{ fontSize: 48, color: '#fff' }} />
-                  {asset.audio_url && <audio src={getUrl(asset.audio_url)} controls style={{ width: '80%' }} />}
+                <div className="dga-modal__audio">
+                  <AudioOutlined />
+                  {asset.audio_url && <audio src={getUrl(asset.audio_url)} controls />}
                 </div>
               ) : asset.image_url ? (
-                <div style={{ margin: '16px -24px', background: '#000', overflow: 'hidden', textAlign: 'center' }}>
+                <div className="dga-modal__image">
                   <Image
                     src={getUrl(asset.image_url)}
                     alt={asset.name}
-                    style={{ maxWidth: '100%', maxHeight: 400, objectFit: 'contain' }}
                     preview={{ mask: <EyeOutlined style={{ fontSize: 20 }} /> }}
                   />
                 </div>
               ) : (
-                <div style={{ margin: '16px -24px', height: 200, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text type="secondary">暂无图片</Text>
-                </div>
+                <div className="dga-modal__missing">暂无图片</div>
               )}
 
-              <div style={{ padding: '0 24px' }}>
+              <div className="dga-modal__body">
                 {asset.description && (
-                  <div style={{ marginBottom: 12 }}>
-                    <Text type="secondary" style={{ fontSize: 13 }}>{asset.description}</Text>
-                  </div>
+                  <div className="dga-modal__desc">{asset.description}</div>
                 )}
                 {(asset.prompt_cn || asset.prompt) && (
-                  <div style={{ background: 'var(--bg-secondary)', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>提示词</Text>
-                    <Text style={{ fontSize: 13, lineHeight: 1.5 }}>{asset.prompt_cn || asset.prompt}</Text>
+                  <div className="dga-modal__prompt">
+                    <span className="dga-modal__prompt-label">提示词</span>
+                    <span className="dga-modal__prompt-text">{asset.prompt_cn || asset.prompt}</span>
                   </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px', marginBottom: 16, fontSize: 13 }}>
-                  <div><Text type="secondary" strong>类型</Text></div>
-                  <div><Text>{TYPE_LABEL[asset.type]}</Text></div>
-                  <div><Text type="secondary" strong>来源</Text></div>
-                  <div><Text>{asset.source_type || '手动创建'}</Text></div>
-                  <div><Text type="secondary" strong>创建时间</Text></div>
-                  <div><Text>{new Date(asset.created_at).toLocaleString('zh-CN')}</Text></div>
-                  <div><Text type="secondary" strong>更新时间</Text></div>
-                  <div><Text>{new Date(asset.updated_at).toLocaleString('zh-CN')}</Text></div>
+                <div className="dga-modal__kv">
+                  <div className="dga-modal__kv-label">类型</div>
+                  <div>{TYPE_LABEL[asset.type]}</div>
+                  <div className="dga-modal__kv-label">来源</div>
+                  <div>{asset.source_type || '手动创建'}</div>
+                  <div className="dga-modal__kv-label">创建时间</div>
+                  <div>{new Date(asset.created_at).toLocaleString('zh-CN')}</div>
+                  <div className="dga-modal__kv-label">更新时间</div>
+                  <div>{new Date(asset.updated_at).toLocaleString('zh-CN')}</div>
                 </div>
               </div>
 
-              <div style={{ borderTop: '1px solid var(--border)', padding: '16px 24px', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div className="dga-modal__acts">
                 {asset.type !== 'video' && (
                   <Button
                     icon={detailGenerating ? <SyncOutlined spin /> : <ThunderboltOutlined />}

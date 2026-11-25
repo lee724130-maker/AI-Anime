@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Typography, Button, Card, Tag, Space, Spin, message, Row, Col, Modal,
+  Typography, Button, Tag, Space, Spin, message, Modal,
   Alert, Input, Select, Progress, Tooltip, Popconfirm,
 } from 'antd';
 import {
@@ -9,6 +9,7 @@ import {
   ScissorOutlined, CheckCircleOutlined, DownloadOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import './episode-detail.css';   // 本页质感改造样式（作用域 .edp-，详见文件头注释）
 
 const { Title, Text } = Typography;
 const STYLE_LABEL: Record<string, string> = { anime: '动漫', realistic: '写实' };
@@ -349,7 +350,7 @@ export default function EpisodeDetailPage() {
     try { return JSON.parse(json || '[]'); } catch { return []; }
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
+  if (loading) return <div className="edp-loading"><Spin size="large" /></div>;
   if (!episode) return null;
 
   const pendingCount = segments.filter(s => s.status === 'pending' || s.status === 'failed').length;
@@ -378,315 +379,301 @@ export default function EpisodeDetailPage() {
   })();
 
   return (
-    <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/drama/${id}/episodes`)} style={{ padding: 0 }}>
+    <div className="edp-root">
+      <div className="edp-back">
+        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/drama/${id}/episodes`)}>
           返回分集列表
         </Button>
-      </Space>
+      </div>
 
-      <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-        <Row justify="space-between" align="middle">
-          <Col>
-            <Title level={4} style={{ margin: 0 }}>
+      <div className="edp-panel">
+        <div className="edp-panel__hd">
+          <div className="edp-hd-titles">
+            <Title level={4} className="edp-title">
               第{episode.episode_no}集 · {episode.title}
             </Title>
-            <Text type="secondary">
+            <Text className="edp-sub">
               {segments.length} 个片段 · {completedCount} 已完成 · {pendingCount} 待生成
               {episode.duration && ` · 目标 ${episode.duration} 秒`}
               {episode.stitch_status === 'completed' && ' · ✅ 已合成'}
               {episode.stitch_status === 'failed' && ' · ❌ 合成失败'}
             </Text>
-          </Col>
-          <Col>
-            <Space>
-              <Button icon={<ThunderboltOutlined />} loading={batchGenerating}
-                disabled={pendingCount === 0 || batchProgress !== null} onClick={handleGenerateAll}>
-                批量生成 ({pendingCount})
-              </Button>
-              <Button type="primary" icon={<ScissorOutlined />} loading={stitching}
-                disabled={!allCompleted}
-                style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
-                onClick={handleStitch}>
-                合成本集
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-        {episode.summary && (
-          <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>{episode.summary}</Text>
-        )}
-        <Space style={{ marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>本集设置：</Text>
-          <Tag style={{ fontSize: 11 }}>{STYLE_LABEL[episode.style || ''] || '动漫'}</Tag>
-          <Tag style={{ fontSize: 11 }}>{episode.ratio || '9:16'}</Tag>
-          <Tag style={{ fontSize: 11 }}>{episode.resolution || '720p'}</Tag>
-          <Tag style={{ fontSize: 11 }}>{{ zh: '中文配音', en: '英文配音', ja: '日文配音' }[episode.audio_lang === 'none' || !episode.audio_lang ? 'zh' : episode.audio_lang] || '中文配音'}</Tag>
-          <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
-            onClick={openSettings}>设置</Button>
-        </Space>
-      </Card>
+          </div>
+          <Space>
+            <Button icon={<ThunderboltOutlined />} loading={batchGenerating}
+              disabled={pendingCount === 0 || batchProgress !== null} onClick={handleGenerateAll}>
+              批量生成 ({pendingCount})
+            </Button>
+            <Button type="primary" icon={<ScissorOutlined />} loading={stitching}
+              disabled={!allCompleted} className="edp-btn-brand"
+              onClick={handleStitch}>
+              合成本集
+            </Button>
+          </Space>
+        </div>
+        <div className="edp-panel__bd">
+          {episode.summary && (
+            <Text className="edp-sub" style={{ display: 'block', marginBottom: 8 }}>{episode.summary}</Text>
+          )}
+          <div className="edp-tags">
+            <Text className="edp-tags__label">本集设置：</Text>
+            <Tag>{STYLE_LABEL[episode.style || ''] || '动漫'}</Tag>
+            <Tag>{episode.ratio || '9:16'}</Tag>
+            <Tag>{episode.resolution || '720p'}</Tag>
+            <Tag>{{ zh: '中文配音', en: '英文配音', ja: '日文配音' }[episode.audio_lang === 'none' || !episode.audio_lang ? 'zh' : episode.audio_lang] || '中文配音'}</Tag>
+            <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
+              onClick={openSettings}>设置</Button>
+          </div>
+        </div>
+      </div>
 
       {batchProgress && (
-        <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-          <Space style={{ width: '100%' }}>
-            <Text>批量生成进度</Text>
-            <Progress percent={Math.round((batchProgress.completed / batchProgress.total) * 100)}
-              format={() => `${batchProgress.completed}/${batchProgress.total}`}
-              style={{ flex: 1 }} />
-          </Space>
-        </Card>
+        <div className="edp-panel">
+          <div className="edp-panel__bd">
+            <div className="edp-progress-row">
+              <Text>批量生成进度</Text>
+              <Progress percent={Math.round((batchProgress.completed / batchProgress.total) * 100)}
+                format={() => `${batchProgress.completed}/${batchProgress.total}`} />
+            </div>
+          </div>
+        </div>
       )}
 
       {stitchProgress && (
-        <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-          <Space orientation="vertical" style={{ width: '100%' }} size="small">
-            <Text strong>合成本集进度</Text>
-            <Progress percent={stitchProgress.percent} style={{ width: '100%' }} />
-            <Text type="secondary" style={{ fontSize: 13 }}>{stitchProgress.message}</Text>
-          </Space>
-        </Card>
+        <div className="edp-panel">
+          <div className="edp-panel__bd">
+            <div className="edp-progress-col">
+              <Text strong>合成本集进度</Text>
+              <Progress percent={stitchProgress.percent} />
+              <Text className="edp-sub">{stitchProgress.message}</Text>
+            </div>
+          </div>
+        </div>
       )}
 
       {!allCompleted && segments.length > 0 && (
-        <Alert type="info" showIcon title="所有片段完成后即可合成整集视频"
-          style={{ marginBottom: 16, borderRadius: 8 }} />
+        <Alert type="info" showIcon title="所有片段完成后即可合成整集视频" />
       )}
 
       {selectedSeg && (
-        <Row gutter={[12, 12]}>
-          <Col flex="auto" style={{ minWidth: 0 }}>
-            <Card style={{ borderRadius: 12, marginBottom: 12 }} styles={{ body: { padding: 10 } }}>
-              {playingUrl ? (
-                <div style={{
-                  width: '100%', height: 'clamp(280px, 52vh, 480px)', background: '#000',
-                  borderRadius: 8, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <video key={playingUrl} src={getUrl(playingUrl)} controls
-                    style={{ height: '100%', maxWidth: '100%', objectFit: 'contain', background: '#000' }}
-                    onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+        <div className="edp-split">
+          <div>
+            <div className="edp-panel" style={{ marginBottom: 12 }}>
+              <div className="edp-panel__bd edp-panel__bd--tight">
+                {playingUrl ? (
+                  <div className="edp-stage">
+                    <video key={playingUrl} src={getUrl(playingUrl)} controls
+                      onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                  </div>
+                ) : (
+                  <div className="edp-stage edp-stage--empty">
+                    <Text>该片段暂无视频</Text>
+                    <Button type="primary" icon={<ThunderboltOutlined />} loading={isGenerating || submitting.has(selectedSeg.id)}
+                      disabled={isGenerating || submitting.has(selectedSeg.id)}
+                      className="edp-btn-brand"
+                      onClick={() => handleGenerate(selectedSeg.id)}>
+                      生成视频
+                    </Button>
+                  </div>
+                )}
+                <div className="edp-stage-bar">
+                  <Tag color="purple">片段{selectedSeg.segment_no}</Tag>
+                  <Tag color={segStatusColor(selectedSeg)}>
+                    {segStatusLabel(selectedSeg)}
+                  </Tag>
+                  {selectedSeg.duration && <Text className="edp-sub">{selectedSeg.duration} 秒</Text>}
+                  <div className="edp-stage-bar__fill" />
+                  <Text className="edp-sub">正在播放：{playingLabel}</Text>
                 </div>
-              ) : (
-                <div style={{
-                  width: '100%', height: 480, background: '#f5f5f5', borderRadius: 8,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8,
-                }}>
-                  <Text type="secondary">该片段暂无视频</Text>
+              </div>
+            </div>
+
+            <div className="edp-panel" style={{ marginBottom: 12 }}>
+              <div className="edp-panel__hd">
+                <Space size={6}>
+                  <Text strong>片段{selectedSeg.segment_no} · 详情</Text>
+                  <Text className="edp-hint">{selectedSeg.summary}</Text>
+                </Space>
+              </div>
+              <div className="edp-panel__bd">
+                <div className="edp-actions">
                   <Button type="primary" icon={<ThunderboltOutlined />} loading={isGenerating || submitting.has(selectedSeg.id)}
                     disabled={isGenerating || submitting.has(selectedSeg.id)}
-                    style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                    className="edp-btn-brand"
                     onClick={() => handleGenerate(selectedSeg.id)}>
                     生成视频
                   </Button>
+                  <Button icon={<CheckCircleOutlined />} loading={planning.has(selectedSeg.id)}
+                    onClick={() => handlePlan(selectedSeg.id)}>
+                    智能规划
+                  </Button>
+                  <Button icon={<AimOutlined />} onClick={() => handleEditPrompt(selectedSeg)}>
+                    编辑提示词
+                  </Button>
+                  <div className="edp-field">
+                    <Text className="edp-field__label">时长</Text>
+                    <Select value={selectedSeg.duration || 5} size="small" style={{ width: 84 }}
+                      onChange={v => handleDurationChange(selectedSeg.id, v)}
+                      options={Array.from({ length: 15 }, (_, i) => ({
+                        label: `${i + 1}秒${i + 1 === 4 || i + 1 === 5 ? '★' : ''}`, value: i + 1,
+                      }))} />
+                  </div>
+                  <div className="edp-field">
+                    <Text className="edp-field__label">候选数</Text>
+                    <Select
+                      value={candidateCounts[selectedSeg.id] || 1}
+                      size="small" style={{ width: 64 }}
+                      disabled={isGenerating || submitting.has(selectedSeg.id) || selectedSeg.status === 'generating'}
+                      onChange={v => setCandidateCounts(prev => ({ ...prev, [selectedSeg.id]: v }))}
+                      options={[1, 2, 3].map(n => ({ label: `${n} 个`, value: n }))} />
+                  </div>
                 </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <Tag color="purple">片段{selectedSeg.segment_no}</Tag>
-                <Tag color={segStatusColor(selectedSeg)}>
-                  {segStatusLabel(selectedSeg)}
-                </Tag>
-                {selectedSeg.duration && <Text type="secondary" style={{ fontSize: 12 }}>{selectedSeg.duration} 秒</Text>}
-                <div style={{ flex: 1 }} />
-                <Text type="secondary" style={{ fontSize: 12 }}>正在播放：{playingLabel}</Text>
-              </div>
-            </Card>
 
-            <Card size="small" style={{ borderRadius: 12, marginBottom: 12 }}
-              title={
-                <Space size={6}>
-                  <Text strong>片段{selectedSeg.segment_no} · 详情</Text>
-                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>{selectedSeg.summary}</Text>
-                </Space>
-              }>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                <Button type="primary" icon={<ThunderboltOutlined />} loading={isGenerating || submitting.has(selectedSeg.id)}
-                  disabled={isGenerating || submitting.has(selectedSeg.id)}
-                  style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
-                  onClick={() => handleGenerate(selectedSeg.id)}>
-                  生成视频
-                </Button>
-                <Button icon={<CheckCircleOutlined />} loading={planning.has(selectedSeg.id)}
-                  onClick={() => handlePlan(selectedSeg.id)}>
-                  智能规划
-                </Button>
-                <Button icon={<AimOutlined />} onClick={() => handleEditPrompt(selectedSeg)}>
-                  编辑提示词
-                </Button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>时长</Text>
-                  <Select value={selectedSeg.duration || 5} size="small" style={{ width: 84 }}
-                    onChange={v => handleDurationChange(selectedSeg.id, v)}
-                    options={Array.from({ length: 15 }, (_, i) => ({
-                      label: `${i + 1}秒${i + 1 === 4 || i + 1 === 5 ? '★' : ''}`, value: i + 1,
-                    }))} />
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>候选数</Text>
-                  <Select
-                    value={candidateCounts[selectedSeg.id] || 1}
-                    size="small" style={{ width: 64 }}
-                    disabled={isGenerating || submitting.has(selectedSeg.id) || selectedSeg.status === 'generating'}
-                    onChange={v => setCandidateCounts(prev => ({ ...prev, [selectedSeg.id]: v }))}
-                    options={[1, 2, 3].map(n => ({ label: `${n} 个`, value: n }))} />
-                </div>
-              </div>
+                {isGenerating && (
+                  <div className="edp-progress-inline">
+                    <Progress percent={prog?.percent ?? 0} size="small" />
+                    <Text className="edp-sub">{prog?.message || '正在提交任务...'}</Text>
+                  </div>
+                )}
 
-              {isGenerating && (
-                <div style={{ marginBottom: 8 }}>
-                  <Progress percent={prog?.percent ?? 0} size="small" style={{ marginBottom: 4 }} />
-                  <Text type="secondary" style={{ fontSize: 12 }}>{prog?.message || '正在提交任务...'}</Text>
-                </div>
-              )}
-
-              {(selectedSeg.prompt_cn || selectedSeg.prompt) && (
-                <div onClick={() => handleEditPrompt(selectedSeg)} style={{ cursor: 'pointer', marginBottom: 8 }}>
-                  <Text style={{ fontSize: 12, lineHeight: 1.5, color: '#595959' }}>
+                {(selectedSeg.prompt_cn || selectedSeg.prompt) && (
+                  <div className="edp-prompt" onClick={() => handleEditPrompt(selectedSeg)}>
                     {selectedSeg.prompt_cn || selectedSeg.prompt}
-                  </Text>
+                  </div>
+                )}
+                <div className="edp-ref-tags">
+                  {chars.map(c => <Tag key={c} color="blue">{c}</Tag>)}
+                  {props.map(p => <Tag key={p} color="orange">{p}</Tag>)}
+                  {scenes.map(s => <Tag key={s} color="green">{s}</Tag>)}
                 </div>
-              )}
-              <Space size={4} wrap>
-                {chars.map(c => <Tag key={c} color="blue">{c}</Tag>)}
-                {props.map(p => <Tag key={p} color="orange">{p}</Tag>)}
-                {scenes.map(s => <Tag key={s} color="green">{s}</Tag>)}
-              </Space>
-            </Card>
-          </Col>
+              </div>
+            </div>
+          </div>
 
-          <Col xs={24} md={8} lg={8} style={{ minWidth: 0 }}>
-            <Card size="small" style={{ borderRadius: 12 }}
-              title={
+          <div className="edp-split__side">
+            <div className="edp-panel">
+              <div className="edp-panel__hd">
                 <Space size={6}>
                   <Text strong>视频版本</Text>
-                  <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>点击切换中间播放器</Text>
+                  <Text className="edp-hint">点击切换中间播放器</Text>
                 </Space>
-              }
-              extra={
-                selectedSeg.status === 'completed' ? (
+                {selectedSeg.status === 'completed' && (
                   <Button type="link" size="small" style={{ fontSize: 12, padding: 0 }}
                     loading={candLoading.has(selectedSeg.id)}
                     onClick={() => loadCandidates(selectedSeg.id)}>
                     {cands.length > 0 ? `刷新 (${cands.length})` : '查看候选'}
                   </Button>
-                ) : null
-              }>
-              {cands.length === 0 ? (
-                <Text type="secondary" style={{ fontSize: 12 }}>暂无版本，点击「生成视频」后展示正式版与备选</Text>
-              ) : (
-                <div style={{ maxHeight: 560, overflowY: 'auto' }}>
-                  {cands.map(c => {
-                    const badge = QUALITY_BADGE[c.quality || ''] || QUALITY_BADGE.unknown;
-                    const report = c.quality_report;
-                    const altNo = cands.filter(x => !x.is_main).indexOf(c) + 1;
-                    const isPlaying = c.is_main ? playingCand === null : playingCand === c.id;
-                    return (
-                      <div key={c.id}
-                        onClick={() => { if (c.status === 'completed' && c.video_url) setPlayingCand(c.is_main ? null : c.id); }}
-                        style={{
-                          border: isPlaying ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
-                          borderRadius: 8, padding: 8, marginBottom: 8,
-                          background: isPlaying ? '#f9f5ff' : '#fff',
-                          cursor: c.video_url ? 'pointer' : 'default',
-                        }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
-                          <Tag color={c.is_main ? 'purple' : 'default'} style={{ marginRight: 0 }}>
-                            {c.is_main ? '主视频' : `备选 ${altNo}`}
-                          </Tag>
-                          {c.status === 'failed' ? (
-                            <Tag color="error" style={{ marginRight: 0 }}>✘ 生成失败</Tag>
-                          ) : (
-                            <Tooltip title={
-                              report && (report.issues?.length || report.consistency)
-                                ? `质检报告：${[report.consistency, ...(report.issues || [])].filter(Boolean).join('；')}`
-                                : '无质检详情'
-                            }>
-                              <Tag color={badge.color} style={{ marginRight: 0 }}>{badge.label}</Tag>
-                            </Tooltip>
-                          )}
-                          {isPlaying && c.video_url && <Tag color="purple" style={{ marginRight: 0 }}>播放中</Tag>}
-                          <div style={{ flex: 1 }} />
-                          {c.status === 'completed' && !c.is_main && (
-                            <Button type="primary" size="small" style={{ fontSize: 11, background: '#7c3aed', borderColor: '#7c3aed' }}
-                              loading={accepting.has(c.id)}
-                              onClick={(e) => { e.stopPropagation(); handleAcceptCandidate(c.id, selectedSeg.id); }}>
-                              采纳替换
-                            </Button>
-                          )}
-                          {!c.is_main && (
-                            <Popconfirm title="移除该备选？" onConfirm={() => handleDeleteCandidate(c.id, selectedSeg.id)}
-                              okText="移除" cancelText="取消">
-                              <Button type="text" size="small" icon={<DeleteOutlined />}
-                                onClick={(e) => e.stopPropagation()} />
-                            </Popconfirm>
-                          )}
-                        </div>
-                        {c.video_url ? (
-                          <video src={getUrl(c.video_url)} preload="metadata"
-                            style={{ width: '100%', maxHeight: 120, borderRadius: 4, background: '#000', display: 'block' }}
-                            onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
-                        ) : c.error_msg ? (
-                          <Text type="danger" style={{ fontSize: 11 }}>{c.error_msg}</Text>
-                        ) : null}
-                        <div style={{ marginTop: 4 }}>
-                          <Text type="secondary" style={{ fontSize: 11 }}>
-                            {c.is_main ? '当前正式版本' : '备选版本 · 预览满意后可采纳替换'}
-                          </Text>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      <Card size="small" title={
-        <Space size={6}>
-          <Text strong>片段列表</Text>
-          <Text type="secondary" style={{ fontSize: 12, fontWeight: 'normal' }}>点击切换中间播放器</Text>
-        </Space>
-      } style={{ borderRadius: 12, marginTop: 12 }}>
-        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
-          {segments.map(seg => {
-            const active = seg.id === selectedId;
-            return (
-              <div key={seg.id} onClick={() => { setSelectedId(seg.id); setPlayingCand(null); }}
-                style={{
-                  flex: '0 0 190px', border: active ? '1.5px solid #7c3aed' : '1px solid #f0f0f0',
-                  borderRadius: 8, padding: 8, background: active ? '#f9f5ff' : '#fafafa', cursor: 'pointer',
-                }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                  <Tag color={active ? 'purple' : 'default'} style={{ marginRight: 0 }}>片段{seg.segment_no}</Tag>
-                  <Tag color={segStatusColor(seg)} style={{ marginRight: 0 }}>{segStatusLabel(seg)}</Tag>
-                </div>
-                {seg.summary && (
-                  <Text type="secondary" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 12, lineHeight: 1.4 }}>
-                    {seg.summary}
-                  </Text>
-                )}
-                {seg.video_url && (
-                  <video src={getUrl(seg.video_url)} preload="metadata"
-                    style={{ width: '100%', maxHeight: 80, borderRadius: 4, background: '#000', marginTop: 4, display: 'block' }}
-                    onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
                 )}
               </div>
-            );
-          })}
+              <div className="edp-panel__bd">
+                {cands.length === 0 ? (
+                  <Text className="edp-list__empty">暂无版本，点击「生成视频」后展示正式版与备选</Text>
+                ) : (
+                  <div className="edp-list">
+                    {cands.map(c => {
+                      const badge = QUALITY_BADGE[c.quality || ''] || QUALITY_BADGE.unknown;
+                      const report = c.quality_report;
+                      const altNo = cands.filter(x => !x.is_main).indexOf(c) + 1;
+                      const isPlaying = c.is_main ? playingCand === null : playingCand === c.id;
+                      return (
+                        <div key={c.id} className="edp-item"
+                          data-active={isPlaying ? '1' : '0'}
+                          data-clickable={c.video_url ? '1' : '0'}
+                          onClick={() => { if (c.status === 'completed' && c.video_url) setPlayingCand(c.is_main ? null : c.id); }}>
+                          <div className="edp-item__hd">
+                            <Tag color={c.is_main ? 'purple' : 'default'}>
+                              {c.is_main ? '主视频' : `备选 ${altNo}`}
+                            </Tag>
+                            {c.status === 'failed' ? (
+                              <Tag color="error">✘ 生成失败</Tag>
+                            ) : (
+                              <Tooltip title={
+                                report && (report.issues?.length || report.consistency)
+                                  ? `质检报告：${[report.consistency, ...(report.issues || [])].filter(Boolean).join('；')}`
+                                  : '无质检详情'
+                              }>
+                                <Tag color={badge.color}>{badge.label}</Tag>
+                              </Tooltip>
+                            )}
+                            {isPlaying && c.video_url && <Tag color="purple">播放中</Tag>}
+                            <div className="edp-item__fill" />
+                            {c.status === 'completed' && !c.is_main && (
+                              <Button type="primary" size="small" className="edp-btn-brand edp-btn-mini"
+                                loading={accepting.has(c.id)}
+                                onClick={(e) => { e.stopPropagation(); handleAcceptCandidate(c.id, selectedSeg.id); }}>
+                                采纳替换
+                              </Button>
+                            )}
+                            {!c.is_main && (
+                              <Popconfirm title="移除该备选？" onConfirm={() => handleDeleteCandidate(c.id, selectedSeg.id)}
+                                okText="移除" cancelText="取消">
+                                <Button type="text" size="small" icon={<DeleteOutlined />}
+                                  onClick={(e) => e.stopPropagation()} />
+                              </Popconfirm>
+                            )}
+                          </div>
+                          {c.video_url ? (
+                            <video className="edp-item__media" src={getUrl(c.video_url)} preload="metadata"
+                              onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                          ) : c.error_msg ? (
+                            <Text type="danger" className="edp-item__err">{c.error_msg}</Text>
+                          ) : null}
+                          <div className="edp-item__note">
+                            {c.is_main ? '当前正式版本' : '备选版本 · 预览满意后可采纳替换'}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
-      </Card>
+      )}
+
+      <div className="edp-panel">
+        <div className="edp-panel__hd">
+          <Space size={6}>
+            <Text strong>片段列表</Text>
+            <Text className="edp-hint">点击切换中间播放器</Text>
+          </Space>
+        </div>
+        <div className="edp-panel__bd">
+          <div className="edp-strip">
+            {segments.map(seg => {
+              const active = seg.id === selectedId;
+              return (
+                <div key={seg.id} className="edp-seg" data-active={active ? '1' : '0'}
+                  onClick={() => { setSelectedId(seg.id); setPlayingCand(null); }}>
+                  <div className="edp-seg__hd">
+                    <Tag color={active ? 'purple' : 'default'}>片段{seg.segment_no}</Tag>
+                    <Tag color={segStatusColor(seg)}>{segStatusLabel(seg)}</Tag>
+                  </div>
+                  {seg.summary && <div className="edp-seg__summary">{seg.summary}</div>}
+                  {seg.video_url && (
+                    <video className="edp-seg__media" src={getUrl(seg.video_url)} preload="metadata"
+                      onError={(e) => { (e.target as HTMLVideoElement).style.display = 'none'; }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
 
       {episode.video_url && (
-        <Card title="本集成片" style={{ borderRadius: 12, marginTop: 12 }}
-          extra={
-            <a href={getUrl(episode.video_url)} download target="_blank">
+        <div className="edp-panel edp-final">
+          <div className="edp-panel__hd">
+            <Text strong>本集成片</Text>
+            <a href={getUrl(episode.video_url)} download target="_blank" rel="noreferrer">
               <Button icon={<DownloadOutlined />}>下载</Button>
             </a>
-          }>
-          <video src={getUrl(episode.video_url)} controls
-            style={{ width: '100%', maxHeight: 400, borderRadius: 8 }} />
-        </Card>
+          </div>
+          <div className="edp-panel__bd">
+            <video src={getUrl(episode.video_url)} controls />
+          </div>
+        </div>
       )}
 
       <Modal title="编辑提示词" open={editModal.visible} onOk={handleEditSave}
@@ -696,20 +683,20 @@ export default function EpisodeDetailPage() {
           onChange={e => setEditModal(prev => ({ ...prev, value: e.target.value }))} />
       </Modal>
 
-      <Modal title={<div style={{ textAlign: 'center' }}>本集设置</div>} open={settingsModal.visible} onOk={saveSettings}
+      <Modal className="edp-modal--centered" title="本集设置" open={settingsModal.visible} onOk={saveSettings}
         onCancel={() => setSettingsModal(prev => ({ ...prev, visible: false }))}
         okText="保存" cancelText="取消">
-        <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-          <div>
-            <Text strong>画面风格</Text>
+        <div className="edp-form">
+          <div className="edp-form__item">
+            <Text strong className="edp-form__label">画面风格</Text>
             <Select value={settingsModal.style} onChange={v => setSettingsModal(prev => ({ ...prev, style: v }))}
-              style={{ width: '100%', marginTop: 4 }}
+              style={{ width: '100%' }}
               options={[{ label: '动漫', value: 'anime' }, { label: '写实', value: 'realistic' }]} />
           </div>
-          <div>
-            <Text strong>画面比例</Text>
+          <div className="edp-form__item">
+            <Text strong className="edp-form__label">画面比例</Text>
             <Select value={settingsModal.ratio} onChange={v => setSettingsModal(prev => ({ ...prev, ratio: v }))}
-              style={{ width: '100%', marginTop: 4 }}
+              style={{ width: '100%' }}
               options={[
                 { label: '9:16 竖屏', value: '9:16' },
                 { label: '16:9 横屏', value: '16:9' },
@@ -718,29 +705,29 @@ export default function EpisodeDetailPage() {
                 { label: '3:4 竖版', value: '3:4' },
               ]} />
           </div>
-          <div>
-            <Text strong>清晰度</Text>
+          <div className="edp-form__item">
+            <Text strong className="edp-form__label">清晰度</Text>
             <Select value={settingsModal.resolution} onChange={v => setSettingsModal(prev => ({ ...prev, resolution: v }))}
-              style={{ width: '100%', marginTop: 4 }}
+              style={{ width: '100%' }}
               options={['480p', '720p', '1080p'].map(r => ({ label: r, value: r }))} />
           </div>
-          <div>
-            <Text strong>配音语言</Text>
+          <div className="edp-form__item">
+            <Text strong className="edp-form__label">配音语言</Text>
             <Select value={settingsModal.audio_lang} onChange={v => setSettingsModal(prev => ({ ...prev, audio_lang: v }))}
-              style={{ width: '100%', marginTop: 4 }}
+              style={{ width: '100%' }}
               options={[
                 { label: '中文', value: 'zh' },
                 { label: '英文', value: 'en' },
                 { label: '日文', value: 'ja' },
               ]} />
           </div>
-          <div>
-            <Text strong>配音音色</Text>
+          <div className="edp-form__item">
+            <Text strong className="edp-form__label">配音音色</Text>
             <Select value={settingsModal.tts_voice} onChange={v => setSettingsModal(prev => ({ ...prev, tts_voice: v }))}
-              style={{ width: '100%', marginTop: 4 }} allowClear placeholder="默认（按语言自动）"
+              style={{ width: '100%' }} allowClear placeholder="默认（按语言自动）"
               options={voices.map(v => ({ label: `${v.gender === 'female' ? '女' : '男'}·${v.name}（${v.style}）`, value: v.id }))} />
           </div>
-        </Space>
+        </div>
       </Modal>
     </div>
   );

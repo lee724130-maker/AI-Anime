@@ -1,0 +1,256 @@
+/* =============================================================================
+   /drama/:id/assets 项目资产库 质感改造 · 2026-11-25（批次H）
+   作用域：规则一律以 .das- 前缀书写（das = drama assets），只命中本页容器；
+   对 antd 的覆盖写成 `.das-xxx .ant-yyy` 或本页根类下的后代选择器。
+   业务逻辑零改动：接口字段 / state / Tabs 分组 / 生成与导入与删除事件 / TYPE_CONFIG 不动。
+
+   本轮修掉的真实缺陷：
+     1. 🔴🔴 原第 332 行有一段 **写在 JSX 里的全局 <style> 标签**：
+          `.publish-btn { background:#f5f5f5 !important } ...`
+        它既不受本页作用域约束（全仓任何 .publish-btn 都会被染色），又在暗色下把按钮钉成亮灰。
+        → 收进本文件并改名 .das-publish，且限定在 .das-root 之下，!important 只用来压 antd 运行时注入。
+     2. 🔴 只读的「英文提示词」文本域 background:'#f5f5f5' → 暗色下是一块亮灰板。
+     3. 🔴 输出尺寸提示块 background:'#f5f5f5' → 同上。
+     4. 🔴 图片占位块 #f5f5f5 + 文字 #ccc → 暗色下亮灰块 + 灰字几乎不可见。
+     5. 🔴 提示词文本 color:'#8c8c8c'、分隔线 #f0f0f0 → 暗色下不可读 / 边界消失。
+     6. 选中态与主按钮写死 #7c3aed → 走 var(--primary) / var(--grad-brand)。
+   有意保留：antd Image 预览遮罩、Tag 语义色（blue/orange/green/success/error）不动。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.das-root { display: flex; flex-direction: column; gap: var(--sp-4); }
+.das-loading { display: grid; place-items: center; padding: 80px 0; }
+.das-back { display: flex; align-items: center; }
+.das-back .ant-btn-link { padding: 0; color: var(--text-secondary); }
+.das-back .ant-btn-link:hover { color: var(--primary); }
+
+/* ---------- 面板外壳（取代 antd Card） ---------- */
+.das-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.das-panel__bd { padding: var(--sp-4); }
+.das-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.das-hd__titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.das-title {
+  margin: 0 !important;
+  font-size: var(--fs-2xl) !important;
+  font-weight: 640 !important;
+  color: var(--text) !important;
+}
+.das-sub { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 品牌主按钮 ----------
+   类名已带 .das- 页前缀，故不再要求 .das-root 祖先：Modal 走 portal 会逃出页面根，
+   弹窗里的按钮同样需要这套样式（这是本页第 4 个弹窗「生成图片参数」的选中态）。 */
+.ant-btn.das-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  font-weight: 600;
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.ant-btn.das-btn-brand:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+.ant-btn.das-btn-brand:disabled { opacity: .5; transform: none; box-shadow: none; }
+
+/* ---------- Tabs ---------- */
+.das-root .ant-tabs-nav { margin-bottom: var(--sp-3); }
+.das-root .ant-tabs-tab { font-size: var(--fs-md); }
+
+/* ---------- 资产栅格（取代 xs24/sm12/md8/lg6 魔法断点） ---------- */
+.das-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--sp-3);
+}
+.das-empty { padding: var(--sp-5) 0; text-align: center; font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 资产卡 ---------- */
+.das-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-3);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease);
+}
+.das-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.das-card__hd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.das-card__name { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.das-card__hd .ant-tag { margin-inline-end: 0; font-size: var(--fs-xs); }
+
+/* 媒体：原占位块 #f5f5f5 + #ccc → 令牌舞台 */
+.das-card__media { display: flex; justify-content: center; }
+.das-card__img { max-width: 100%; max-height: 140px; border-radius: 4px; }
+.das-card__ph {
+  width: 100%;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  background: var(--surface-3);
+  background-image: var(--grad-stage);
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+}
+.das-card__desc {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+/* 可点击的提示词预览：原 color:#8c8c8c → 令牌 + hover 反馈 */
+.das-card__prompt {
+  cursor: pointer;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: color var(--t-fast) var(--ease);
+}
+.das-card__prompt:hover { color: var(--primary); }
+
+/* 操作区：原 borderTop #f0f0f0 → var(--line) */
+.das-card__acts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+.das-card__acts .ant-btn {
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  padding-inline: 4px;
+  font-size: var(--fs-sm);
+}
+.das-card__acts .ant-btn-text { color: var(--text-secondary); }
+.das-card__acts .ant-btn-text:hover { color: var(--primary); background: var(--surface-2); }
+.das-card__acts .ant-btn-dangerous { color: var(--danger); }
+.das-card__acts .ant-btn-dangerous:hover { background: var(--danger-bg); color: var(--danger); }
+.das-card__span { grid-column: 1 / -1; }
+
+/* 「保存到大资产库」：原 JSX 内全局 <style> + !important 亮灰底 → 令牌，且限定本页 */
+.das-root .das-publish.ant-btn {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--line) !important;
+  color: var(--text-secondary) !important;
+}
+.das-root .das-publish.ant-btn:hover {
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface-2)) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+}
+.das-root .das-publish.ant-btn:active {
+  background: color-mix(in srgb, var(--primary) 20%, var(--surface-2)) !important;
+}
+
+/* ---------- 导入弹窗：大资产挑选 ---------- */
+.das-picklist { max-height: 400px; overflow: auto; }
+.das-pickgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: var(--sp-2);
+}
+.das-pick {
+  position: relative;
+  padding: var(--sp-2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.das-pick:hover { border-color: var(--line-strong); }
+.das-pick[data-on="1"] {
+  border: 2px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+}
+.das-pick__check { position: absolute; top: 4px; right: 4px; z-index: 1; }
+.das-pick__img { width: 100%; height: 80px; object-fit: cover; border-radius: 4px; }
+.das-pick__ph {
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  background: var(--surface-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+}
+.das-pick__name { display: block; margin-top: 4px; font-size: var(--fs-sm); color: var(--text); }
+.das-pick__tag { font-size: 10px; }
+
+/* ---------- 弹窗表单 / 预设选择 ---------- */
+.das-form { display: flex; flex-direction: column; gap: var(--sp-3); width: 100%; }
+.das-form__item { display: flex; flex-direction: column; }
+.das-form__label { display: block; margin-bottom: 4px; }
+
+.das-presets { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: 6px; }
+.das-presets .ant-btn { border-radius: var(--r-sm); }
+/* 选中态由 TSX 挂 das-btn-brand（沿用本页既有做法，不依赖 antd 内部类名） */
+
+/* 只读的英文提示词：原 background:'#f5f5f5' → 令牌 */
+.das-readonly.ant-input[readonly], textarea.das-readonly {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+/* 输出尺寸提示块：原 #f5f5f5 → 令牌 */
+.das-hint {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* 编辑提示词弹窗标题：原实现是 title 里塞 textAlign:center + fontSize:18 的 div，原样保留 */
+.das-modal--centered .ant-modal-title { text-align: center; font-size: 18px; }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .das-panel,
+[data-theme=light] .das-card {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .26);
+}
+[data-theme=dark] .das-panel,
+[data-theme=dark] .das-card {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .das-grid { grid-template-columns: minmax(0, 1fr); }
+  .das-hd { align-items: flex-start; }
+}

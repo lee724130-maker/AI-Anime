@@ -276,7 +276,7 @@ export default function EditAnalysisPage() {
       <Space size={12}>
         <Button type="default" icon={<SaveOutlined />} loading={saving} onClick={handleSave} size="large">保存草稿</Button>
         <Button type="primary" icon={<CheckCircleOutlined />} loading={confirming} onClick={handleConfirm}
-          style={{ background: '#7c3aed', borderColor: '#7c3aed' }} size="large">
+          style={{ background: 'var(--primary)', borderColor: 'var(--primary)' }} size="large">
           确认并生成
         </Button>
       </Space>

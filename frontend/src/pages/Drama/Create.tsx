@@ -62,7 +62,7 @@ export default function DramaCreatePage() {
         </Space>
         <Form.Item>
           <Button type="primary" htmlType="submit" loading={loading}
-            style={{ background: '#7c3aed', borderColor: '#7c3aed', borderRadius: 10 }} size="large">
+            style={{ background: 'var(--primary)', borderColor: 'var(--primary)', borderRadius: 10 }} size="large">
             创建项目
           </Button>
         </Form.Item>

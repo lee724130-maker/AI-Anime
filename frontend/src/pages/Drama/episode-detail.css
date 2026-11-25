@@ -1,0 +1,287 @@
+/* =============================================================================
+   /drama/:id/episodes/:episodeId 单集工作台 质感改造 · 2026-11-25（批次H）
+   沿用 /generate 样板 + /drama 列表页方向：令牌化 + 只换容器。
+   作用域：规则一律以 .edp- 前缀书写（edp = episode detail page），只命中本页容器；
+   对 antd 的覆盖写成 `.edp-xxx .ant-yyy`，不外溢到其它页面（含 /dashboard）。
+   业务逻辑零改动：接口字段 / state / 轮询 / 生成与合成与采纳事件 / QUALITY_BADGE 不动。
+
+   本轮修掉的真实缺陷（不是观感微调）：
+     1. 🔴 候选版本卡与片段卡写死 `background:'#fff'` / `'#fafafa'` / 选中态 `'#f9f5ff'`
+        → 暗色下整块是亮白卡，压在本页深色底上（与前几轮 /user、/viral、/script 同一类 bug）。
+     2. 🔴 两者的边框写死 `#f0f0f0` → 暗色下几乎不可见，卡片边界消失。
+     3. 🔴 空态舞台写死 `background:'#f5f5f5'` → 暗色下是一块亮灰板。
+     4. 🔴 提示词文本写死 `color:'#595959'` → 暗色下深灰压深底，读不出来。
+     5. 主按钮 / 选中态写死 `#7c3aed`（与全站 --grad-brand #6c5ce7→#a5b4fc 不同色）→ 走令牌。
+   有意保留的固定色（不是漏改）：
+     · 视频容器与 <video> 的 `#000` —— 媒体信箱式留黑，两种主题都该是黑的。
+   ============================================================================= */
+
+/* ---------- 加载态 ---------- */
+.edp-loading { display: grid; place-items: center; padding: 80px 0; }
+
+/* ---------- 骨架 ---------- */
+.edp-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.edp-back { display: flex; align-items: center; }
+.edp-back .ant-btn-link { padding: 0; color: var(--text-secondary); }
+.edp-back .ant-btn-link:hover { color: var(--primary); }
+
+/* ---------- 面板外壳（取代 antd Card） ---------- */
+.edp-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.edp-panel__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  background-image: var(--grad-sheen);
+  border-bottom: 1px solid var(--line);
+}
+.edp-panel__hd--plain { border-bottom: none; padding-bottom: 0; }
+.edp-panel__bd { padding: var(--sp-4); }
+.edp-panel__bd--tight { padding: 10px; }
+
+.edp-hd-titles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.edp-title {
+  margin: 0 !important;
+  font-size: var(--fs-2xl) !important;
+  font-weight: 640 !important;
+  color: var(--text) !important;
+  letter-spacing: .01em;
+}
+.edp-sub { font-size: var(--fs-sm); color: var(--text-muted); }
+.edp-hint { font-size: var(--fs-sm); font-weight: 400; color: var(--text-muted); }
+
+/* 本集设置胶囊行 */
+.edp-tags { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.edp-tags__label { font-size: var(--fs-sm); color: var(--text-muted); }
+.edp-tags .ant-tag {
+  margin-inline-end: 0;
+  font-size: var(--fs-xs);
+  border-radius: 999px;
+}
+.edp-tags .ant-btn-link { font-size: var(--fs-sm); padding: 0; }
+
+/* ---------- 品牌主按钮（替掉写死的 #7c3aed） ---------- */
+.edp-root .edp-btn-brand.ant-btn {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  font-weight: 600;
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.edp-root .edp-btn-brand.ant-btn:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+.edp-root .edp-btn-brand.ant-btn:disabled { opacity: .5; transform: none; box-shadow: none; }
+
+/* ---------- 主区 + 侧栏两列（取代 Row/Col 的 xs24/md8/lg8 魔法断点） ---------- */
+.edp-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--sp-3);
+  align-items: start;
+}
+.edp-split__side { min-width: 0; }
+
+/* ---------- 播放器舞台 ---------- */
+.edp-stage {
+  width: 100%;
+  height: clamp(280px, 52vh, 480px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 媒体留黑：两主题固定，见文件头说明 */
+  background: #000;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.edp-stage video { height: 100%; max-width: 100%; object-fit: contain; background: #000; }
+
+/* 空态：原 #f5f5f5 亮灰板 → 令牌舞台 */
+.edp-stage--empty {
+  flex-direction: column;
+  gap: var(--sp-2);
+  background: var(--surface-3);
+  background-image: var(--grad-stage);
+  border: 1px dashed var(--line-strong);
+}
+.edp-stage--empty .ant-typography { color: var(--text-muted); }
+
+.edp-stage-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+}
+.edp-stage-bar .ant-tag { margin-inline-end: 0; }
+.edp-stage-bar__fill { flex: 1; }
+.edp-stage-bar__now { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 片段详情操作条 ---------- */
+.edp-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-2);
+}
+.edp-field { display: flex; align-items: center; gap: 4px; }
+.edp-field__label { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* 可点击的提示词块：原 color:#595959 暗色下不可读 → 令牌 + hover 反馈 */
+.edp-prompt {
+  cursor: pointer;
+  margin-bottom: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.edp-prompt:hover { border-color: var(--primary); color: var(--text); }
+.edp-ref-tags { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.edp-ref-tags .ant-tag { margin-inline-end: 0; }
+
+/* ---------- 候选版本列表 ---------- */
+.edp-list { max-height: 560px; overflow-y: auto; }
+.edp-list__empty { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* 可选中项：原 #fff / #f9f5ff / #f0f0f0 三处硬编码 → 令牌 + data-active */
+.edp-item {
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  background: var(--surface-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.edp-item[data-clickable="1"] { cursor: pointer; }
+.edp-item[data-clickable="1"]:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.edp-item[data-active="1"] {
+  border: 1.5px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-1));
+}
+.edp-item__hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.edp-item__hd .ant-tag { margin-inline-end: 0; }
+.edp-item__fill { flex: 1; }
+.edp-item__media {
+  width: 100%;
+  max-height: 120px;
+  display: block;
+  border-radius: 4px;
+  background: #000;
+}
+.edp-item__note { margin-top: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.edp-item__err { font-size: var(--fs-xs); }
+.edp-item .edp-btn-mini.ant-btn { font-size: var(--fs-xs); }
+
+/* ---------- 片段横条 ---------- */
+.edp-strip {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.edp-seg {
+  flex: 0 0 190px;
+  padding: var(--sp-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
+}
+.edp-seg:hover { border-color: var(--line-strong); transform: translateY(-1px); }
+.edp-seg[data-active="1"] {
+  border: 1.5px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface-1));
+}
+.edp-seg__hd { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
+.edp-seg__hd .ant-tag { margin-inline-end: 0; }
+.edp-seg__summary {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.edp-seg__media {
+  width: 100%;
+  max-height: 80px;
+  display: block;
+  margin-top: 4px;
+  border-radius: 4px;
+  background: #000;
+}
+
+/* ---------- 本集成片 ---------- */
+.edp-final video { width: 100%; max-height: 400px; display: block; border-radius: var(--r-sm); background: #000; }
+.edp-dl.ant-btn { padding: 0; }
+
+/* ---------- 进度面板 ---------- */
+.edp-progress-row { display: flex; align-items: center; gap: var(--sp-3); width: 100%; }
+.edp-progress-row .ant-progress { flex: 1; margin: 0; }
+.edp-progress-col { display: flex; flex-direction: column; gap: var(--sp-1); }
+.edp-progress-inline { margin-bottom: var(--sp-2); }
+.edp-progress-inline .ant-progress { margin-bottom: 4px; }
+
+/* 提示条：Alert 外壳令牌化（不改文案与图标） */
+.edp-root .ant-alert { border-radius: var(--r-sm); }
+
+/* ---------- 弹窗表单 ---------- */
+.edp-form { display: flex; flex-direction: column; gap: var(--sp-4); width: 100%; }
+.edp-form__item { display: flex; flex-direction: column; }
+.edp-form__label { display: block; margin-bottom: 4px; }
+/* Modal 走 portal、在 .edp-root 之外，故用页面前缀的独立类名作用域。
+   标题居中是原实现（title 里塞了 textAlign:center 的 div）的既有意图，原样保留。 */
+.edp-modal--centered .ant-modal-title { text-align: center; }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .edp-panel {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -20px rgba(16, 24, 40, .26);
+}
+[data-theme=dark] .edp-panel {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+/* 暗色下可选中项要能从卡底(--card #151f2e)再浮起一档 */
+[data-theme=dark] .edp-item { background: var(--surface-2); }
+[data-theme=dark] .edp-item[data-active="1"] { background: color-mix(in srgb, var(--primary) 16%, var(--surface-2)); }
+[data-theme=dark] .edp-seg { background: var(--surface-2); }
+[data-theme=dark] .edp-seg[data-active="1"] { background: color-mix(in srgb, var(--primary) 16%, var(--surface-2)); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .edp-panel__hd { align-items: flex-start; }
+  .edp-seg { flex-basis: 160px; }
+  .edp-stage { height: clamp(220px, 44vh, 360px); }
+}

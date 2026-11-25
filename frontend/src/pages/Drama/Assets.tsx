@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Typography, Button, Card, Tag, Space, Spin, message, Tabs, Modal,
-  Input, Select, Image, Row, Col, Popconfirm, Checkbox,
+  Typography, Button, Tag, Space, Spin, message, Tabs, Modal,
+  Input, Select, Image, Popconfirm, Checkbox,
 } from 'antd';
 import {
   ArrowLeftOutlined, PlusOutlined, DeleteOutlined,
@@ -11,6 +11,7 @@ import {
   CheckCircleOutlined,
 } from '@ant-design/icons';
 import api from '../../services/api';
+import './assets.css';   // 本页质感改造样式（作用域 .das-，详见文件头注释）
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -245,7 +246,7 @@ export default function DramaAssetsPage() {
 
   const pendingCount = assets.filter(a => a.status === 'pending' || a.status === 'failed').length;
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
+  if (loading) return <div className="das-loading"><Spin size="large" /></div>;
 
   const grouped = {
     character: assets.filter(a => a.type === 'character'),
@@ -256,126 +257,103 @@ export default function DramaAssetsPage() {
   const renderAssetCard = (asset: Asset) => {
     const isGenerating = generating.has(asset.id);
     return (
-      <Card
-        key={asset.id}
-        size="small"
-        style={{ borderRadius: 8 }}
-      >
-        <div style={{ marginBottom: 8 }}>
-          <Space size={4}>
-            <Text strong style={{ fontSize: 13 }}>{asset.name}</Text>
-            <Tag color={asset.status === 'completed' ? 'success' : asset.status === 'failed' ? 'error' : 'default'}
-              style={{ fontSize: 11 }}>
-              {asset.status === 'completed' ? '有图' : asset.status === 'pending' ? '待生成' : '失败'}
-            </Tag>
-          </Space>
+      <div key={asset.id} className="das-card">
+        <div className="das-card__hd">
+          <Text className="das-card__name">{asset.name}</Text>
+          <Tag color={asset.status === 'completed' ? 'success' : asset.status === 'failed' ? 'error' : 'default'}>
+            {asset.status === 'completed' ? '有图' : asset.status === 'pending' ? '待生成' : '失败'}
+          </Tag>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div className="das-card__media">
           {asset.image_url ? (
-            <Image src={getUrl(asset.image_url)} alt={asset.name}
-              style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 4 }}
+            <Image className="das-card__img" src={getUrl(asset.image_url)} alt={asset.name}
               preview={{ mask: <EyeOutlined /> }}
             />
           ) : (
-            <div style={{ width: '100%', height: 140, background: '#f5f5f5', borderRadius: 4,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ccc' }}>
+            <div className="das-card__ph">
               {asset.prompt ? '点击⚡生成' : '无提示词'}
             </div>
           )}
         </div>
         {asset.description && (
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 4, lineHeight: 1.4 }}>
-            {asset.description}
-          </Text>
+          <Text className="das-card__desc">{asset.description}</Text>
         )}
         {(asset.prompt_cn || asset.prompt) && (
-          <div onClick={() => handleEditPrompt(asset)} style={{
-            cursor: 'pointer', display: '-webkit-box', WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical', overflow: 'hidden', marginTop: 2,
-          }}>
-            <Text type="secondary" style={{ fontSize: 11, lineHeight: 1.3, color: '#8c8c8c' }}>
-              {asset.prompt_cn || asset.prompt}
-            </Text>
+          <div className="das-card__prompt" onClick={() => handleEditPrompt(asset)}>
+            {asset.prompt_cn || asset.prompt}
           </div>
         )}
-        <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 8, paddingTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+        <div className="das-card__acts">
           <Button type="text" size="small" icon={isGenerating ? <SyncOutlined spin /> : <ThunderboltOutlined />}
-            onClick={() => openGenerateModal(asset.id)} style={{ fontSize: 12, height: 32, width: '100%' }}>
+            onClick={() => openGenerateModal(asset.id)}>
             {isGenerating ? '生成中' : '生成图片'}
           </Button>
           <Button type="text" size="small" icon={<CheckCircleOutlined />}
-            loading={planning.has(asset.id)} onClick={() => handlePlanPrompt(asset.id)}
-            style={{ fontSize: 12, height: 32, width: '100%' }}>
+            loading={planning.has(asset.id)} onClick={() => handlePlanPrompt(asset.id)}>
             智能规划
           </Button>
           <Button type="text" size="small" icon={<AimOutlined />}
-            onClick={() => handleEditPrompt(asset)} style={{ fontSize: 12, height: 32, width: '100%' }}>
+            onClick={() => handleEditPrompt(asset)}>
             编辑提示词
           </Button>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(asset.id)}>
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ fontSize: 12, height: 32, width: '100%' }}>
+            <Button type="text" size="small" danger icon={<DeleteOutlined />}>
               删除
             </Button>
           </Popconfirm>
           <Button type="text" size="small" icon={<ExportOutlined />}
-            onClick={() => handlePublishToGlobal(asset)} className="publish-btn"
-            style={{ fontSize: 12, height: 32, width: '100%', gridColumn: '1 / -1' }}>
+            onClick={() => handlePublishToGlobal(asset)} className="das-publish das-card__span">
             保存到大资产库
           </Button>
         </div>
-      </Card>
+      </div>
     );
   };
 
   return (
-    <div>
-      <style>{`.publish-btn { background: #f5f5f5 !important; } .publish-btn:hover { background: #e8e8e8 !important; } .publish-btn:active { background: #d9d9d9 !important; }`}</style>
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/drama/${id}`)} style={{ padding: 0 }}>
+    <div className="das-root">
+      <div className="das-back">
+        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(`/drama/${id}`)}>
           返回项目详情
         </Button>
-      </Space>
+      </div>
 
-      <Card style={{ borderRadius: 12, marginBottom: 16 }}>
-        <Row justify="space-between" align="middle">
-          <Col>
-            <Title level={4} style={{ margin: 0 }}>资产库 · {projectTitle}</Title>
-            <Text type="secondary">共 {assets.length} 个资产，{pendingCount} 个待生成</Text>
-          </Col>
-          <Col>
+      <div className="das-panel">
+        <div className="das-panel__bd">
+          <div className="das-hd">
+            <div className="das-hd__titles">
+              <Title level={4} className="das-title">资产库 · {projectTitle}</Title>
+              <Text className="das-sub">共 {assets.length} 个资产，{pendingCount} 个待生成</Text>
+            </div>
             <Space>
               <Button icon={<PlusOutlined />} onClick={() => setAddModal(true)}>新增资产</Button>
               <Button icon={<ImportOutlined />} onClick={openImportModal}>从大资产库导入</Button>
               <Button type="primary" icon={<ThunderboltOutlined />} loading={batchGenerating}
-                disabled={pendingCount === 0}
-                style={{ background: '#7c3aed', borderColor: '#7c3aed' }}
+                disabled={pendingCount === 0} className="das-btn-brand"
                 onClick={handleGenerateAll}>
                 批量生成 ({pendingCount})
               </Button>
             </Space>
-          </Col>
-        </Row>
-      </Card>
+          </div>
+        </div>
+      </div>
 
       <Tabs
         items={[
           { key: 'character', label: `人物 (${grouped.character.length})`, children: (
-            <Row gutter={[12, 12]}>
-              {grouped.character.length === 0 && <Col span={24}><Text type="secondary">暂无人物资产</Text></Col>}
-              {grouped.character.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderAssetCard(a)}</Col>)}
-            </Row>
+            grouped.character.length === 0
+              ? <div className="das-empty">暂无人物资产</div>
+              : <div className="das-grid">{grouped.character.map(a => renderAssetCard(a))}</div>
           )},
           { key: 'prop', label: `物品 (${grouped.prop.length})`, children: (
-            <Row gutter={[12, 12]}>
-              {grouped.prop.length === 0 && <Col span={24}><Text type="secondary">暂无物品资产</Text></Col>}
-              {grouped.prop.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderAssetCard(a)}</Col>)}
-            </Row>
+            grouped.prop.length === 0
+              ? <div className="das-empty">暂无物品资产</div>
+              : <div className="das-grid">{grouped.prop.map(a => renderAssetCard(a))}</div>
           )},
           { key: 'scene', label: `场景 (${grouped.scene.length})`, children: (
-            <Row gutter={[12, 12]}>
-              {grouped.scene.length === 0 && <Col span={24}><Text type="secondary">暂无场景资产</Text></Col>}
-              {grouped.scene.map(a => <Col key={a.id} xs={24} sm={12} md={8} lg={6}>{renderAssetCard(a)}</Col>)}
-            </Row>
+            grouped.scene.length === 0
+              ? <div className="das-empty">暂无场景资产</div>
+              : <div className="das-grid">{grouped.scene.map(a => renderAssetCard(a))}</div>
           )},
         ]}
       />
@@ -383,37 +361,30 @@ export default function DramaAssetsPage() {
       <Modal title="从大资产库导入" open={importModal} onOk={handleImportGlobal}
         onCancel={() => setImportModal(false)} okText="导入选中" cancelText="取消" width={640}>
         {loadingGlobal ? <Spin /> : (
-          <div style={{ maxHeight: 400, overflow: 'auto' }}>
-            {globalAssets.length === 0 ? <Text type="secondary">大资产库暂无资产</Text> : (
-              <Row gutter={[8, 8]}>
+          <div className="das-picklist">
+            {globalAssets.length === 0 ? <Text className="das-sub">大资产库暂无资产</Text> : (
+              <div className="das-pickgrid">
                 {globalAssets.map(a => (
-                  <Col key={a.id} xs={12} sm={8}>
-                    <Card size="small" style={{
-                      borderRadius: 6, cursor: 'pointer',
-                      border: selectedGlobal.includes(a.id) ? '2px solid #7c3aed' : '1px solid #f0f0f0',
-                    }} onClick={() => {
+                  <div key={a.id} className="das-pick"
+                    data-on={selectedGlobal.includes(a.id) ? '1' : '0'}
+                    onClick={() => {
                       setSelectedGlobal(prev =>
                         prev.includes(a.id) ? prev.filter(x => x !== a.id) : [...prev, a.id]
                       );
                     }}>
-                      <div style={{ position: 'absolute', top: 4, right: 4 }}>
-                        <Checkbox checked={selectedGlobal.includes(a.id)} />
-                      </div>
-                      {a.image_url ? (
-                        <Image src={getUrl(a.image_url)} preview={false}
-                          style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 4 }} />
-                      ) : (
-                        <div style={{ height: 80, background: '#f5f5f5', borderRadius: 4,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#ccc' }}>
-                          无图
-                        </div>
-                      )}
-                      <Text style={{ fontSize: 12, display: 'block', marginTop: 4 }}>{a.name}</Text>
-                      <Tag color={TYPE_CONFIG[a.type]?.color} style={{ fontSize: 10 }}>{TYPE_CONFIG[a.type]?.label}</Tag>
-                    </Card>
-                  </Col>
+                    <div className="das-pick__check">
+                      <Checkbox checked={selectedGlobal.includes(a.id)} />
+                    </div>
+                    {a.image_url ? (
+                      <Image className="das-pick__img" src={getUrl(a.image_url)} preview={false} />
+                    ) : (
+                      <div className="das-pick__ph">无图</div>
+                    )}
+                    <Text className="das-pick__name">{a.name}</Text>
+                    <Tag className="das-pick__tag" color={TYPE_CONFIG[a.type]?.color}>{TYPE_CONFIG[a.type]?.label}</Tag>
+                  </div>
                 ))}
-              </Row>
+              </div>
             )}
           </div>
         )}
@@ -421,10 +392,10 @@ export default function DramaAssetsPage() {
 
       <Modal title="新增资产" open={addModal} onOk={handleAdd} onCancel={() => setAddModal(false)}
         okText="添加" cancelText="取消">
-        <Space orientation="vertical" style={{ width: '100%' }}>
-          <div>
-            <Text>类型</Text>
-            <Select value={addType} onChange={v => setAddType(v)} style={{ width: '100%', marginTop: 4 }}>
+        <div className="das-form">
+          <div className="das-form__item">
+            <Text className="das-form__label">类型</Text>
+            <Select value={addType} onChange={v => setAddType(v)} style={{ width: '100%' }}>
               <Select.Option value="character">人物</Select.Option>
               <Select.Option value="prop">物品</Select.Option>
               <Select.Option value="scene">场景</Select.Option>
@@ -434,17 +405,17 @@ export default function DramaAssetsPage() {
           <TextArea placeholder="资产描述（可选）" value={addDesc} onChange={e => setAddDesc(e.target.value)} rows={2} />
           <TextArea placeholder="英文提示词（给AI用，可选）" value={addPrompt} onChange={e => setAddPrompt(e.target.value)} rows={2} />
           <TextArea placeholder="中文提示词描述（给你看，可选）" value={addPromptCn} onChange={e => setAddPromptCn(e.target.value)} rows={2} />
-        </Space>
+        </div>
       </Modal>
 
-      <Modal title={<div style={{ textAlign: 'center', fontSize: 18 }}>编辑提示词</div>} open={editModal.visible} onOk={handleEditSave}
+      <Modal className="das-modal--centered" title="编辑提示词" open={editModal.visible} onOk={handleEditSave}
         onCancel={() => setEditModal({ visible: false, asset: null, promptCn: '', prompt: '', planning: false, translating: false })}
         okText="保存" cancelText="取消" width={900} centered>
-        <Space orientation="vertical" style={{ width: '100%' }} size="small">
+        <div className="das-form">
           <Text strong style={{ fontSize: 14 }}>中文提示词</Text>
           <TextArea rows={8} value={editModal.promptCn}
             onChange={e => setEditModal(prev => ({ ...prev, promptCn: e.target.value }))} />
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="das-presets">
             <Button icon={<ThunderboltOutlined />} loading={editModal.planning}
               onClick={handlePlanInModal} style={{ flex: 1 }}>
               智能规划
@@ -455,65 +426,56 @@ export default function DramaAssetsPage() {
             </Button>
           </div>
           <Text strong style={{ fontSize: 14 }}>英文提示词（只读）</Text>
-          <TextArea rows={8} value={editModal.prompt} readOnly
-            style={{ background: '#f5f5f5' }} />
-        </Space>
+          <TextArea className="das-readonly" rows={8} value={editModal.prompt} readOnly />
+        </div>
       </Modal>
 
       <Modal title="生成图片参数" open={generateModal.visible} onOk={handleGenerate}
         onCancel={() => setGenerateModal(prev => ({ ...prev, visible: false }))}
         okText="开始生成" cancelText="取消">
-        <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-          <div>
+        <div className="das-form">
+          <div className="das-form__item">
             <Text strong>画面风格</Text>
-            <Row gutter={[8, 8]} style={{ marginTop: 6 }}>
+            <div className="das-presets">
               {stylePresets.map(s => (
-                <Col key={s.value}>
-                  <Button type={generateModal.style === s.value ? 'primary' : 'default'}
-                    onClick={() => setGenerateModal(prev => ({ ...prev, style: s.value }))}
-                    style={generateModal.style === s.value ? { background: '#7c3aed', borderColor: '#7c3aed' } : {}}>
-                    {s.label}
-                  </Button>
-                </Col>
+                <Button key={s.value} type={generateModal.style === s.value ? 'primary' : 'default'}
+                  onClick={() => setGenerateModal(prev => ({ ...prev, style: s.value }))}
+                  className={generateModal.style === s.value ? 'das-btn-brand' : undefined}>
+                  {s.label}
+                </Button>
               ))}
-            </Row>
+            </div>
           </div>
-          <div>
+          <div className="das-form__item">
             <Text strong>宽高比</Text>
-            <Row gutter={[8, 8]} style={{ marginTop: 6 }}>
+            <div className="das-presets">
               {presets.map(p => (
-                <Col key={p.value}>
-                  <Button type={generateModal.ratio === p.value ? 'primary' : 'default'}
-                    onClick={() => setGenerateModal(prev => ({ ...prev, ratio: p.value }))}
-                    style={generateModal.ratio === p.value ? { background: '#7c3aed', borderColor: '#7c3aed' } : {}}>
-                    {p.label}
-                  </Button>
-                </Col>
+                <Button key={p.value} type={generateModal.ratio === p.value ? 'primary' : 'default'}
+                  onClick={() => setGenerateModal(prev => ({ ...prev, ratio: p.value }))}
+                  className={generateModal.ratio === p.value ? 'das-btn-brand' : undefined}>
+                  {p.label}
+                </Button>
               ))}
-            </Row>
+            </div>
           </div>
-          <div>
+          <div className="das-form__item">
             <Text strong>画质</Text>
-            <Row gutter={[8, 8]} style={{ marginTop: 6 }}>
+            <div className="das-presets">
               {sizeOptions.map(s => (
-                <Col key={s.value}>
-                  <Button type={generateModal.size === s.value ? 'primary' : 'default'}
-                    onClick={() => setGenerateModal(prev => ({ ...prev, size: s.value }))}
-                    style={generateModal.size === s.value ? { background: '#7c3aed', borderColor: '#7c3aed' } : {}}>
-                    {s.label}
-                  </Button>
-                </Col>
+                <Button key={s.value} type={generateModal.size === s.value ? 'primary' : 'default'}
+                  onClick={() => setGenerateModal(prev => ({ ...prev, size: s.value }))}
+                  className={generateModal.size === s.value ? 'das-btn-brand' : undefined}>
+                  {s.label}
+                </Button>
               ))}
-            </Row>
+            </div>
           </div>
           {generateModal.visible && (
-            <div style={{ background: '#f5f5f5', borderRadius: 6, padding: '8px 12px' }}>
-              <Text type="secondary">
-                输出尺寸：{calcSize(generateModal.ratio, generateModal.size).width} x {calcSize(generateModal.ratio, generateModal.size).height}
-              </Text>
+            <div className="das-hint">
+              输出尺寸：{calcSize(generateModal.ratio, generateModal.size).width} x {calcSize(generateModal.ratio, generateModal.size).height}
             </div>
           )}
-        </Space>
+        </div>
       </Modal>
     </div>
   );

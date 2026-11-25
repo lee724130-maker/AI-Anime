@@ -1,0 +1,302 @@
+/* =============================================================================
+   /drama/assets 大资产库 质感改造 · 2026-11-25（批次H）
+   作用域：规则一律以 .dga- 前缀书写（dga = drama global assets），只命中本页容器。
+   业务逻辑零改动：搜索/筛选 state、分页、上传、生成、删除、Modal.confirm 全部不动。
+
+   本页此前已大量使用 var()，本轮重点是三件事：
+     1. 🔴 图片缩略图容器写死 background:'#f0f0f0' → 图挂了或尚未出图时，暗色下是一块亮白方块。
+     2. 🔴 「新增资产」虚线卡的 hover 底色写死 rgba(124,58,237,0.04)（旧主色 #7c3aed 的 alpha 形式）
+        → 改 color-mix(var(--primary))，跟随全站品牌色。
+     3. 卡片与新增卡的 hover 是用 onMouseEnter/onMouseLeave 直接改 DOM style 实现的
+        → 改成 CSS :hover（少 4 个事件回调、且不会被 React 重渲染打回原状）。
+   有意保留的固定色（不是漏改）：
+     · 视频/图片详情与缩略图的 #000 —— 媒体信箱留黑。
+     · 音频类型块渐变 #667eea→#764ba2、视频占位渐变 #1a1a2e→#16213e ——
+       它们是「类型识别色带」，上面配的是半透明白图标，两种主题下都可读；
+       改成主题色会让音频和视频占位在暗色下糊成一片。
+     · 选中筛选页签上的 #fff —— 压在 --primary 实色底上的白字。
+   注：本页弹窗关闭钮等私有规则目前仍留在全局 index.css（第 58-60、106-107 行），
+       已做暗色适配、无可见缺陷，按计划归入批次J「全局私有规则回收」统一搬迁。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.dga-root { max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--sp-5); }
+.dga-loading { display: grid; place-items: center; padding: 80px 0; }
+.dga-back { display: flex; align-items: center; }
+.dga-back .ant-btn-link { padding: 0; color: var(--text-secondary); }
+.dga-back .ant-btn-link:hover { color: var(--primary); }
+
+/* ---------- 页头 ---------- */
+.dga-head { display: flex; flex-direction: column; gap: var(--sp-4); }
+.dga-head__row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.dga-head__title { margin: 0 !important; font-size: var(--fs-2xl) !important; font-weight: 660 !important; color: var(--text) !important; }
+.dga-head__sub { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* 新增按钮：原内联 var(--primary)+height40 → 类（值保持原样，含 40/24/500） */
+.dga-root .dga-btn-new.ant-btn,
+.dga-modal .dga-btn-new.ant-btn {
+  height: 40px;
+  padding-inline: 24px;
+  font-weight: 500;
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.dga-root .dga-btn-new.ant-btn:hover,
+.dga-modal .dga-btn-new.ant-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+
+/* ---------- 工具条 ---------- */
+.dga-tools { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.dga-search.ant-input-affix-wrapper {
+  width: 280px;
+  max-width: 100%;
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  border-color: var(--line);
+}
+.dga-search.ant-input-affix-wrapper:hover { border-color: var(--line-strong); }
+.dga-search.ant-input-affix-wrapper-focused { border-color: var(--primary); box-shadow: var(--ring); }
+.dga-search .ant-input-prefix { color: var(--text-muted); }
+
+/* 筛选页签（原生 button，非 antd） */
+.dga-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  flex-wrap: wrap;
+}
+.dga-tab {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: var(--fs-md);
+  font-weight: 400;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.dga-tab:hover { color: var(--text); background: var(--hover); }
+.dga-tab[data-on="1"] {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 500;
+}
+
+/* ---------- 资产栅格 ---------- */
+.dga-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-4);
+}
+
+/* 资产卡：原 hover 靠 JS 改 style → CSS */
+.dga-card {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  transition: transform var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), border-color var(--t-base) var(--ease);
+}
+.dga-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-3); border-color: var(--line-strong); }
+.dga-card:focus-visible { outline: none; border-color: var(--primary); box-shadow: var(--ring), var(--shadow-2); }
+.dga-card__body { padding: var(--sp-3) 14px; display: flex; flex-direction: column; gap: 6px; }
+.dga-card__title { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; }
+.dga-card__name { flex: 1; font-size: var(--fs-lg); line-height: 1.3; }
+.dga-card__tag.ant-tag { flex-shrink: 0; margin-inline-end: 0; font-size: var(--fs-xs); }
+.dga-card__chips { display: flex; flex-wrap: wrap; gap: 2px; }
+.dga-card__chips .ant-tag { margin-inline-end: 0; padding: 0 6px; font-size: 10px; }
+.dga-card__foot { display: flex; align-items: center; justify-content: space-between; }
+.dga-card__time { font-size: var(--fs-xs); color: var(--text-muted); }
+.dga-card__spin { font-size: 14px; color: var(--primary); }
+
+/* ---------- 缩略图 ---------- */
+.dga-thumb { position: relative; overflow: hidden; background: var(--surface-3); }
+.dga-thumb__media { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 原 #f0f0f0 亮白块 → 令牌占位底，图挂了也不会刺眼 */
+.dga-thumb--img { background: var(--surface-3); background-image: var(--grad-stage); }
+.dga-thumb--media { background: #000; }
+.dga-thumb__play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .5);
+}
+.dga-thumb__play .anticon { font-size: 30px; color: #fff; }
+/* 类型识别色带（固定，见文件头说明） */
+.dga-thumb--video-ph {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+}
+.dga-thumb--audio {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+.dga-thumb--audio .dga-audio-badge {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .2);
+}
+.dga-thumb--audio .anticon { font-size: 28px; color: #fff; }
+.dga-thumb__ph-icon { font-size: 36px; color: rgba(255, 255, 255, .3); }
+.dga-thumb__ph-text { font-size: var(--fs-sm); color: rgba(255, 255, 255, .4); }
+.dga-thumb--none {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  background: var(--bg-secondary);
+}
+.dga-thumb--none .anticon { font-size: 36px; color: var(--text-muted); }
+.dga-thumb--none span { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 新增虚线卡：原 rgba(124,58,237,.04) → color-mix；原 JS hover → CSS ---------- */
+.dga-add {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  border: 2px dashed var(--line);
+  border-radius: var(--r-md);
+  background: transparent;
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), background var(--t-base) var(--ease);
+}
+.dga-add:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.dga-add:focus-visible { outline: none; border-color: var(--primary); box-shadow: var(--ring); }
+.dga-add__badge {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+}
+.dga-add__badge .anticon { font-size: 24px; color: var(--text-muted); }
+.dga-add__label { font-size: var(--fs-md); color: var(--text-muted); }
+
+/* ---------- 空态 ---------- */
+.dga-empty { padding: 60px 0; text-align: center; color: var(--text-muted); }
+.dga-empty .anticon { display: block; margin-bottom: var(--sp-3); font-size: 48px; opacity: .4; }
+
+/* ---------- 详情弹窗（portal 在页面根之外，故用 .dga-modal 自作用域） ---------- */
+.dga-modal__media-wrap { overflow: hidden; }
+.dga-modal__head { padding: 20px 24px 0; }
+.dga-modal__title { margin: 0 !important; font-size: var(--fs-2xl) !important; font-weight: 640 !important; }
+.dga-modal__tags { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-2); }
+.dga-modal__tags .ant-tag { margin-inline-end: 0; }
+.dga-modal__video { margin: var(--sp-4) 0; background: #000; }
+.dga-modal__video video { width: 100%; max-height: 400px; object-fit: contain; display: block; }
+.dga-modal__image { margin: var(--sp-4) -24px; background: #000; overflow: hidden; text-align: center; }
+.dga-modal__image .ant-image img { max-width: 100%; max-height: 400px; object-fit: contain; }
+.dga-modal__audio {
+  margin: var(--sp-4) -24px;
+  height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+.dga-modal__audio .anticon { font-size: 48px; color: #fff; }
+.dga-modal__audio audio { width: 80%; }
+.dga-modal__missing {
+  margin: var(--sp-4) -24px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 弹窗底在暗色下是 --card-bg #1e293b，故内嵌块要取更浅的 --surface-3 #223046 才浮得起来
+     （原实现用 --bg-secondary，与弹窗底同色 → 那块其实完全看不出来） */
+  background: var(--surface-3);
+  color: var(--text-muted);
+}
+.dga-modal__body { padding: 0 24px; }
+.dga-modal__desc { margin-bottom: var(--sp-3); font-size: var(--fs-md); color: var(--text-muted); }
+.dga-modal__prompt {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.dga-modal__prompt-label { display: block; margin-bottom: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
+.dga-modal__prompt-text { font-size: var(--fs-md); line-height: 1.5; color: var(--text); }
+.dga-modal__kv {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-6);
+  margin-bottom: var(--sp-4);
+  font-size: var(--fs-md);
+}
+.dga-modal__kv-label { color: var(--text-muted); font-weight: 600; }
+.dga-modal__kv > div:not(.dga-modal__kv-label) { color: var(--text); }
+.dga-modal__acts {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-4) 24px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- 表单 ---------- */
+.dga-form { display: flex; flex-direction: column; gap: var(--sp-4); width: 100%; }
+.dga-form__item { display: flex; flex-direction: column; }
+.dga-form__label { display: block; margin-bottom: 4px; }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .dga-card {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+}
+[data-theme=dark] .dga-card { border-color: var(--line-strong); }
+[data-theme=dark] .dga-card:hover { box-shadow: var(--shadow-3); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .dga-search.ant-input-affix-wrapper { width: 100%; }
+  .dga-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .dga-modal__kv { grid-template-columns: 1fr; }
+}

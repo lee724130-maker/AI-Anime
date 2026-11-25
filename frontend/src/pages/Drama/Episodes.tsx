@@ -166,7 +166,7 @@ export default function DramaEpisodesPage() {
                   </Space>
                   {cnt.total > 0 && (
                     <Progress percent={pct} size="small" style={{ marginTop: 8 }}
-                      strokeColor={pct === 100 ? '#52c41a' : '#7c3aed'} />
+                      strokeColor={pct === 100 ? 'var(--success)' : 'var(--primary)'} />
                   )}
                 </div>
               </Card>
