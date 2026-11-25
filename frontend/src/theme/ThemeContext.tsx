@@ -28,6 +28,9 @@ function readTheme(): Theme {
 }
 
 // 暗色 token 覆盖（生产 bundle kj 逐字还原）
+// ⚠️ 2026-11-25 批次G：文字四级已按 WCAG AA 重新定档，与 index.css 的 CSS 令牌同步，
+//    属于**主动偏离生产原样**的决定（原 tertiary #64748B / quaternary #475569 在
+//    colorBgContainer #1E293B 上只有 3.07 / 1.93 对比度，placeholder 基本看不清）。
 const DARK_TOKENS = {
   colorBgBase: '#0F172A',
   colorBgContainer: '#1E293B',
@@ -35,9 +38,10 @@ const DARK_TOKENS = {
   colorBgLayout: '#0F172A',
   colorBgSpotlight: '#1E293B',
   colorText: '#F1F5F9',
-  colorTextSecondary: '#94A3B8',
-  colorTextTertiary: '#64748B',
-  colorTextQuaternary: '#475569',
+  colorTextSecondary: '#A3B1C5',   // 6.72:1（原 #94A3B8 = 5.71）
+  colorTextTertiary: '#8798AF',    // 4.97:1（原 #64748B = 3.07）＝ CSS 侧 --text-muted
+  colorTextQuaternary: '#6E7F96',  // 3.58:1（原 #475569 = 1.93）placeholder 层，
+                                   // 深色底上「更弱」必然「更低对比」，这里取可读下限
   colorBorder: '#334155',
   colorBorderSecondary: '#94A3B8',
   colorFill: '#334155',
@@ -79,6 +83,16 @@ const DARK_COMPONENTS = {
   Menu: { darkItemBg: '#0F172A', darkSubMenuItemBg: '#0F172A', darkItemSelectedBg: 'rgba(129,140,248,0.08)' },
 };
 
+// 浅色文字四级覆盖（11-25 批次G 新增）
+// 原先浅色分支完全不注入 token（if (isDark) 才注入），placeholder 走 antd 默认
+// rgba(0,0,0,.25) = 1.84:1、三级文字 #9ca3af = 2.54:1，均不达 WCAG AA。
+// 这里只覆盖文字层级，其余仍由 defaultAlgorithm 从 colorTextBase 推导，避免连带改动别的色。
+const LIGHT_TOKENS = {
+  colorTextSecondary: '#4F5765',   // 7.28:1（原 antd 默认 ≈ 4.6）
+  colorTextTertiary: '#656E7C',    // 5.15:1 ＝ CSS 侧 --text-muted
+  colorTextQuaternary: '#7D8695',  // 3.67:1（原 rgba(0,0,0,.25) = 1.84）placeholder 层
+};
+
 // ThemeProvider（生产 Aj 逐字还原）
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(readTheme);
@@ -108,6 +122,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   if (isDark) {
     config.token = DARK_TOKENS;
     config.components = DARK_COMPONENTS;
+  } else {
+    config.token = LIGHT_TOKENS;
   }
 
   return (
