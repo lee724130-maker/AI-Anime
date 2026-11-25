@@ -9,6 +9,7 @@ import {
   type WFNode, type WFNodeType,
 } from './WorkflowTypes';
 import type { AssetPayload } from './WorkflowCanvas';
+import './properties-panel.css';   // 控件级样式，作用域 .wfpp-*
 
 const { Text } = Typography;
 
@@ -129,11 +130,10 @@ export default function PropertiesPanel({ node, assetOptions, onChange, onRemove
                 options={ANIMATION_OPTIONS} onChange={(v) => patchParams({ animation: v })} />
             </div>
           </div>
-          <div style={{ marginTop: 10 }}>
-            <Text style={{ fontSize: 12, display: 'block', marginBottom: 3 }}>文字颜色</Text>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input type="color" value={color} onChange={(e) => { setColor(e.target.value); patchParams({ text_color: e.target.value }); }}
-                style={{ width: 46, height: 28, border: '1px solid #d9d9d9', borderRadius: 6, cursor: 'pointer' }} />
+          <div className="wfpp__group">
+            <Text className="wfpp__label">文字颜色</Text>
+            <div className="wfpp__row">
+              <input type="color" className="wfpp__color" value={color} onChange={(e) => { setColor(e.target.value); patchParams({ text_color: e.target.value }); }} />
               <Text type="secondary" style={{ fontSize: 11 }}>{''}</Text>
             </div>
           </div>

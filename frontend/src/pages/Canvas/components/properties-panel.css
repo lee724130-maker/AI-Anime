@@ -1,0 +1,21 @@
+/* =============================================================================
+   Canvas 节点属性面板 · 2026-11-24 批次G
+   PropertiesPanel 只被 pages/Canvas/Editor.tsx 使用，但它自身不持有背景
+   （白底由宿主页的面板容器给），所以这里只放控件级样式，作用域 .wfpp-*。
+   注意：文件里 normalizeColor() 的 '#7C3AED' 是**文字颜色内容的默认值**
+   （写进 node.params.text_color 的数据），不是 UI 样式，未动。
+   ============================================================================= */
+
+/* 原生取色器在暗色主题下会露出浏览器默认白框 → 边框与内底色令牌化 */
+.wfpp__color {
+  width: 46px;
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--card);
+  cursor: pointer;
+}
+.wfpp__label { display: block; margin-bottom: 3px; font-size: var(--fs-sm); }
+.wfpp__row { display: flex; align-items: center; gap: 8px; }
+.wfpp__group { margin-top: 10px; }

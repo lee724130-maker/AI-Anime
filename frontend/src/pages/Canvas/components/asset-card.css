@@ -1,0 +1,69 @@
+/* =============================================================================
+   AssetCard 素材卡样式 · 2026-11-24 批次G
+   ⚠️ 这是**跨页共用组件**（pages/Canvas/components/AssetPanel.tsx），同时被
+      Canvas 编辑器页与 /editor/:id 的素材库使用，所以作用域不能挂在任何单页
+      root 下，否则另一页引用时样式会丢。这里用组件自有前缀 .asset-card*。
+
+   保留的固定色（与主题无关，理由同批次F）：
+   - 缩略图视频底 --ac-stage #111：媒体画布两主题都要近黑
+   - 音频渐变 --ac-audio-*：音频语义色，与 Editor 页 / TRACK_META 音频轨同一色系
+   ============================================================================= */
+
+.asset-card {
+  --ac-stage: #111;
+  --ac-audio-a: #0ea5e9;
+  --ac-audio-b: #06b6d4;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+}
+.asset-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+  transform: translateY(-1px);
+}
+.asset-card__media {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.asset-card__media--video { background: var(--ac-stage); }
+.asset-card__media--audio {
+  background: linear-gradient(135deg, var(--ac-audio-a) 0%, var(--ac-audio-b) 100%);
+  color: #fff;              /* 压在饱和蓝青渐变上，两主题固定白 */
+}
+/* 🔴 图片占位底原来是硬编码 #f0f0f0 —— 暗色主题下是一块亮白矩形（批次A/B/D 同一 bug 类） */
+.asset-card__media--image { background: var(--surface-3); }
+.asset-card__media video,
+.asset-card__media img { width: 100%; height: 100%; object-fit: cover; }
+.asset-card__audio-in { display: flex; align-items: center; gap: 6px; }
+.asset-card__audio-icon { font-size: 20px; }
+.asset-card__audio-label { font-size: var(--fs-sm); }
+.asset-card__foot { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+/* 类型徽标：原来三档是浅色系实色（#e6f4ff/#e0f7fa/#f6ffed + 深字），
+   暗色下会变成三块亮白片 → 改 data-type + color-mix，随主题自动压深 */
+.asset-card__badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+}
+.asset-card__badge[data-type="video"] {
+  background: color-mix(in srgb, var(--info) 18%, var(--surface-3));
+  color: var(--info);
+}
+.asset-card__badge[data-type="audio"] {
+  background: color-mix(in srgb, var(--ac-audio-a) 20%, var(--surface-3));
+  color: color-mix(in srgb, var(--ac-audio-a) 62%, #fff);
+}
+.asset-card__badge[data-type="image"] {
+  background: color-mix(in srgb, var(--success) 18%, var(--surface-3));
+  color: var(--success);
+}
+.asset-card__title { flex: 1; color: var(--text-secondary); font-size: var(--fs-xs); }
