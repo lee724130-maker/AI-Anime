@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Modal, Tabs, Spin, Empty, Image, Button, Space, Typography, Row, Col, Input, message } from 'antd';
+import { Modal, Tabs, Spin, Empty, Image, Button, Typography, Input, message } from 'antd';
 import { PictureOutlined, CheckCircleFilled, SearchOutlined } from '@ant-design/icons';
 import api from '../../../services/api';
+import '../template-detail.css';   // 与 TemplateDetail 共用同一份样式（Vite 去重，只注入一次）
 
 const { Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -55,60 +56,49 @@ export default function GlobalAssetPicker({ open, onClose, selected, onSelect }:
 
   return (
     <Modal open={open} onCancel={onClose} title="从大资产库选择素材" width={700} footer={
-      <Space>
-        <Text type="secondary">已选 {selected.length} 张</Text>
-        <Button type="primary" onClick={onClose}
-          style={{ background: '#7c3aed', borderColor: '#7c3aed', borderRadius: 8 }}>
+      <div className="vgp-foot">
+        <Text className="vgp-foot__count">已选 {selected.length} 张</Text>
+        <Button type="primary" onClick={onClose} className="vgp-ok">
           确定
         </Button>
-      </Space>
+      </div>
     }>
       <Input
+        className="vgp-search"
         placeholder="搜索素材..."
         prefix={<SearchOutlined />}
         value={search}
         onChange={e => setSearch(e.target.value)}
-        style={{ borderRadius: 8, marginBottom: 12 }}
       />
       <Tabs activeKey={tab} onChange={setTab}
         items={TYPE_TABS.map(t => ({
           key: t.key, label: t.label,
-          children: loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div> :
+          children: loading ? <div className="vgp-loading"><Spin /></div> :
             assets.length === 0 ? <Empty description={`暂无${t.label}素材`} /> :
-            <Row gutter={[12, 12]}>
+            <div className="vgp-grid">
               {assets.map(a => {
                 const url = a.image_url?.startsWith('http') ? a.image_url : API_BASE + a.image_url;
                 const isSelected = localSelected.includes(url);
                 return (
-                  <Col key={a.id} xs={12} sm={8} md={6}>
-                    <div onClick={() => toggleAsset(url)}
-                      style={{
-                        borderRadius: 10, overflow: 'hidden', cursor: 'pointer',
-                        border: isSelected ? '2px solid #7c3aed' : '2px solid transparent',
-                        position: 'relative', background: '#f5f5f5',
-                      }}>
-                      {a.image_url ? (
-                        <Image src={url} preview={false}
-                          style={{ width: '100%', height: 100, objectFit: 'cover' }}
-                          placeholder={<div style={{ height: 100, background: '#f0f0f0' }} />} />
-                      ) : (
-                        <div style={{ height: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
-                          <PictureOutlined style={{ fontSize: 28, color: '#ccc' }} />
-                        </div>
-                      )}
-                      {isSelected && (
-                        <CheckCircleFilled style={{
-                          position: 'absolute', top: 4, right: 4, fontSize: 18, color: '#7c3aed',
+                  <div key={a.id} className="vgp-cell" data-on={isSelected ? '1' : '0'}
+                    onClick={() => toggleAsset(url)}>
+                    {a.image_url ? (
+                      <Image className="vgp-cell__img" src={url} preview={false}
+                        placeholder={<div className="vgp-cell__ph" />}
+                        onError={(e) => {
+                          /* 同 TemplateDetail 的参考帧：库里登记的文件可能已不在磁盘上，
+                             藏掉裂图，露出下面的令牌占位底 */
+                          (e.target as HTMLImageElement).style.visibility = 'hidden';
                         }} />
-                      )}
-                      <div style={{ padding: '4px 6px' }}>
-                        <Text style={{ fontSize: 11 }} ellipsis>{a.name}</Text>
-                      </div>
-                    </div>
-                  </Col>
+                    ) : (
+                      <div className="vgp-cell__empty"><PictureOutlined /></div>
+                    )}
+                    {isSelected && <CheckCircleFilled className="vgp-cell__tick" />}
+                    <Text className="vgp-cell__name" ellipsis>{a.name}</Text>
+                  </div>
                 );
               })}
-            </Row>,
+            </div>,
         }))}
       />
     </Modal>

@@ -1,0 +1,101 @@
+/* =============================================================================
+   热门创作 · 我的创作列表 质感改造 · 2026-11-25（批次I）
+   作用域：.vpl-（viral project list）。业务逻辑零改动：STATUS_MAP、handleDelete、
+   跳转路径、轮询与接口字段一字未动。
+
+   修掉的缺陷：
+     1. 🔴 返回按钮 `color:'#666'`、右箭头 `color:'#bbb'` —— 暗色下几乎隐形。
+     2. 🔴 状态图标颜色用「字符串比较挑 hex」：
+          color: sm.color === 'success' ? '#52c41a' : sm.color === 'error' ? '#ff4d4f' : '#faad14'
+        → 改成 data-tone + 令牌，语义色跟随主题。
+     3. 🔴 进度条 strokeColor 写死旧品牌紫 `#7c3aed` → var(--primary)。
+     4. antd List(split=false) 只为渲一层 Card → 去掉这层空壳 DOM；Card → .vpl-item 令牌行。
+     5. 删除钮写死 `#ff4d4f` → var(--danger)。
+   ============================================================================= */
+
+.vpl-root { display: flex; flex-direction: column; gap: var(--sp-4); padding: clamp(16px, 3vw, 32px); }
+.vpl-loading { display: grid; place-items: center; padding: 100px 0; }
+.vpl-back { align-self: flex-start; }
+.vpl-back.ant-btn { color: var(--text-secondary); }
+.vpl-back.ant-btn:hover { color: var(--primary); }
+.vpl-title { margin: 0 !important; font-size: var(--fs-2xl) !important; font-weight: 660 !important; }
+
+.vpl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-5);
+  background: var(--card);
+  background-image: var(--grad-stage);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.vpl-empty .ant-empty-description { color: var(--text-muted); }
+
+.ant-btn.vpl-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+}
+.ant-btn.vpl-btn-brand:hover { filter: brightness(1.05); box-shadow: var(--glow), var(--shadow-2) !important; }
+
+/* ---------- 行卡列表（原 List + Card 两层壳 → 一层令牌行） ---------- */
+.vpl-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.vpl-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.vpl-item:hover { border-color: var(--line-strong); transform: translateY(-2px); box-shadow: var(--shadow-3); }
+.vpl-item:focus-within { border-color: var(--primary); box-shadow: var(--ring), var(--shadow-2); }
+
+.vpl-item__lead { display: flex; align-items: center; flex: 1; min-width: 0; gap: var(--sp-3); }
+.vpl-item__cover { width: clamp(90px, 22vw, 160px); flex-shrink: 0; }
+.vpl-item__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.vpl-item__hd { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
+
+/* 状态图标：语义色交回令牌（原 #52c41a / #ff4d4f / #faad14 三档 hex） */
+.vpl-item__ico { display: inline-flex; font-size: 18px; color: var(--warning); }
+.vpl-item__ico[data-tone="success"] { color: var(--success); }
+.vpl-item__ico[data-tone="error"] { color: var(--danger); }
+.vpl-item__ico[data-tone="processing"] { color: var(--primary); }
+
+.vpl-item__name { font-size: var(--fs-lg); font-weight: 620; color: var(--text); }
+.vpl-item__tag.ant-tag { margin-inline-end: 0; border-radius: 6px; font-size: 10px; }
+.vpl-item__meta { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.vpl-item__time { font-size: var(--fs-sm); color: var(--text-muted); }
+.vpl-item__prog { width: 120px; }
+.vpl-item__err { font-size: var(--fs-xs); max-width: 300px; }
+
+.vpl-item__acts { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.vpl-item__del.ant-btn { color: var(--danger) !important; font-size: 14px; }
+.vpl-item__del.ant-btn:hover { background: var(--danger-bg) !important; }
+/* 原 #bbb 在暗色下隐形 → 交回 --text-muted */
+.vpl-item__go.ant-btn { color: var(--text-muted); }
+.vpl-item:hover .vpl-item__go.ant-btn { color: var(--primary); }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .vpl-item {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -26px rgba(16, 24, 40, .24);
+}
+[data-theme=dark] .vpl-item { border-color: var(--line-strong); }
+
+@media (max-width: 640px) {
+  .vpl-item { align-items: flex-start; }
+  .vpl-item__cover { width: 90px; }
+  .vpl-item__acts { flex-direction: column; }
+}

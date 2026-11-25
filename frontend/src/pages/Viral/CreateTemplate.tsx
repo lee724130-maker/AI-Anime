@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Card, Input, Button, Space, message, Spin, Divider, Row, Col, Select, Alert, Steps, Upload } from 'antd';
+import { Typography, Input, Button, message, Spin, Divider, Select, Alert, Steps, Upload } from 'antd';
 import { ArrowLeftOutlined, LinkOutlined, ThunderboltOutlined, PlusOutlined, SettingOutlined, CheckCircleOutlined, ExperimentOutlined, InboxOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import SceneEditor from './components/SceneEditor';
 import type { SceneItem } from './components/SceneEditor';
 import CreditRulesAlert from '../../components/CreditRulesAlert';
+import './create-template.css';   // 本页 + SceneEditor 样式（作用域 .vct-/.vse-）
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -127,30 +128,28 @@ export default function CreateTemplate() {
     setVariables(variables.filter((_, idx) => idx !== i));
   };
 
-  const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' };
-
   if (step === 'analyzing') {
     return (
-      <div style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
+      <div className="vct-root">
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => setStep('input')}
-          style={{ marginBottom: 16, color: '#666' }}>返回</Button>
-        <Card style={{ ...cardStyle, textAlign: 'center', padding: '80px 0' }}>
+          className="vct-back">返回</Button>
+        <div className="vct-panel vct-panel--center">
           <Spin size="large" />
-          <Title level={4} style={{ marginTop: 24 }}>AI 正在分析视频...</Title>
-          <Text type="secondary">下载视频 → 提取关键帧 → 识别场景结构 → 生成模板</Text>
-        </Card>
+          <Title level={4} className="vct-analyzing__title">AI 正在分析视频...</Title>
+          <Text className="vct-analyzing__sub">下载视频 → 提取关键帧 → 识别场景结构 → 生成模板</Text>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 'clamp(16px, 3vw, 32px)', maxWidth: 900 }}>
+    <div className="vct-root">
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral')}
-        style={{ marginBottom: 16, color: '#666' }}>返回模板集市</Button>
+        className="vct-back">返回模板集市</Button>
       <CreditRulesAlert apiPath="/api/viral/credit-rules" />
       <Steps
         current={step === 'edit' ? 2 : 0}
-        style={{ marginBottom: 28, maxWidth: 600 }}
+        className="vct-steps"
         items={[
           { title: '输入视频', icon: <LinkOutlined /> },
           { title: 'AI 分析', icon: <ExperimentOutlined /> },
@@ -159,22 +158,22 @@ export default function CreateTemplate() {
       />
 
       {step === 'input' && (
-        <Card style={cardStyle}>
-          <Title level={4} style={{ marginBottom: 20 }}>创建新模板</Title>
+        <div className="vct-panel">
+          <Title level={4} className="vct-h4">创建新模板</Title>
           <Alert
             message="支持抖音、B站视频链接；也可以上传本地视频。仅支持 5 分钟以内的视频解析，不支持长视频"
-            type="info" showIcon style={{ borderRadius: 10, marginBottom: 20 }}
+            type="info" showIcon
           />
 
-          <div style={{ marginBottom: 16 }}>
-            <Text strong style={{ display: 'block', marginBottom: 6 }}>视频链接</Text>
+          <div className="vct-field">
+            <Text className="vct-field__label">视频链接</Text>
             <Input
               size="large"
+              className="vct-input vct-input--lg"
               placeholder="粘贴抖音/B站视频链接"
               prefix={<LinkOutlined />}
               value={videoUrl}
               onChange={e => setVideoUrl(e.target.value)}
-              style={{ borderRadius: 10 }}
             />
           </div>
 
@@ -182,49 +181,49 @@ export default function CreateTemplate() {
             accept=".mp4,.mov,.webm,.mkv,.avi,.m4v"
             beforeUpload={handleUpload}
             showUploadList={false}
-            style={{ borderRadius: 10, marginBottom: 16 }}
+            className="vct-drigger"
           >
             <p className="ant-upload-drag-icon"><InboxOutlined /></p>
             <p className="ant-upload-text">点击或拖拽本地视频到此处</p>
             <p className="ant-upload-hint">支持 mp4/mov/webm/mkv/avi/m4v，最大 300MB，仅支持 5 分钟以内视频</p>
           </Dragger>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Text strong style={{ display: 'block', marginBottom: 6 }}>模板名称</Text>
+          <div className="vct-grid2">
+            <div>
+              <Text className="vct-field__label">模板名称</Text>
               <Input
+                className="vct-input"
                 placeholder="留空由 AI 自动生成"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                style={{ borderRadius: 8 }}
               />
-            </Col>
-            <Col span={12}>
-              <Text strong style={{ display: 'block', marginBottom: 6 }}>分类（AI 将自动分析，可手动修改）</Text>
+            </div>
+            <div>
+              <Text className="vct-field__label">分类（AI 将自动分析，可手动修改）</Text>
               <Input
+                className="vct-input"
                 placeholder="留空由 AI 自动分类"
                 value={category}
                 onChange={e => setCategory(e.target.value)}
-                style={{ borderRadius: 8 }}
               />
-            </Col>
-          </Row>
+            </div>
+          </div>
 
-          <div style={{ marginTop: 16, marginBottom: 24 }}>
-            <Text strong style={{ display: 'block', marginBottom: 6 }}>描述</Text>
+          <div className="vct-desc">
+            <Text className="vct-field__label">描述</Text>
             <Input.TextArea
               rows={2}
+              className="vct-input"
               placeholder="模板简短描述（可选）"
               value={description}
               onChange={e => setDescription(e.target.value)}
-              style={{ borderRadius: 8 }}
             />
           </div>
 
           <Button type="primary" size="large" block
             icon={<ExperimentOutlined />}
             onClick={handleAnalyze}
-            style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed', height: 44 }}>
+            className="vct-btn-brand vct-btn-lg">
             AI 分析视频结构
           </Button>
 
@@ -232,111 +231,99 @@ export default function CreateTemplate() {
 
           <Button block icon={<SettingOutlined />}
             onClick={() => { setStep('edit'); setName(name || '手动创建模板'); }}
-            style={{ borderRadius: 10, height: 44 }}>
+            className="vct-btn-ghost">
             手动创建模板
           </Button>
-        </Card>
+        </div>
       )}
 
       {step === 'edit' && (
         <>
           {/* Template Info */}
-          <Card style={{ ...cardStyle, marginBottom: 16 }}>
-            <Title level={5} style={{ marginBottom: 16 }}>模板信息</Title>
-            <Row gutter={16}>
-              <Col xs={24} sm={8}>
-                <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>名称</Text>
-                <Input value={name} onChange={e => setName(e.target.value)} style={{ borderRadius: 8 }} />
-              </Col>
-              <Col xs={24} sm={8}>
-                <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>分类</Text>
-                <Input value={category} onChange={e => setCategory(e.target.value)} style={{ borderRadius: 8 }} />
-              </Col>
-              <Col xs={24} sm={8}>
-                <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>参考视频</Text>
-                <Input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} style={{ borderRadius: 8 }} />
-              </Col>
-            </Row>
-            <div style={{ marginTop: 12 }}>
-              <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>描述</Text>
-              <Input.TextArea value={description} onChange={e => setDescription(e.target.value)} rows={2} style={{ borderRadius: 8 }} />
+          <div className="vct-panel">
+            <Title level={5} className="vct-h5">模板信息</Title>
+            <div className="vct-grid3">
+              <div>
+                <Text className="vct-field__label vct-field__label--sm">名称</Text>
+                <Input className="vct-input" value={name} onChange={e => setName(e.target.value)} />
+              </div>
+              <div>
+                <Text className="vct-field__label vct-field__label--sm">分类</Text>
+                <Input className="vct-input" value={category} onChange={e => setCategory(e.target.value)} />
+              </div>
+              <div>
+                <Text className="vct-field__label vct-field__label--sm">参考视频</Text>
+                <Input className="vct-input" value={videoUrl} onChange={e => setVideoUrl(e.target.value)} />
+              </div>
+            </div>
+            <div className="vct-desc">
+              <Text className="vct-field__label vct-field__label--sm">描述</Text>
+              <Input.TextArea className="vct-input" value={description} onChange={e => setDescription(e.target.value)} rows={2} />
             </div>
             {ratio && (
-              <Alert type="info" showIcon style={{ marginTop: 12, borderRadius: 8 }}
+              <Alert type="info" showIcon className="vct-alert-ratio"
                 message={
                   <span>
-                    已自动检测视频比例：<b style={{ color: '#7c3aed' }}>{ratio}</b>（创建项目时会默认使用该比例，可在创建页面手动改）
+                    已自动检测视频比例：<b className="vct-ratio-strong">{ratio}</b>（创建项目时会默认使用该比例，可在创建页面手动改）
                   </span>
                 } />
             )}
-          </Card>
+          </div>
 
           <SceneEditor scenes={scenes} onChange={setScenes} />
 
           {/* Variables */}
-          <Card style={{ ...cardStyle, marginBottom: 24 }}
-            title={<Space><div style={{ width: 3, height: 16, background: '#ec4899', borderRadius: 2 }} />替换变量</Space>}
-            extra={<Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addVariable}>添加变量</Button>}>
-            {variables.map((v, i) => (
-              <div key={i} style={{
-                padding: 12, marginBottom: 8, borderRadius: 10,
-                background: '#fafafa', border: '1px solid #f0f0f0',
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text strong style={{ fontSize: 13 }}>变量 {i + 1}</Text>
-                  <Button type="text" size="small" danger onClick={() => removeVariable(i)}>删除</Button>
-                </div>
-                <Row gutter={[8, 8]}>
-                  <Col xs={12} sm={5}>
-                    <Input size="small" placeholder="key (英文)" value={v.key}
-                      onChange={e => updateVariable(i, 'key', e.target.value)} style={{ borderRadius: 6 }} />
-                  </Col>
-                  <Col xs={12} sm={5}>
-                    <Input size="small" placeholder="标签 (中文)" value={v.label}
-                      onChange={e => updateVariable(i, 'label', e.target.value)} style={{ borderRadius: 6 }} />
-                  </Col>
-                  <Col xs={8} sm={3}>
-                    <Select size="small" value={v.type} onChange={val => updateVariable(i, 'type', val)}
-                      style={{ width: '100%' }}
-                      options={[
-                        { value: 'text', label: '文本' },
-                        { value: 'textarea', label: '多行' },
-                        { value: 'select', label: '选择' },
-                      ]} />
-                  </Col>
-                  <Col xs={12} sm={5}>
-                    <Input size="small" placeholder="建议值" value={v.default_value}
-                      onChange={e => updateVariable(i, 'default_value', e.target.value)} style={{ borderRadius: 6 }} />
-                  </Col>
-                  <Col xs={8} sm={3}>
-                    <Input size="small" placeholder="提示" value={v.placeholder}
-                      onChange={e => updateVariable(i, 'placeholder', e.target.value)} style={{ borderRadius: 6 }} />
-                  </Col>
-                  <Col xs={4} sm={3} style={{ display: 'flex', alignItems: 'center' }}>
-                    <Button size="small" type={v.required ? 'primary' : 'default'}
-                      onClick={() => updateVariable(i, 'required', !v.required)}
-                      style={{ borderRadius: 6, fontSize: 11 }}>
-                      {v.required ? '必填' : '选填'}
-                    </Button>
-                  </Col>
-                </Row>
-              </div>
-            ))}
-            {variables.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 20 }}>
-                <Text type="secondary">暂无变量，点击"添加变量"创建替换内容字段</Text>
+          <div className="vct-panel" style={{ marginBottom: 24 }}>
+            <div className="vct-panel__hd">
+              <div className="vct-panel__title"><span className="vct-bar vct-bar--var" />替换变量</div>
+              <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addVariable}>添加变量</Button>
+            </div>
+            {variables.length === 0 ? (
+              <div className="vct-blank">暂无变量，点击“添加变量”创建替换内容字段</div>
+            ) : (
+              <div className="vct-rows">
+                {variables.map((v, i) => (
+                  <div key={i} className="vct-row">
+                    <div className="vct-row__hd">
+                      <Text className="vct-row__name">变量 {i + 1}</Text>
+                      <Button type="text" size="small" danger onClick={() => removeVariable(i)}>删除</Button>
+                    </div>
+                    <div className="vct-row__grid">
+                      <Input size="small" placeholder="key (英文)" value={v.key}
+                        onChange={e => updateVariable(i, 'key', e.target.value)} />
+                      <Input size="small" placeholder="标签 (中文)" value={v.label}
+                        onChange={e => updateVariable(i, 'label', e.target.value)} />
+                      <Select size="small" value={v.type} onChange={val => updateVariable(i, 'type', val)}
+                        style={{ width: '100%' }}
+                        options={[
+                          { value: 'text', label: '文本' },
+                          { value: 'textarea', label: '多行' },
+                          { value: 'select', label: '选择' },
+                        ]} />
+                      <Input size="small" placeholder="建议值" value={v.default_value}
+                        onChange={e => updateVariable(i, 'default_value', e.target.value)} />
+                      <Input size="small" placeholder="提示" value={v.placeholder}
+                        onChange={e => updateVariable(i, 'placeholder', e.target.value)} />
+                      <Button size="small" type={v.required ? 'primary' : 'default'}
+                        onClick={() => updateVariable(i, 'required', !v.required)}
+                        className="vct-row__flag">
+                        {v.required ? '必填' : '选填'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
-          </Card>
+          </div>
 
           {/* Actions */}
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <Button onClick={() => navigate('/viral')} style={{ borderRadius: 10, height: 44, padding: '0 24px' }}>
+          <div className="vct-actions">
+            <Button onClick={() => navigate('/viral')}>
               取消
             </Button>
             <Button type="primary" size="large" icon={<ThunderboltOutlined />}
               loading={saving} onClick={handleSave}
-              style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed', height: 44, padding: '0 24px' }}>
+              className="vct-btn-brand">
               保存模板
             </Button>
           </div>

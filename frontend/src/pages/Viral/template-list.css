@@ -1,0 +1,141 @@
+/* =============================================================================
+   热门创作 · 模板区域（我的模板列表）质感改造 · 2026-11-25（批次I）
+   作用域：.vtl-（viral template list）。业务逻辑零改动：loadTemplates、handleDelete、
+   搜索/分类筛选、分页、跳转路径一字未动。
+
+   修掉的缺陷：
+     1. 🔴 返回按钮 `color:'#666'` —— 暗色下深灰压深底。
+     2. 🔴 标题左侧竖条与主按钮写死旧品牌紫 `#7c3aed` → var(--primary) / var(--grad-brand)。
+     3. Card 外壳是「border:none + 自造 boxShadow」，与全站令牌卡不同一层 → .vtl-card。
+     4. Row/Col 的 xs24/sm12/md8/lg6 魔法断点 → auto-fill minmax 栅格。
+   ============================================================================= */
+
+.vtl-root { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5) var(--sp-6); }
+.vtl-back { align-self: flex-start; }
+.vtl-back.ant-btn { color: var(--text-secondary); }
+.vtl-back.ant-btn:hover { color: var(--primary); }
+
+/* 页头：竖条 + 标题 + 计数（原竖条 #7c3aed） */
+.vtl-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.vtl-head__bar {
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--grad-brand);
+}
+.vtl-head__title { margin: 0 !important; font-size: var(--fs-2xl) !important; font-weight: 660 !important; }
+.vtl-head__count { font-size: var(--fs-md); color: var(--text-muted); }
+
+/* ---------- 工具条 ---------- */
+.vtl-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px auto;
+  gap: var(--sp-4);
+  align-items: center;
+}
+.vtl-search { border-radius: 10px; }
+.vtl-search.ant-input-affix-wrapper:hover { border-color: var(--line-strong); }
+.vtl-search.ant-input-affix-wrapper-focused { border-color: var(--primary); box-shadow: var(--ring); }
+.vtl-cat { width: 100%; border-radius: 10px; }
+.vtl-tools__end { text-align: right; }
+
+.ant-btn.vtl-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.ant-btn.vtl-btn-brand:hover { filter: brightness(1.05); transform: translateY(-1px); box-shadow: var(--glow), var(--shadow-2) !important; }
+
+/* ---------- 状态区 ---------- */
+.vtl-loading, .vtl-empty { display: grid; place-items: center; padding: 60px 0; }
+.vtl-empty .ant-empty-description { color: var(--text-muted); }
+
+/* ---------- 模板卡栅格 ---------- */
+.vtl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--sp-4);
+}
+.vtl-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  padding: var(--sp-4);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color var(--t-base) var(--ease), box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease);
+}
+.vtl-card:hover { border-color: var(--line-strong); transform: translateY(-3px); box-shadow: var(--shadow-3); }
+.vtl-card:focus-within { border-color: var(--primary); box-shadow: var(--ring), var(--shadow-2); }
+.vtl-card__cover { margin-bottom: var(--sp-3); }
+.vtl-card__name {
+  margin: 0 !important;
+  font-size: var(--fs-lg) !important;
+  font-weight: 620 !important;
+  color: var(--text) !important;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vtl-card__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-muted);
+  min-height: 34px;
+}
+.vtl-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: auto;
+  padding-top: var(--sp-2);
+}
+.vtl-card__meta { display: flex; align-items: center; gap: 4px; }
+.vtl-card__meta .ant-tag { margin-inline-end: 0; border-radius: 6px; font-size: 10px; }
+.vtl-card__usage { font-size: var(--fs-xs); color: var(--text-muted); display: inline-flex; align-items: center; gap: 3px; }
+.vtl-card__usage .anticon { color: var(--warning); }
+.vtl-card__acts { display: flex; align-items: center; gap: 4px; }
+.vtl-card__del.ant-btn { font-size: 15px; padding: 4px 6px; }
+.ant-btn.vtl-card__use {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 8px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.ant-btn.vtl-card__use:hover { filter: brightness(1.06); }
+
+.vtl-pager { display: flex; justify-content: center; margin-top: var(--sp-5); }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .vtl-card {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -26px rgba(16, 24, 40, .24);
+}
+[data-theme=dark] .vtl-card { border-color: var(--line-strong); }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .vtl-tools { grid-template-columns: minmax(0, 1fr) 1fr; }
+  .vtl-tools__end { grid-column: 1 / -1; text-align: left; }
+  .vtl-root { padding: var(--sp-4); }
+}

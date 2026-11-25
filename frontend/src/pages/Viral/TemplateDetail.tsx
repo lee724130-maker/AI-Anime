@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Spin, Button, Space, Tag, Row, Col, Input, InputNumber, Form, message, Divider, Image, Select, Tooltip, Switch } from 'antd';
+import { Typography, Spin, Button, Tag, Row, Col, Input, InputNumber, Form, message, Divider, Image, Select, Tooltip, Switch } from 'antd';
 import { ArrowLeftOutlined, ThunderboltOutlined, FireOutlined, CopyOutlined, PictureOutlined, DeleteOutlined, LinkOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import GlobalAssetPicker from './components/GlobalAssetPicker';
 import CoverThumb from './CoverThumb';
+import './template-detail.css';   // 本页 + GlobalAssetPicker 样式（作用域 .vtd-/.vgp-）
 
 const { Title, Text } = Typography;
 const API_BASE = import.meta.env.VITE_API_BASE || '';
@@ -111,66 +112,55 @@ export default function ViralTemplateDetail() {
   }
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="vtd-root">
       {/* Back */}
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral')}
-        style={{ marginBottom: 16, color: '#666' }}>返回模板集市</Button>
+        className="vtd-back">返回模板集市</Button>
 
-      <Row gutter={[24, 24]}>
+      <div className="vtd-split">
         {/* Left: Template Info + Scenes */}
-        <Col xs={24} lg={14}>
-          <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)', marginBottom: 16 }}>
-            <div style={{ marginBottom: 16 }}>
-              <CoverThumb src={template.cover_url || template.thumbnail} height={200} />
+        <div className="vtd-panel">
+          <div className="vtd-cover">
+            <CoverThumb src={template.cover_url || template.thumbnail} height={200} />
+          </div>
+          <Title level={4} className="vtd-name">{template.name}</Title>
+          <div className="vtd-metarow">
+            <Tag style={{ borderRadius: 6 }}>{template.category}</Tag>
+            <Text className="vtd-usage"><FireOutlined /> 使用 {template.usage_count} 次</Text>
+            <Button type="text" size="small" icon={<CopyOutlined />} loading={duplicating}
+              onClick={handleDuplicate} className="vtd-copy">复制模板</Button>
+          </div>
+          <Text className="vtd-desc">{template.description}</Text>
+
+          {template.reference_url && (
+            <div className="vtd-ref">
+              <LinkOutlined className="anticon-link" />
+              <Text className="vtd-ref__text" ellipsis={{ tooltip: template.reference_url }}>
+                参考视频: {template.reference_url}
+              </Text>
+              <a href={template.reference_url} target="_blank" rel="noopener noreferrer"
+                className="vtd-ref__open">打开</a>
             </div>
-            <Title level={4} style={{ margin: '0 0 4px' }}>{template.name}</Title>
-            <Space style={{ marginBottom: 12 }}>
-              <Tag style={{ borderRadius: 6 }}>{template.category}</Tag>
-              <Text type="secondary" style={{ fontSize: 12 }}><FireOutlined /> 使用 {template.usage_count} 次</Text>
-              <Button type="text" size="small" icon={<CopyOutlined />} loading={duplicating}
-                onClick={handleDuplicate} style={{ fontSize: 12 }}>复制模板</Button>
-            </Space>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>{template.description}</Text>
+          )}
 
-            {template.reference_url && (
-              <div style={{
-                padding: '8px 12px', marginBottom: 16, borderRadius: 8,
-                background: '#fafafa', border: '1px solid #f0f0f0',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}>
-                <LinkOutlined style={{ color: '#7c3aed', flexShrink: 0 }} />
-                <Text style={{ fontSize: 12 }} ellipsis={{ tooltip: template.reference_url }}>
-                  参考视频: {template.reference_url}
-                </Text>
-                <a href={template.reference_url} target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: 12, color: '#7c3aed', flexShrink: 0 }}>打开</a>
+          <Divider />
+
+          <Text className="vtd-section-title">模板结构（{template.scenes.length} 个场景）</Text>
+          {template.scenes.map((scene, i) => (
+            <div key={i} className="vtd-scene">
+              <div>
+                <Text className="vtd-scene__name">场景 {i + 1}: {scene.name}</Text>
+                <br />
+                <Text className="vtd-scene__desc">{scene.description}</Text>
               </div>
-            )}
-
-            <Divider style={{ margin: '12px 0' }} />
-
-            <Text strong style={{ fontSize: 14, display: 'block', marginBottom: 12 }}>模板结构（{template.scenes.length} 个场景）</Text>
-            {template.scenes.map((scene, i) => (
-              <div key={i} style={{
-                padding: '10px 14px', marginBottom: 8, borderRadius: 10,
-                background: '#fafafa', border: '1px solid #f0f0f0',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}>
-                <div>
-                  <Text strong style={{ fontSize: 13 }}>场景 {i + 1}: {scene.name}</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 12 }}>{scene.description}</Text>
-                </div>
-                <Tag style={{ borderRadius: 6, flexShrink: 0 }}>{scene.duration}s</Tag>
-              </div>
-            ))}
-          </Card>
-        </Col>
+              <Tag style={{ borderRadius: 6, flexShrink: 0 }}>{scene.duration}s</Tag>
+            </div>
+          ))}
+        </div>
 
         {/* Right: Create Project Form */}
-        <Col xs={24} lg={10}>
-          <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-            <Title level={5} style={{ margin: '0 0 16px' }}>创建你的视频</Title>
+        <div className="vtd-panel">
+          <Title level={5} className="vtd-panel__title">创建你的视频</Title>
             <Form form={form} layout="vertical" onFinish={handleSubmit}>
               <Form.Item name="project_name" label="项目名称"
                 rules={[{ required: true, message: '请输入项目名称' }]}>
@@ -270,56 +260,53 @@ export default function ViralTemplateDetail() {
                   <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                     视频截图（点击选择/取消）
                   </Text>
-                  <Row gutter={[6, 6]}>
+                  <div className="vtd-frames">
                     {template.reference_frames.map((frame, i) => {
                       const frameUrl = frame.startsWith('http') ? frame : API_BASE + frame;
                       const isSelected = selectedImages.includes(frameUrl);
                       return (
-                        <Col key={i} xs={6} sm={4} lg={6} xl={4}>
-                          <div onClick={() => {
+                        <div key={i} className="vtd-frame" data-on={isSelected ? '1' : '0'}
+                          onClick={() => {
                             if (isSelected) {
                               setSelectedImages(selectedImages.filter(u => u !== frameUrl));
                             } else {
                               setSelectedImages([...selectedImages, frameUrl]);
                             }
-                          }}
-                            style={{
-                              borderRadius: 8, overflow: 'hidden', cursor: 'pointer',
-                              border: isSelected ? '2px solid #7c3aed' : '2px solid transparent',
-                              position: 'relative', background: '#f5f5f5',
-                            }}>
-                            <Image src={frameUrl} preview={false}
-                              style={{ width: '100%', height: 56, objectFit: 'cover' }} />
-                            {isSelected && (
-                              <div style={{
-                                position: 'absolute', inset: 0, background: 'rgba(124,58,237,0.25)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              }}>
-                                <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>✓</Text>
-                              </div>
-                            )}
-                          </div>
-                        </Col>
+                          }}>
+                          <Image src={frameUrl} preview={false}
+                            onError={(e) => {
+                              /* 库里登记的参考帧可能已被清理（实测生产 viral_frames_* 目录缺失 → 6 张 404）；
+                                 不兜底就会露出浏览器裂图图标。藏掉图本身，由 ::after 出「无截图」占位。 */
+                              (e.target as HTMLImageElement).style.visibility = 'hidden';
+                              (e.target as HTMLImageElement).closest('.vtd-frame')?.setAttribute('data-broken', '1');
+                            }} />
+                          {isSelected && (
+                            <div className="vtd-frame__mask">
+                              <span className="vtd-frame__check">✓</span>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
-                  </Row>
+                  </div>
                 </div>
               )}
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+              <div className="vtd-picked">
                 {selectedImages.map((url, i) => (
-                  <div key={i} style={{ position: 'relative', width: 60, height: 60, borderRadius: 8, overflow: 'hidden' }}>
-                    <Image src={url} preview={false} style={{ width: 60, height: 60, objectFit: 'cover' }} />
+                  <div key={i} className="vtd-picked__cell">
+                    <Image src={url} preview={false}
+                      onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }} />
                     <Button type="text" size="small" icon={<DeleteOutlined />}
                       onClick={() => setSelectedImages(selectedImages.filter((_, j) => j !== i))}
-                      style={{ position: 'absolute', top: 0, right: 0, color: '#ff4d4f', fontSize: 11, background: 'rgba(255,255,255,0.8)' }} />
+                      className="vtd-picked__del" aria-label="移除该参考图" />
                   </div>
                 ))}
                 <Button icon={<PictureOutlined />} onClick={() => setAssetPickerOpen(true)}
-                  style={{ width: 60, height: 60, borderRadius: 8, border: '1px dashed #d9d9d9' }} />
+                  className="vtd-add-frame" aria-label="从大资产库添加参考图" />
               </div>
               {selectedImages.length > 0 && (
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 8 }}>已选 {selectedImages.length} 张参考图</Text>
+                <Text className="vtd-count">已选 {selectedImages.length} 张参考图</Text>
               )}
 
               <GlobalAssetPicker
@@ -331,13 +318,12 @@ export default function ViralTemplateDetail() {
 
               <Button type="primary" block size="large" htmlType="submit" loading={submitting}
                 icon={<ThunderboltOutlined />}
-                style={{ borderRadius: 10, background: '#7c3aed', borderColor: '#7c3aed', height: 44, marginTop: 8 }}>
+                className="vtd-btn-brand vtd-submit">
                 创建并生成
               </Button>
             </Form>
-          </Card>
-        </Col>
-      </Row>
+        </div>
+      </div>
     </div>
   );
 }

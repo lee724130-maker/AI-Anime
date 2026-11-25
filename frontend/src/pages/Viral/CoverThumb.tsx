@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ExperimentOutlined } from '@ant-design/icons';
+import './cover-thumb.css';   // 共用组件样式（作用域 .cth-，详见文件头注释）
 
 const isVideoUrl = (src: string) => /\.(mp4|webm|mov)(\?|$)/i.test(src);
 
@@ -15,38 +16,33 @@ export default function CoverThumb({
   radius?: number;
 }) {
   const [failed, setFailed] = useState(false);
-  const boxStyle: React.CSSProperties = {
-    width, height, borderRadius: radius,
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden', flexShrink: 0,
-  };
+  /* width / height / radius 是调用方传入的动态尺寸，只有这三项保留内联；颜色一律走 CSS 类 */
+  const sizeStyle: React.CSSProperties = { width, height, borderRadius: radius };
 
   if (!src || failed) {
     return (
-      <div style={boxStyle}>
-        <ExperimentOutlined style={{ fontSize: 32, color: 'rgba(255,255,255,0.4)' }} />
+      <div className="cth-box" style={sizeStyle}>
+        <ExperimentOutlined className="cth-icon" />
       </div>
     );
   }
 
   if (isVideoUrl(src)) {
     return (
-      <div style={{ ...boxStyle, background: '#000' }}>
+      <div className="cth-box cth-box--video" style={sizeStyle}>
         <video
+          className="cth-media"
           src={src} muted playsInline preload="metadata"
           onLoadedData={e => { (e.target as HTMLVideoElement).currentTime = 0.1; }}
           onError={() => setFailed(true)}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
         />
       </div>
     );
   }
 
   return (
-    <div style={{ ...boxStyle, background: '#f0f0f0' }}>
-      <img src={src} alt="" onError={() => setFailed(true)}
-        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+    <div className="cth-box cth-box--image" style={sizeStyle}>
+      <img className="cth-media" src={src} alt="" onError={() => setFailed(true)} />
     </div>
   );
 }

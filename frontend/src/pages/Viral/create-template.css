@@ -1,0 +1,187 @@
+/* =============================================================================
+   热门创作 · 创建模板（向导：输入视频 → AI 分析 → 编辑保存）质感改造 · 2026-11-25（批次I）
+   覆盖两个文件：
+     pages/Viral/CreateTemplate.tsx            → .vct-
+     pages/Viral/components/SceneEditor.tsx    → .vse-
+   （SceneEditor 只被本页引用，但类名自带前缀、不依赖 .vct-root，便于将来复用。）
+
+   业务逻辑零改动：step 状态机、handleAnalyze / handleUpload / handleSave、
+   addScene/updateScene/removeScene、addVariable/updateVariable/removeVariable、
+   ensureSceneKeys、Form 字段与校验、接口调用与跳转路径一字未动。
+
+   修掉的真实缺陷：
+     1. 🔴 返回按钮 `color:'#666'` —— 暗色下深灰压深底（本页有两个返回按钮）。
+     2. 🔴 场景行与变量行 `background:'#fafafa' + border:'1px solid #f0f0f0'`
+        → 暗色下是一格格亮白块，且 `#f0f0f0` 边框在暗色里直接消失。
+     3. 🔴 Alert 里的比例高亮 `<b style={{color:'#7c3aed'}}>` —— 暗色下旧紫压深底对比不足。
+     4. 主按钮写死旧品牌紫 `#7c3aed` → var(--grad-brand)。
+     5. Card 外壳「border:none + 自造 boxShadow」与全站令牌卡不同一层 → .vct-panel。
+     6. Row/Col 的 xs24/sm8、xs12/sm5/sm3 魔法断点 → CSS 栅格（变量行、场景行各自自适应）。
+   有意保留：
+     · 区块标题左侧竖条的两段强调色 —— 场景分镜用品牌渐变；「替换变量」用 #ec4899 粉，
+       它是本页区分两类区块的标记色（高饱和，两主题都可读），抽成本地变量注明，不当魔法数字散落。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.vct-root { display: flex; flex-direction: column; gap: var(--sp-4); max-width: 900px; padding: clamp(16px, 3vw, 32px); }
+.vct-back { align-self: flex-start; }
+.vct-back.ant-btn { color: var(--text-secondary); }
+.vct-back.ant-btn:hover { color: var(--primary); }
+
+/* ---------- 令牌卡 ---------- */
+.vct-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-5);
+}
+.vct-panel--center { text-align: center; padding: 80px 0; }
+.vct-panel__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+.vct-panel__title { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 620; color: var(--text); }
+/* 区块标记色（见文件头说明） */
+.vct-bar { width: 3px; height: 16px; border-radius: 2px; background: var(--grad-brand); }
+.vct-bar--var { background: var(--vct-accent-var); }
+:root { --vct-accent-var: #ec4899; }
+
+.vct-h4 { margin: 0 0 var(--sp-5) !important; font-size: var(--fs-2xl) !important; font-weight: 660 !important; }
+.vct-h5 { margin: 0 0 var(--sp-4) !important; font-size: var(--fs-lg) !important; font-weight: 640 !important; }
+.vct-analyzing__title { margin-top: var(--sp-6) !important; }
+.vct-analyzing__sub { display: block; margin-top: var(--sp-2); font-size: var(--fs-md); color: var(--text-muted); }
+
+.vct-steps { max-width: 600px; }
+.vct-root .ant-alert { border-radius: 10px; }
+.vct-alert-ratio { margin-top: var(--sp-3); }
+/* 原 <b style="color:#7c3aed"> → 品牌色加粗，两主题都够对比 */
+.vct-alert-ratio b, .vct-ratio-strong { color: var(--primary); font-weight: 700; }
+
+/* ---------- 表单项 ---------- */
+.vct-field { margin-bottom: var(--sp-4); }
+.vct-field__label { display: block; margin-bottom: 6px; font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.vct-field__label--sm { font-size: var(--fs-sm); margin-bottom: 4px; }
+.vct-input { border-radius: 8px; }
+.vct-input--lg { border-radius: 10px; }
+.vct-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--sp-4); }
+.vct-grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--sp-3); }
+.vct-desc { margin-top: var(--sp-3); }
+
+.vct-drigger { border-radius: 10px; margin-bottom: var(--sp-4); }
+.vct-divider { margin: var(--sp-4) 0; }
+
+/* ---------- 品牌主按钮 ---------- */
+.ant-btn.vct-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.ant-btn.vct-btn-brand:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+.ant-btn.vct-btn-brand:disabled { opacity: .55; transform: none; box-shadow: none; }
+.vct-btn-lg.ant-btn { height: 44px; }
+.vct-btn-ghost.ant-btn { height: 44px; border-radius: 10px; }
+
+/* ---------- 变量行（原 #fafafa + #f0f0f0） ---------- */
+.vct-rows { display: flex; flex-direction: column; gap: var(--sp-2); }
+.vct-row {
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.vct-row:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.vct-row__hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); }
+.vct-row__name { font-size: var(--fs-md); font-weight: 620; color: var(--text); }
+.vct-row__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--sp-2);
+  align-items: center;
+}
+.vct-row__grid .ant-input-sm, .vct-row__grid .ant-select-sm { border-radius: 6px; }
+.vct-row__flag.ant-btn { border-radius: 6px; font-size: var(--fs-xs); }
+
+.vct-blank { padding: 20px; text-align: center; font-size: var(--fs-md); color: var(--text-muted); }
+
+/* ---------- 底部动作区 ---------- */
+.vct-actions { display: flex; gap: var(--sp-3); justify-content: flex-end; flex-wrap: wrap; }
+.vct-actions .ant-btn { height: 44px; padding-inline: 24px; border-radius: 10px; }
+
+/* ===========================================================================
+   SceneEditor（.vse-）
+   ========================================================================= */
+.vse-root {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-5);
+  margin-bottom: var(--sp-6);
+}
+.vse-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-4);
+}
+.vse-title { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-lg); font-weight: 620; color: var(--text); }
+.vse-bar { width: 3px; height: 16px; border-radius: 2px; background: var(--grad-brand); }
+.vse-rows { display: flex; flex-direction: column; gap: var(--sp-2); }
+.vse-row {
+  padding: var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.vse-row:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.vse-row__hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); }
+.vse-row__name { font-size: var(--fs-md); font-weight: 620; color: var(--text); }
+/* 场景名 / 秒数 / 类型 / 描述 四列：描述占宽，窄屏自动换行 */
+.vse-row__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) 92px minmax(0, 1fr) minmax(0, 1.8fr);
+  gap: var(--sp-2);
+  align-items: center;
+}
+.vse-row__grid .ant-input-sm, .vse-row__grid .ant-select-sm { border-radius: 6px; }
+.vse-row__grid .ant-input-affix-wrapper-sm { border-radius: 6px; }
+.vse-unit.ant-tag { margin-inline-end: 0; border: none; background: transparent; font-size: 10px; }
+.vse-blank { padding: 20px; text-align: center; font-size: var(--fs-md); color: var(--text-muted); }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .vct-panel,
+[data-theme=light] .vse-root {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .26);
+}
+[data-theme=dark] .vct-panel,
+[data-theme=dark] .vse-root {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .vse-row__grid { grid-template-columns: minmax(0, 1fr) 84px; }
+  .vse-row__grid > :nth-child(4) { grid-column: 1 / -1; }
+  .vct-row__grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .vct-actions { justify-content: stretch; }
+  .vct-actions .ant-btn { flex: 1 1 auto; }
+}

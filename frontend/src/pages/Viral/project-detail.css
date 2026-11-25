@@ -1,0 +1,251 @@
+/* =============================================================================
+   热门创作 · 项目详情与进度组件 质感改造 · 2026-11-25（批次I）
+   覆盖三个文件：
+     pages/Viral/ProjectDetail.tsx          → .vpd-
+     pages/Viral/components/ProgressPanel   → .vpp-
+     pages/Viral/components/VideoPreview    → .vpv-
+   （后两个目前只被 ProjectDetail 引用，但类名各自带前缀、不依赖 .vpd-root，
+     这样将来被放进 Modal（portal）或别的页面复用也不会丢样式。）
+
+   业务逻辑零改动：STATUS_MAP / LANG_MAP、startGeneration、changeRatio、changeDuration、
+   refreshSource、regenerateScene、Descriptions 字段、轮询与接口调用一字未动。
+
+   修掉的真实缺陷：
+     1. 🔴 返回按钮 `color:'#666'` —— 暗色下深灰压深底，几乎看不见（Viral 四个页面同病）。
+     2. 🔴 场景行 `background:'#f9f9fb'`、原视频缺失块 `#f5f7fa` + `color:#999`、
+        错误块 `#fff2f0` —— 暗色下是一排亮白块。
+     3. 🔴 徽标写死旧品牌紫 `#7c3aed20`/`#7c3aed` 与旧 antd 蓝 `#1890ff20`/`#1890ff`
+        → 交回 --primary / --info 的 color-mix  tint，两主题都成立且跟随主题。
+     4. 🔴 ProgressPanel 的未开始图标 `color:'#bbb'` —— 暗色下隐形。
+     5. 语义色写死 `#52c41a`/`#ff4d4f`/`#faad14` → var(--success)/var(--danger)/var(--warning)。
+     6. antd Card 外壳（border:none + 自造 boxShadow）与全站令牌卡不同一层 → 换 .vpd-panel。
+   有意保留：视频元素本体的黑底（媒体信箱）。
+   ============================================================================= */
+
+/* ---------- 页面骨架 ---------- */
+.vpd-root { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5) var(--sp-6); }
+.vpd-back { align-self: flex-start; }
+.vpd-back.ant-btn { color: var(--text-secondary); }
+.vpd-back.ant-btn:hover { color: var(--primary); }
+
+/* ---------- 令牌卡（取代 antd Card 的 border:none + 自造阴影） ---------- */
+.vpd-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.vpd-panel__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  background-image: var(--grad-sheen);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-lg);
+  font-weight: 620;
+  color: var(--text);
+}
+.vpd-panel__hd .anticon { color: var(--primary); }
+.vpd-panel__bd { padding: var(--sp-5); }
+
+/* ---------- 头部信息 + 操作 ---------- */
+.vpd-hd {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-5);
+}
+.vpd-hd__titles { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; }
+.vpd-title { margin: 0 !important; font-size: var(--fs-2xl) !important; font-weight: 640 !important; }
+.vpd-hd__acts { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+
+/* ---------- 徽标（原写死 #7c3aed20 / #1890ff20） ---------- */
+.vpd-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.vpd-badge--ai {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+}
+.vpd-badge--src {
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+}
+.vpd-sect-hd { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 10px; flex-wrap: wrap; }
+.vpd-sect-note { font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* ---------- 品牌主按钮 ---------- */
+.ant-btn.vpd-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  font-weight: 600;
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.ant-btn.vpd-btn-brand:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+.ant-btn.vpd-btn-brand:disabled { opacity: .5; transform: none; box-shadow: none; }
+/* 「获取原视频」是信息类动作，用 --info 实色而不是旧 antd 蓝 */
+.ant-btn.vpd-btn-info.ant-btn {
+  background: var(--info) !important;
+  border-color: var(--info) !important;
+  color: #fff !important;
+  border-radius: 6px;
+  margin-left: auto;
+}
+
+/* ---------- 原视频缺失块（原 #f5f7fa + #999） ---------- */
+.vpd-missing {
+  padding: 28px var(--sp-4);
+  text-align: center;
+  font-size: var(--fs-md);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  background-image: var(--grad-stage);
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+}
+
+/* ---------- 错误块（原 #fff2f0） ---------- */
+.vpd-error {
+  margin-bottom: var(--sp-5);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-md);
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: 10px;
+}
+
+/* ---------- 场景行（原 #f9f9fb + #7c3aed20 序号） ---------- */
+.vpd-scenes { display: flex; flex-direction: column; gap: var(--sp-2); }
+.vpd-scene {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.vpd-scene:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.vpd-scene__lead { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.vpd-scene__name { font-size: var(--fs-md); flex: 1; min-width: 0; color: var(--text); }
+.vpd-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.vpd-scene .ant-tag { margin-inline-end: 0; border-radius: 6px; }
+
+/* ---------- 元信息表 ---------- */
+.vpd-root .ant-descriptions-item-label { color: var(--text-muted); }
+.vpd-root .ant-descriptions-item-content { color: var(--text-secondary); }
+.vpd-root .ant-divider { margin: 20px 0; }
+
+/* ===========================================================================
+   ProgressPanel（.vpp-）—— 整体进度 + 场景状态列表
+   ========================================================================= */
+.vpp-root { margin-bottom: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-4); }
+.vpp-label { display: block; margin-bottom: 4px; font-size: var(--fs-md); color: var(--text-muted); }
+.vpp-bar { max-width: 400px; }
+.vpp-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.vpp-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.vpp-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
+.vpp-item .ant-tag { margin-inline-end: 0; border-radius: 6px; font-size: 10px; }
+.vpp-name { font-size: var(--fs-sm); flex: 1; min-width: 0; color: var(--text); }
+/* 语义色交回令牌：原 #52c41a / #7c3aed / #ff4d4f / #bbb */
+.vpp-ico--done { color: var(--success); }
+.vpp-ico--run { color: var(--primary); }
+.vpp-ico--fail { color: var(--danger); }
+.vpp-ico--wait { color: var(--text-muted); }
+
+/* ===========================================================================
+   VideoPreview（.vpv-）
+   ========================================================================= */
+.vpv-wrap { position: relative; margin-bottom: var(--sp-3); }
+.vpv-player { display: block; border-radius: 10px; }
+.vpv-fs.ant-btn {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  /* 浮在视频画面上，必须半透黑底 + 白字，不能跟随主题（否则浅色下白底白字） */
+  color: #fff;
+  background: rgba(0, 0, 0, .3);
+  border-radius: 8px;
+}
+.vpv-fs.ant-btn:hover { color: #fff; background: rgba(0, 0, 0, .55); }
+.vpv-full { width: 100%; border-radius: 8px; display: block; }
+/* 组件自带品牌钮样式，不借用页面 .vpd-btn-brand —— 组件不该依赖调用方的 CSS */
+.ant-btn.vpv-btn-dl {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 8px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+}
+.ant-btn.vpv-btn-dl:hover { filter: brightness(1.05); box-shadow: var(--glow), var(--shadow-2) !important; }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .vpd-panel {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .26);
+}
+[data-theme=dark] .vpd-panel {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .vpd-root { padding: var(--sp-4); }
+  .vpd-panel__bd { padding: var(--sp-4); }
+  .vpd-hd { align-items: flex-start; }
+}

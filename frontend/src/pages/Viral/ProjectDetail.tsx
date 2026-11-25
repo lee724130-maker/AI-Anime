@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Typography, Card, Button, Spin, Tag, Space, Descriptions, Empty, message, Modal, Divider, Select } from 'antd';
+import { Typography, Button, Spin, Tag, Space, Descriptions, Empty, message, Modal, Divider, Select } from 'antd';
 import { ArrowLeftOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined, ReloadOutlined, ThunderboltOutlined, FileTextOutlined } from '@ant-design/icons';
 import api from '../../services/api';
 import ProgressPanel from './components/ProgressPanel';
 import VideoPreview from './components/VideoPreview';
 import CreditRulesAlert from '../../components/CreditRulesAlert';
+import './project-detail.css';   // 本页 + ProgressPanel/VideoPreview 样式（作用域 .vpd-/.vpp-/.vpv-）
 
 const { Title, Text } = Typography;
 
@@ -132,55 +133,57 @@ export default function ViralProjectDetail() {
   const scenes: any[] = typeof project.scenes === 'string' ? JSON.parse(project.scenes) : (project.scenes || []);
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="vpd-root">
       <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/viral/projects')}
-        style={{ marginBottom: 16, color: '#666' }}>返回我的创作</Button>
+        className="vpd-back">返回我的创作</Button>
       <CreditRulesAlert apiPath="/api/viral/credit-rules" />
 
-      <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <Title level={4} style={{ margin: 0 }}>{project.name}</Title>
-            <Tag color={sm.color} style={{ borderRadius: 6, marginTop: 8 }}>{sm.label}</Tag>
+      <div className="vpd-panel">
+        <div className="vpd-panel__bd">
+          <div className="vpd-hd">
+            <div className="vpd-hd__titles">
+              <Title level={4} className="vpd-title">{project.name}</Title>
+              <Tag color={sm.color} style={{ borderRadius: 6, alignSelf: 'flex-start', marginTop: 4 }}>{sm.label}</Tag>
+            </div>
+            <div className="vpd-hd__acts">
+              {project.status === 'pending' && (
+                <Button type="primary" icon={<ThunderboltOutlined />} onClick={startGeneration}
+                  loading={generating} className="vpd-btn-brand">
+                  开始生成
+                </Button>
+              )}
+              {project.status === 'processing' && (
+                <Button icon={<SyncOutlined spin />} disabled>生成中...</Button>
+              )}
+              {project.status === 'failed' && (
+                <Button type="primary" icon={<ReloadOutlined />} onClick={startGeneration}
+                  className="vpd-btn-brand">
+                  重新生成
+                </Button>
+              )}
+              <Select
+                value={project.ratio || '9:16'}
+                onChange={changeRatio}
+                options={[
+                  { label: '9:16 竖屏', value: '9:16' },
+                  { label: '16:9 横屏', value: '16:9' },
+                  { label: '1:1 方形', value: '1:1' },
+                  { label: '3:4 竖版', value: '3:4' },
+                  { label: '2:3 竖版', value: '2:3' },
+                  { label: '4:3 横版', value: '4:3' },
+                ]}
+                style={{ width: 130 }}
+              />
+              <Select
+                value={project.target_duration || undefined}
+                onChange={changeDuration}
+                allowClear
+                placeholder="目标时长"
+                options={[15, 30, 45, 60].map((d) => ({ label: `${d}s`, value: d }))}
+                style={{ width: 110 }}
+              />
+            </div>
           </div>
-          <Space wrap>
-            {project.status === 'pending' && (
-              <Button type="primary" icon={<ThunderboltOutlined />} onClick={startGeneration}
-                loading={generating} style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
-                开始生成
-              </Button>
-            )}
-            {project.status === 'processing' && (
-              <Button icon={<SyncOutlined spin />} disabled>生成中...</Button>
-            )}
-            {project.status === 'failed' && (
-              <Button type="primary" icon={<ReloadOutlined />} onClick={startGeneration}
-                style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
-                重新生成
-              </Button>
-            )}
-            <Select
-              value={project.ratio || '9:16'}
-              onChange={changeRatio}
-              options={[
-                { label: '9:16 竖屏', value: '9:16' },
-                { label: '16:9 横屏', value: '16:9' },
-                { label: '1:1 方形', value: '1:1' },
-                { label: '3:4 竖版', value: '3:4' },
-                { label: '2:3 竖版', value: '2:3' },
-                { label: '4:3 横版', value: '4:3' },
-              ]}
-              style={{ width: 130 }}
-            />
-            <Select
-              value={project.target_duration || undefined}
-              onChange={changeDuration}
-              allowClear
-              placeholder="目标时长"
-              options={[15, 30, 45, 60].map((d) => ({ label: `${d}s`, value: d }))}
-              style={{ width: 110 }}
-            />
-          </Space>        </div>
 
         {(project.status === 'processing') && (
           <ProgressPanel
@@ -192,24 +195,20 @@ export default function ViralProjectDetail() {
 
         {project.status === 'completed' && project.result_url && (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ background: '#7c3aed20', color: '#7c3aed', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
-                AI 生成视频
-              </span>
-              <Text type="secondary" style={{ fontSize: 12 }}>根据模板生成的视频</Text>
+            <div className="vpd-sect-hd">
+              <span className="vpd-badge vpd-badge--ai">AI 生成视频</span>
+              <Text className="vpd-sect-note">根据模板生成的视频</Text>
             </div>
             <VideoPreview url={project.result_url} />
-            <Divider style={{ margin: '20px 0' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <span style={{ background: '#1890ff20', color: '#1890ff', borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>
-                原视频
-              </span>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+            <Divider />
+            <div className="vpd-sect-hd">
+              <span className="vpd-badge vpd-badge--src">原视频</span>
+              <Text className="vpd-sect-note">
                 {project.template_name ? `${project.template_name} 的参考视频` : '模板参考视频'}
               </Text>
               {project.reference_url && !project.reference_url.startsWith('/static/') && (
                 <Button size="small" type="primary" loading={refreshingSource} onClick={refreshSource}
-                  style={{ borderRadius: 6, background: '#1890ff', borderColor: '#1890ff', marginLeft: 'auto' }}>
+                  className="vpd-btn-info">
                   获取原视频
                 </Button>
               )}
@@ -217,10 +216,7 @@ export default function ViralProjectDetail() {
             {project.reference_url && project.reference_url.startsWith('/static/') ? (
               <VideoPreview url={project.reference_url} />
             ) : (
-              <div style={{
-                background: '#f5f7fa', borderRadius: 10, padding: '28px 16px',
-                textAlign: 'center', color: '#999', fontSize: 13,
-              }}>
+              <div className="vpd-missing">
                 原视频暂未保存到本地，点击右上角「获取原视频」下载保存后可播放
               </div>
             )}
@@ -228,9 +224,7 @@ export default function ViralProjectDetail() {
         )}
 
         {project.error_msg && (
-          <div style={{ background: '#fff2f0', borderRadius: 10, padding: '12px 16px', marginBottom: 20 }}>
-            <Text type="danger" style={{ fontSize: 13 }}>{project.error_msg}</Text>
-          </div>
+          <div className="vpd-error">{project.error_msg}</div>
         )}
 
         <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginTop: 16 }}>
@@ -256,41 +250,37 @@ export default function ViralProjectDetail() {
             <Tag style={{ borderRadius: 6 }}>{LANG_MAP[project.language || 'zh']}</Tag>
           </Descriptions.Item>
         </Descriptions>
-      </Card>
+        </div>
+      </div>
 
       {/* Scene list with regenerate buttons */}
       {scenes.length > 0 && (
-        <Card title={<><FileTextOutlined /> 场景列表</>}
-          style={{ marginTop: 16, borderRadius: 14, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <Space orientation="vertical" style={{ width: '100%' }}>
-            {scenes.map((scene, i) => (
-              <div key={i} style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '12px 16px', background: '#f9f9fb', borderRadius: 10, gap: 12,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
-                  <span style={{ background: '#7c3aed20', color: '#7c3aed', borderRadius: '50%',
-                    width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
-                    {i + 1}
-                  </span>
-                  <Text style={{ fontSize: 13, flex: 1 }}>{scene.name || `场景 ${i + 1}`}</Text>
+        <div className="vpd-panel">
+          <div className="vpd-panel__hd"><FileTextOutlined /> 场景列表</div>
+          <div className="vpd-panel__bd">
+            <div className="vpd-scenes">
+              {scenes.map((scene, i) => (
+                <div key={i} className="vpd-scene">
+                  <div className="vpd-scene__lead">
+                    <span className="vpd-num">{i + 1}</span>
+                    <Text className="vpd-scene__name">{scene.name || `场景 ${i + 1}`}</Text>
+                  </div>
+                  <Space>
+                    {scene.status === 'completed' && <Tag color="success" style={{ borderRadius: 6 }}>已完成</Tag>}
+                    {scene.status === 'failed' && (
+                      <Tag color="error" style={{ borderRadius: 6 }}>失败</Tag>
+                    )}
+                    {scene.status === 'processing' && <Spin size="small" />}
+                    <Button size="small" icon={<ReloadOutlined />} onClick={() => regenerateScene(i)}
+                      disabled={project.status === 'processing'}>
+                      重新生成
+                    </Button>
+                  </Space>
                 </div>
-                <Space>
-                  {scene.status === 'completed' && <Tag color="success" style={{ borderRadius: 6 }}>已完成</Tag>}
-                  {scene.status === 'failed' && (
-                    <Tag color="error" style={{ borderRadius: 6 }}>失败</Tag>
-                  )}
-                  {scene.status === 'processing' && <Spin size="small" />}
-                  <Button size="small" icon={<ReloadOutlined />} onClick={() => regenerateScene(i)}
-                    disabled={project.status === 'processing'}>
-                    重新生成
-                  </Button>
-                </Space>
-              </div>
-            ))}
-          </Space>
-        </Card>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

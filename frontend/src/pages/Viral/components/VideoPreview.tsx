@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Modal, Button, Space } from 'antd';
 import { FullscreenOutlined, DownloadOutlined } from '@ant-design/icons';
+import '../project-detail.css';   // 与 ProjectDetail 共用同一份样式（Vite 去重，只注入一次）
 
 const BASE_URL = import.meta.env.VITE_API_BASE || '';
 
@@ -16,23 +17,22 @@ export default function VideoPreview({ url, width = '100%', maxWidth = 600 }: Pr
 
   return (
     <>
-      <div style={{ position: 'relative', marginBottom: 12 }}>
-        <video src={fullUrl} controls
-          style={{ width, maxWidth, borderRadius: 10, display: 'block' }} />
+      <div className="vpv-wrap">
+        <video className="vpv-player" src={fullUrl} controls style={{ width, maxWidth }} />
         <Button type="text" size="small" icon={<FullscreenOutlined />}
           onClick={() => setFullscreen(true)}
-          style={{ position: 'absolute', top: 8, right: 8, color: '#fff', background: 'rgba(0,0,0,0.3)', borderRadius: 8 }} />
+          className="vpv-fs" aria-label="全屏播放" />
       </div>
       <Space>
-        <Button type="primary" size="small" icon={<DownloadOutlined />} href={fullUrl} target="_blank"
-          style={{ borderRadius: 8, background: '#7c3aed', borderColor: '#7c3aed' }}>
+        <Button type="primary" size="small" icon={<DownloadOutlined />}
+          href={fullUrl} target="_blank" rel="noreferrer"
+          className="vpv-btn-dl">
           下载视频
         </Button>
       </Space>
       <Modal open={fullscreen} onCancel={() => setFullscreen(false)} footer={null} width="90vw"
         centered style={{ maxWidth: 800 }}>
-        <video src={fullUrl} controls autoPlay
-          style={{ width: '100%', borderRadius: 8 }} />
+        <video className="vpv-full" src={fullUrl} controls autoPlay />
       </Modal>
     </>
   );

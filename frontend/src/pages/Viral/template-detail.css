@@ -1,0 +1,250 @@
+/* =============================================================================
+   热门创作 · 模板详情 质感改造 · 2026-11-25（批次I）
+   覆盖两个文件：
+     pages/Viral/TemplateDetail.tsx              → .vtd-
+     pages/Viral/components/GlobalAssetPicker    → .vgp-
+   GlobalAssetPicker 渲染在 Modal（portal，在页面 root 之外），所以它的类名一律自带前缀、
+   不写成 .vtd-root .vgp-xxx，否则弹窗里会全部丢样式。
+
+   业务逻辑零改动：handleDuplicate、Form 字段与校验、selectedImages 增删、
+   API_BASE 拼接、Tabs 分组、toggleAsset 选择逻辑一字未动。
+
+   修掉的真实缺陷：
+     1. 🔴 返回按钮 `color:'#666'` —— 暗色下深灰压深底。
+     2. 🔴 参考链接块 / 场景行 / 帧缩略图底色写死 `#fafafa`·`#f5f5f5` + 边框 `#f0f0f0`
+        → 暗色下是一格格亮白块，且 `#f0f0f0` 边框在暗色里直接消失。
+     3. 🔴 选中态 `#7c3aed` 与 `rgba(124,58,237,0.25)` 遮罩（旧品牌紫）→ var(--primary) / color-mix。
+     4. 🔴 添加素材的虚线按钮 `border:'1px dashed #d9d9d9'` → 暗色下看不见。
+     5. 🔴 GlobalAssetPicker 的占位 `#f0f0f0` 与图标 `#ccc` → 暗色下亮白块 + 隐形图标。
+     6. 主按钮写死 `#7c3aed` → var(--grad-brand)。
+   有意保留：图片/视频上的白色 ✓ 与红色删除角标（浮在真实图片上，两主题都需要半透明白底才可读）。
+   ============================================================================= */
+
+/* ---------- 骨架 ---------- */
+.vtd-root { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-5) var(--sp-6); }
+.vtd-back { align-self: flex-start; }
+.vtd-back.ant-btn { color: var(--text-secondary); }
+.vtd-back.ant-btn:hover { color: var(--primary); }
+
+/* 左信息 / 右表单两列（取代 Row xs24 lg14 / lg10 的魔法断点） */
+.vtd-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: var(--sp-6);
+  align-items: start;
+}
+
+/* ---------- 令牌卡 ---------- */
+.vtd-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-5);
+}
+.vtd-panel__title { margin: 0 0 var(--sp-4) !important; font-size: var(--fs-xl) !important; font-weight: 640 !important; }
+
+.vtd-cover { margin-bottom: var(--sp-4); }
+.vtd-name { margin: 0 0 4px !important; font-size: var(--fs-2xl) !important; font-weight: 640 !important; }
+.vtd-metarow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
+.vtd-metarow .ant-tag { margin-inline-end: 0; border-radius: 6px; }
+.vtd-usage { font-size: var(--fs-sm); color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; }
+.vtd-usage .anticon { color: var(--warning); }
+.vtd-copy.ant-btn { font-size: var(--fs-sm); padding-inline: 4px; }
+.vtd-desc { display: block; margin-bottom: var(--sp-4); font-size: var(--fs-md); color: var(--text-secondary); line-height: 1.6; }
+
+/* 参考视频链接条（原 #fafafa + #f0f0f0 + #7c3aed） */
+.vtd-ref {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.vtd-ref .anticon-link { color: var(--primary); flex-shrink: 0; }
+.vtd-ref__text { font-size: var(--fs-sm); min-width: 0; }
+.vtd-ref__open { font-size: var(--fs-sm); color: var(--primary); flex-shrink: 0; }
+
+.vtd-root .ant-divider { margin: var(--sp-3) 0; }
+.vtd-section-title { display: block; margin-bottom: var(--sp-3); font-size: var(--fs-lg); font-weight: 620; color: var(--text); }
+
+/* 场景行（原 #fafafa + #f0f0f0） */
+.vtd-scene {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.vtd-scene:hover { border-color: var(--line-strong); background: var(--surface-3); }
+.vtd-scene__name { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
+.vtd-scene__desc { font-size: var(--fs-sm); color: var(--text-muted); }
+.vtd-scene .ant-tag { margin-inline-end: 0; border-radius: 6px; flex-shrink: 0; }
+
+/* ---------- 品牌主按钮 ---------- */
+.ant-btn.vtd-btn-brand {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--t-base) var(--ease), transform var(--t-fast) var(--ease), filter var(--t-fast) var(--ease);
+}
+.ant-btn.vtd-btn-brand:hover:not(:disabled) {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: var(--glow), var(--shadow-2) !important;
+}
+.ant-btn.vtd-btn-brand:disabled { opacity: .55; transform: none; box-shadow: none; }
+.vtd-submit.ant-btn { height: 44px; margin-top: var(--sp-2); }
+
+/* ---------- 参考图选择 ---------- */
+.vtd-hint { display: block; margin-bottom: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.6; }
+.vtd-frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+  margin-bottom: var(--sp-2);
+}
+.vtd-frame {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  min-height: 56px;   /* 图被藏掉（缺文件）时栅格不能塌成 0 高 */
+  border-radius: 8px;
+  background: var(--surface-3);
+  border: 2px solid transparent;
+  transition: border-color var(--t-fast) var(--ease);
+}
+.vtd-frame:hover { border-color: var(--line-strong); }
+.vtd-frame[data-on="1"] { border-color: var(--primary); }
+/* 帧文件缺失时（onError 藏掉 <img> 并打 data-broken）出一块「无截图」占位，
+   而不是浏览器的裂图图标 —— 实测生产 viral_frames_* 目录不存在，这里会 6 张全 404 */
+.vtd-frame[data-broken="1"]::after {
+  content: '无截图';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  background: var(--surface-3);
+}
+.vtd-frame .ant-image, .vtd-frame img { display: block; width: 100%; }
+.vtd-frame img { width: 100%; height: 56px; object-fit: cover; }
+/* 选中遮罩：浮在真实图片上，半透明品牌色 + 白 ✓，两主题都可读 */
+.vtd-frame__mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--primary) 34%, transparent);
+}
+.vtd-frame__check { color: #fff; font-size: 16px; font-weight: 700; }
+
+.vtd-picked { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.vtd-picked__cell { position: relative; width: 60px; height: 60px; overflow: hidden; border-radius: 8px; background: var(--surface-3); }
+.vtd-picked__cell img, .vtd-picked__cell .ant-image img { width: 60px; height: 60px; object-fit: cover; }
+/* 角标浮在图片上，保留半透明白底（有意固定） */
+.vtd-picked__del.ant-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+  color: var(--danger) !important;
+  background: rgba(255, 255, 255, .8) !important;
+  border-radius: 0 8px 0 8px;
+}
+.vtd-add-frame.ant-btn {
+  width: 60px;
+  height: 60px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px dashed var(--line-strong);
+  color: var(--text-muted);
+}
+.vtd-add-frame.ant-btn:hover { border-color: var(--primary); color: var(--primary); }
+.vtd-count { display: block; margin-bottom: var(--sp-2); font-size: var(--fs-sm); color: var(--text-muted); }
+
+.vtd-root .ant-form-item-label > label { color: var(--text-secondary); }
+
+/* ===========================================================================
+   GlobalAssetPicker（.vgp-）—— 渲染在 Modal portal 内，类名必须自作用域
+   ========================================================================= */
+.vgp-foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-3); }
+.vgp-foot__count { font-size: var(--fs-md); color: var(--text-muted); }
+.ant-btn.vgp-ok.ant-btn {
+  background: var(--grad-brand) !important;
+  border: none !important;
+  color: #fff !important;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.vgp-search { margin-bottom: var(--sp-3); border-radius: var(--r-sm); }
+.vgp-loading { display: grid; place-items: center; padding: 40px 0; }
+.vgp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--sp-3);
+}
+.vgp-cell {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  border-radius: 10px;
+  background: var(--surface-3);
+  border: 2px solid transparent;
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.vgp-cell:hover { box-shadow: var(--shadow-2); border-color: var(--line-strong); }
+.vgp-cell[data-on="1"] { border-color: var(--primary); box-shadow: var(--ring); }
+.vgp-cell__img { display: block; width: 100%; height: 100px; object-fit: cover; }
+/* antd Image 的 <span class="ant-image"> 包装层默认 inline，会在格子底部留一条基线空隙 */
+.vgp-cell .ant-image { display: block; height: 100px; }
+/* 原 placeholder #f0f0f0 / 空态 #f5f5f5 + #ccc 图标 → 令牌 */
+.vgp-cell__ph, .vgp-cell__empty {
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-3);
+  background-image: var(--grad-stage);
+  color: var(--text-muted);
+}
+.vgp-cell__empty .anticon { font-size: 28px; }
+.vgp-cell__tick { position: absolute; top: 4px; right: 4px; font-size: 18px; color: var(--primary); }
+.vgp-cell__name { display: block; padding: 4px 6px; font-size: var(--fs-sm); color: var(--text); }
+
+/* ---------- 主题补层级 ---------- */
+[data-theme=light] .vtd-panel {
+  border-color: #e2e7f2;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 14px 32px -24px rgba(16, 24, 40, .26);
+}
+[data-theme=dark] .vtd-panel {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-2), inset 0 1px 0 rgba(255, 255, 255, .05);
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 992px) {
+  .vtd-split { grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+}
+@media (max-width: 768px) {
+  .vtd-root { padding: var(--sp-4); }
+  .vtd-panel { padding: var(--sp-4); }
+}
