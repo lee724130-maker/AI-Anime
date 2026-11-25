@@ -1,5 +1,76 @@
 # 修复日志
 
+## 2026-11-25 收工（当日 10 个提交全部已推送；远端 main = `10fe979`，工作区干净）
+
+**今天做完的：批次 G（两轮）+ 批次 H + 批次 I，外加全站文字色阶定档**
+
+| 批次 | 范围 | 提交 |
+|---|---|---|
+| 文字色阶 | `--text-secondary`/`--text-muted`（CSS 层）+ antd 四级文字 token（含新增 `LIGHT_TOKENS`）提到 WCAG AA | `3057ba2` `0f32964` |
+| G 组件轮 | Canvas 共用素材卡 `AssetCard`、属性面板取色器 | `ebc6ac6` |
+| G 主体 | Canvas 编辑器页外壳主题化（方案A，63 处颜色换变量）+ 删死代码 `NodeCard.tsx` | `ce6b2e4` `ac23d5d` |
+| H | `/drama` 子页 7 文件 + 4 份页作用域 CSS | `e009d3f` `93174e9` |
+| I | `/viral` 子页 11 文件 + 6 份 CSS + 删死代码 `VariableForm.tsx` | `ed319c3` `a78af17` `10fe979` |
+
+**页面质感改造的盘点口径已归零**：`node tools/ui-inventory.cjs` → A 类（暗色发白 / 旧主色）从 11-24 的
+**18 文件 / 282 hex / 28 浅色底** 降到 **2 文件 / 44 hex / 2 浅色底**，而这 2 个
+（`Canvas/components/WorkflowCanvas.tsx`、`Editor/components/Timeline.tsx`）是**有意保留的固定深色舞台**，
+已各自在文件头注明「这些色不是漏改，勿顺手令牌化」。
+
+**今天修掉的不是观感、而是真实缺陷（各条细节见本页上方三章）**
+- `/viral/templates/:id` **6 张裂图**：后端 `cover_url` 指向磁盘上已不存在的 `viral_frames_*` 帧（生产同样缺），
+  详情页用 antd `Image` 无兜底 → 用户看到一排浏览器裂图图标。现改「藏掉 + 无截图占位」。
+- `Assets.tsx` 原第 332 行一段**写在 JSX 里的全局 `<style>`**（不受页作用域约束，全仓 `.publish-btn` 都被染色）。
+- `Drama/Detail.tsx` 封面 `url(cover_url)` **没过 `getUrl()`** → 本地开发必然挂图 + mp4 当背景画不出 + 签名 URL 带 `&` 踩 CSS 解析。
+- `/drama` 候选卡与片段卡 `#fff`/`#fafafa`、`/viral` 场景行 `#f9f9fb`、错误块 `#fff2f0`、徽标旧 antd 蓝 `#1890ff20`
+  等一批暗色发白；四页返回钮 `#666`、多处 `#bbb`/`#ccc` 隐形图标。
+- 两个死代码组件（`NodeCard.tsx`、`VariableForm.tsx`）确认无引用后删除（回收站可恢复）。
+
+**验证方式（明天照此做，别退回桩数据单轨）**
+双轨：① `tools/probe-ui.cjs` 桩接口探针（12 路由 × 暗浅 = 24/24 全绿）；
+② **真实数据走查** —— 用仓库 `JWT_SECRET` 签合法 token 注入浏览器，读 `getComputedStyle` 实际值判定，
+需要内容时只插「引用已存在本地素材」的临时行，走完查按 id+标题双保险删除并核对行数回到与生产一致。
+今天全程**零生成接口调用、零积分消耗**，走查临时行已清（`drama_projects=3 / drama_episodes=6 /
+drama_segments=10 / drama_segment_candidates=1 / scripts=0 / characters=0 / video_tasks=0 / comic_projects=0`）。
+`npm run build` 每轮都 EXIT=0。
+
+**探针三条纪律（今天靠它们抓出 4 次"假绿/假红"，已写进规范文档 §九）**
+1. 双主题对比必须**先断言 `data-theme` 真的切过去了**：`addInitScript` 每次导航都执行，主题要作为参数传进去，
+   否则第二个主题静默失效、两批量到同一组数值看着「全绿」其实是假通过。
+2. 「元素存在」≠「目标状态被量到」：选中/未选中要**按索引逐个量**（`querySelector` 取的第一项常常正好是选中态，
+   而原本写死 `#fff` 的是未选中那个）；渐变要读 `backgroundImage`，读 `backgroundColor` 永远是 `rgba(0,0,0,0)`。
+3. 裂图判定必须与 `probe-ui.cjs` 同口径（`offsetParent!==null && visibility!=='hidden' && display!=='none'`）：
+   `visibility:hidden` 保留布局，用 `offsetWidth>0` 会把已兜住的图继续算成失败；
+   且要**额外统计被兜底藏掉的张数**，否则分不清「兜底生效」和「页面根本没图」。
+   另需排除噪音：`ERR_ABORTED`（视频卸载取消 range 请求，正常）、`favicon.svg`、`useForm is not connected`（既有告警）。
+
+**明天开工（按此顺序）**
+1. **批次 J —— 最后一个页面批次**：共用组件 `components/Logo`（3 hex / 2 处旧主色渐变）、
+   `SessionExpiredModal`（2）、`VideoPlayer/index.tsx`（2 hex / 10 内联 / 2 处 antd `Card`）；
+   共用组件建 `components/*.css` 且**不依赖任何单页作用域**，否则会串页。
+   再回收全局 `index.css` 里剩余的页面私有规则（已知 `.global-asset-detail-modal` 在 `:58-60 / 106-107`）、
+   `Drama/Episodes.tsx` 的 5 个 Card、`Generate/HistoryTable`、`Canvas/Editor.tsx` 剩余 88 处内联；
+   最后全站路由 × 暗浅总复核。
+2. 批次 J 完成后**攒生产部署窗口**（需你明确授权）：build → 上传 dist → 生产 UI 验证。
+   注意 `dist/src/common/security/` 必须就位（否则 `main.ts` require 失败起不来）、
+   `JWT_SECRET` 与 `/static` 中间件顺序、`REDIS_DB=5`、**别只比 `index-*.js` 文件名**。
+
+**等你拍板（都没动，避免越界）**
+1. `ThemeContext.tsx` 的 `LIGHT_TOKENS` **没有 `colorPrimary`** → 浅色主题下 antd 原生主色控件走默认蓝
+   `#1677ff`，与品牌紫 `--primary #6c5ce7` 不一致。补它会影响浅色下所有 antd 主色组件，是全站决定。
+2. Canvas 文字节点卡：卡身固定浅紫 `#f3f0ff`，但卡内文字取用户自选 `text_color` →
+   **选白字就完全看不见**（已用 `text_color:'#FFFFFF'` 的临时节点复现）。生产上叠加在视频上的文字通常就是白字。
+3. `CleanupService` 的 `Illegal mix of collations for operation 'UNION'` —— 磁盘自动清理实际一直没在工作。
+4. 数据质量：`viral_templates.cover_url` 指向已删除的帧文件；`viral_projects.scenes[].videoPath`
+   存的是绝对服务器路径 `/home/www/ai-anime/backend/output/…` 而非 `/static/…` 相对路径。
+
+**收工时的环境状态**
+- 四个端口都在跑：MySQL `3306`、Redis `6379`、后端 `3000`、前端 `5173`。
+- ⚠️ `mysqld` 是**后台进程不是服务**，重启电脑就会掉。想一劳永逸，在**管理员**终端跑一次：
+  `"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" --install MySQL84 --defaults-file="D:\mysql-data\my.ini"` 然后 `net start MySQL84`。
+- 生产站仍是 **11-09 的构建**（有意攒上线窗口）；本地库与 `backend/output`（59 文件 / 295,503,302 B）是生产逐字节镜像。
+- `tools/.probe/` 积了 132 张探针截图 / 46.9 MB（被 gitignore，可再生成），要清的话说一声。
+
 ## 2026-11-25（前端质感改造 · 批次I Viral 子页 11 个文件 ✅ 真实数据实测通过，**未部署到生产**）
 
 **改了哪些**（6 份 CSS；Form/state/接口字段/step 状态机/轮询/生成与保存逻辑零改动）
