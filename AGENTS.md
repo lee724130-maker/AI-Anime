@@ -1,5 +1,113 @@
 # 修复日志
 
+## 2026-11-26（Agnes 生图多线路：第0步 Provider 抽象 + 第1步 故障转移 ✅ 实测通过，**未部署、未产生任何真实 API 调用**）
+
+### 起因与关键发现（这条决定了方案重心）
+
+用户有两个 Agnes key（中国区 + 国际区），想让两条线路一起跑。读代码后发现一个**此前没意识到的事实**：
+
+`ai-service.util.ts:877` 有一把 **账号级串行锁** `withAgnesSerial`，注释写明
+「Agnes 账号级串行（约 4~5 分钟/张），并发打必秒级 429」。所以真正的瓶颈**不是配额数字，而是串行** ——
+全站生图共用一条 promise 链，等于只有一条泳道。
+
+推论：**第二个 key 属于另一个账号 → 天然是一条独立串行泳道**，两条并行即接近翻倍吞吐。
+这比"同提示词双线出图"（fan-out，成本×2）价值高得多，也正是用户问的"分担压力"。
+
+### 改了什么
+
+**新增 `backend/src/utils/agnes-image-lanes.ts`**（纯函数、无 DI、3188 行的 ai-service.util.ts 不再膨胀）
+
+- `resolveAgnesImageLanes(cnApiKey, intlKey, intlEndpoint)` → 线路列表
+- `pickAgnesImageLane(lanes, pending, onCooldown)` → 取排队最少的线路，并列时优先主线路
+- `agnesLaneAttemptOrder(lanes, first)` → 选中线路 + 其余线路（故障转移候选）
+
+**`ai-service.util.ts` 改动**
+
+| 原 | 现 |
+|---|---|
+| `private agnesSerial: Promise` 全局一条链 | `agnesSerialByLane: Map<laneId, Promise>` **每线路一条链** |
+| 无排队观测 | `agnesLanePending: Map<laneId, number>` 供"挑最闲线路" |
+| `postAgnesWithRetry(apiKey, body, model, idx, maxAttempts)` 端点硬编码 | 加 `endpoint` 参数（默认中国区，向后兼容） |
+| `generateImageWithAgnesImpl(apiKey, options)` | `(lane, options)`，用 `lane.endpoint` / `lane.apiKey` |
+| 单线路、失败只换模型 | 多线路：挑线路 → 失败给该线路打 30s 冷却 → 转下一条 |
+
+**三个调用点（346/373/408）签名一字未改** —— 线路在 `generateImageWithAgnes` 内部解析，
+传入的 `apiKey` 即主线路的 key。
+
+### 四条刻意的设计约束（都是为了防止"配错比不配更糟"）
+
+1. **国际区 endpoint 绝不硬编码、绝不猜路径**。只从 `system_configs.agnes_intl_api_endpoint` 读，
+   且必须是完整 `https://.../images/generations`；只给 host 或写 http 一律拒绝启用。
+2. **必须挡住"两条线路其实是同一个账号"**：endpoint 相同（含结尾斜杠差异已归一化比较）或
+   key 相同 → 回落单线路。否则两条串行链同时打同一个账号，正好把当初加锁要避免的 429 风暴重新造出来。
+3. **内容安全错误（`noRetry`）绝不换线路**。问题在提示词本身，换账号重打只会再失败一次，
+   还可能给第二个账号留下违规记录。这条单独写了断言（E3）。
+4. **未配置第二把 key 时行为与改造前完全一致**（惰性）。已用真实进程启动验证：日志里
+   没有出现"线路选择"，且本地库确认两条 intl 配置均不存在。
+
+### 验证（38 项断言全过，且**全程零真实网络请求**）
+
+`npm run build` → `npx tsc` **EXIT=0**（用正确 workdir，避免抓到同名假包 `tsc@2.0.4`）
+
+验证台 `lane-verify.cjs`：在 require 业务模块**之前**把 `axios.post` 换成假实现，
+并把 `axios.defaults.adapter` 也换成"直接抛错"，构成双保险 —— 即便有代码绕过被 stub 的
+`.post`，也物理上打不出真实请求。自检项先证明 stub 真的生效（否则后面全是假绿）：
+
+| 组 | 内容 | 结果 |
+|---|---|---|
+| 0 | stub 同源性与"绕过必被拦"自检 | 3 项 ✓ |
+| A | 线路解析 9 种配置组合（含 5 种误配必须回落单线路） | 9 ✓ |
+| B | 挑线路：最闲优先 / 并列取主线 / 跳过冷却 / 全冷却返 null / 尝试顺序 | 7 ✓ |
+| C1 | 单线路：只打 CN 端点、每端点并发=1、**全局并发也=1**、全程主 key | 5 ✓ |
+| C2 | 双线路：负载确实分担（CN 2 次 + INTL 2 次）、每端点仍=1、**全局并发=2**、两 key 不串号 | 6 ✓ |
+| D | 故障转移：主线失败→副线成功、副线被用上、失败线路进冷却后下个任务不再打它 | 4 ✓ |
+| E | 内容安全：如实上抛、给用户可读中文、**绝不换线路重打** | 3 ✓ |
+| F | 未配 key：直接报错且零请求 | 1 ✓ |
+
+**吞吐翻倍的直接证据**是 C2 那两个数：`每端点最大并发=1`（线路内部仍串行，不会打出 429）
+且 `全局最大并发=2`（两条泳道同时在工作）。单线路时两个数都是 1，说明没有偷偷并行化。
+
+后端真实启动复核：`node dist/src/main.js` → **0 个 ERROR**、251 条路由映射、
+`Nest application successfully started`；唯一 WARN 是既有的「支付宝 SDK 未配置」，与本次无关。
+
+### 我自己测错的两处（都先怀疑测试再怀疑代码）
+
+1. 第一版把 `maxConcurrent` 统计在 `inflight[endpoint]` 上，那是**每端点**并发；
+   双线路跑出 `=1` 我一度以为并行没生效。实际每端点=1 正是串行锁应有的表现，
+   要证明跨线路并行必须统计**全局**在途数。改成两个指标分别断言后才对上。
+2. 断言"非可重试 4xx 只打 1 次"失败（实测 CN 打了 2 次）。查日志发现是
+   `agnes-image-2.5-flash` 和 `2.1-flash` 各 1 次 —— 那是**既有的模型降级循环**，
+   不是重试风暴。正确断言应为"每个模型恰好 1 次"，而非"总共 1 次"。
+
+### 要启用第二条线路需要做什么（等你给两样东西）
+
+需要你提供 **国际站的完整 generations 端点 URL** 和 **第二把 key**，然后二选一写入：
+
+```sql
+INSERT INTO system_configs (config_key, config_value, created_at, updated_at)
+VALUES ('agnes_intl_api_key', '<国际站key>', NOW(6), NOW(6)),
+       ('agnes_intl_api_endpoint', 'https://<host>/v1/images/generations', NOW(6), NOW(6));
+```
+
+或走既有 admin 接口（`PUT /api/admin/api-keys` 接受任意 key，无白名单，admin-only，无需改代码）。
+
+⚠️ 注意：`getApiKeys()` 读侧有 `API_KEY_KEYS` 白名单，所以这两条**不会出现在后台界面列表里**
+（能写能读值）。要把它们做成后台可视化项，需要往 `API_KEY_KEYS` 加条目 —— 属产品/UI 决定，
+我没顺手做。
+
+### 本批明确没做（避免越界）
+
+- **视频线路没动**：`api.agnes-ai.cn/v1/videos` 与 `/agnesapi` 轮询仍是单端点硬编码。
+  视频是异步提交+轮询，故障转移语义与生图不同（涉及任务归属与轮询连续性），要单独设计。
+- 没做真实 API 调用，因此**尚未实测**：国际站 endpoint 的确切路径、两条线出图风格是否一致、
+  两把 key 的配额是否独立（代码层面已按"独立账号"设计，但需要一次真实小样本确认）。
+- 生产未部署。
+
+### 顺带发现的部署阻塞（与本次改动无关）
+
+今天 SSH 又连不上生产 22 端口（`Connection timed out`），而**本机出口公网 IP 仍是已放行过的
+`170.178.173.10`（实测未变）** —— 说明安全组那条规则被撤销或过期了。部署前需要你再放行一次。
+
 ## 2026-11-25 收工（当日 10 个提交全部已推送；远端 main = `10fe979`，工作区干净）
 
 **今天做完的：批次 G（两轮）+ 批次 H + 批次 I，外加全站文字色阶定档**
