@@ -1,5 +1,67 @@
 # 修复日志
 
+## 2026-11-26 收工（当日 2 个提交已推送；远端 main = `65c864a`，工作区干净，未推送 0）
+
+**今天做的不是页面批次，是一次后端能力改造**：Agnes 生图多线路（第0步 Provider 抽象 + 第1步 故障转移）。
+细节、四条设计约束、38 项断言结果都在本页上一节，这里只记状态与接续点。
+
+| 提交 | 内容 |
+|---|---|
+| `d62cca2` | `feat(backend)` 串行锁按线路分道 + 故障转移（新增 `utils/agnes-image-lanes.ts`） |
+| `65c864a` | `docs` 本次工作日志 |
+
+**今天最有价值的一条认知**（写在这里防止以后重走弯路）：
+全站生图的真瓶颈**不是配额数字，而是 `ai-service.util.ts:877` 那把账号级串行锁**
+（约 4~5 分钟/张，并发必 429）。所以"第二个 key"的意义不是"多一个可选供应商"，
+而是**多一条独立串行泳道** → 吞吐接近翻倍。判断这类"加 key/加账号"值不值得做，
+先去看代码里有没有按账号粒度加的锁，而不是先去问配额数字。
+
+**页面批次进度没有退步**：批次 A–I 已全部完成推送；剩余工作清单的接续点仍是**批次 J**
+（`node tools/ui-inventory.cjs` 复核：A 类必修 = 0，只剩 2 个有意保留的固定深色舞台）。
+
+## 明天开工（按此顺序）
+
+1. **批次 J —— 最后一个页面批次**（零成本，可直接开工）：
+   - 共用组件 `components/Logo`（3 hex / 2 处旧主色渐变）、`SessionExpiredModal`（2）、
+     `VideoPlayer/index.tsx`（2 hex / 10 内联 / 2 处 antd `Card`）；共用组件建 `components/*.css`
+     且**不依赖任何单页作用域**，否则串页。
+   - 回收全局 `index.css` 里剩余的页面私有规则（已知 `.global-asset-detail-modal` 在 `:58-60 / 106-107`）。
+   - `Drama/Episodes.tsx` 的 5 个 antd Card、`Generate/HistoryTable`、`Canvas/Editor.tsx` 剩余 88 处内联。
+   - 全站路由 × 暗浅总复核（`probe-ui` + 真实数据走查双轨）。
+2. **多线路的真实小样本验证**（等用户给国际站 endpoint + 第二把 key，且**必须先拿到配额预算授权**）：
+   验证三件目前只是"按独立账号设计"而未实测的事 —— 端点确切路径、两线出图风格是否一致、
+   两把 key 配额是否真独立。
+3. 批次 J 完成后**攒生产部署窗口**（需明确授权）。
+
+## 等你拍板（都没动，避免越界）
+
+1. `ThemeContext.tsx` 的 `LIGHT_TOKENS` **缺 `colorPrimary`** → 浅色主题下 antd 原生主色控件走默认蓝
+   `#1677ff`，与品牌紫 `--primary #6c5ce7` 不一致。补它影响浅色下所有 antd 主色组件，是全站决定。
+2. Canvas 文字节点卡：卡身固定浅紫 `#f3f0ff`，卡内文字取用户自选 `text_color` →
+   **选白字就完全看不见**（已用 `text_color:'#FFFFFF'` 的临时节点复现）。生产上叠在视频上的文字通常就是白字。
+3. `CleanupService` 的 `Illegal mix of collations for operation 'UNION'` —— 磁盘自动清理实际一直没在工作。
+4. 两条数据质量欠账：`viral_templates.cover_url` 指向磁盘已不存在的 `viral_frames_*` 帧（生产同样缺）；
+   `viral_projects.scenes[].videoPath` 存的是绝对服务器路径而非 `/static/…` 相对路径。
+5. 新增：多线路的**后台可视化**（把 `agnes_intl_api_key` / `agnes_intl_api_endpoint` 加进
+   `API_KEY_KEYS` 白名单，否则这两条能写但不出现在后台界面列表）。
+
+## 两个阻塞（明天开工前要注意）
+
+1. 🔴 **生产 22 端口今天又连不上**，而本机出口 IP 实测**仍是已放行过的 `170.178.173.10`（未变）**
+   → 安全组规则被撤销或过期。**部署前必须再放行一次**，否则传不了 dist。
+2. ⚠️ `mysqld` 仍是**后台进程不是服务**。今天没重启所以还活着，但一旦重启就会掉。
+   一劳永逸的办法（管理员终端）：
+   `"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysqld.exe" --install MySQL84 --defaults-file="D:\mysql-data\my.ini"` 然后 `net start MySQL84`。
+
+## 收工时的环境状态
+
+- 在跑：MySQL `3306`、Redis `6379`、后端 `3000`（带本次多线路改动的 dist，启动 0 ERROR、251 路由映射）。
+- 已停：前端 vite `5173`（今天下午没再跑前端）。
+- 本地库与 `backend/output` 仍是生产逐字节镜像；**今天零生成接口调用、零积分消耗**，
+  验证全部走假 axios stub（并给 adapter 加了"直接抛错"的双保险），无残留写入行。
+- 生产站仍是 **11-09 构建**（有意攒上线窗口）。
+- `tools/.probe/` 积了 132 张探针截图 / 46.9 MB（被 gitignore，可再生成），要清说一声。
+
 ## 2026-11-26（Agnes 生图多线路：第0步 Provider 抽象 + 第1步 故障转移 ✅ 实测通过，**未部署、未产生任何真实 API 调用**）
 
 ### 起因与关键发现（这条决定了方案重心）
