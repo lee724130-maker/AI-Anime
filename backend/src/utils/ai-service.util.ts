@@ -10,6 +10,13 @@ const execFileAsyncP = promisify(execFile);
 import * as fs from 'fs';
 import * as path from 'path';
 import { assertSafeRemoteUrl, resolveSafeStaticPath } from '../common/utils/safe-download.util';
+import {
+  AGNES_IMAGE_ENDPOINT_CN,
+  agnesLaneAttemptOrder,
+  pickAgnesImageLane,
+  resolveAgnesImageLanes,
+  type AgnesImageLane,
+} from './agnes-image-lanes';
 import { createClient } from 'redis';
 
 /**
@@ -23,8 +30,7 @@ export const AGNES_IMAGE_MODELS = [
 ] as const;
 export type AgnesImageModel = typeof AGNES_IMAGE_MODELS[number];
 
-/** 中国区端点：现有 agnes_api_key 可用，两款模型都在此（2026-11-05 实测） */
-const AGNES_IMAGE_ENDPOINT = 'https://api.agnes-ai.cn/v1/images/generations';
+/** 中国区端点见 utils/agnes-image-lanes.ts 的 AGNES_IMAGE_ENDPOINT_CN（2026-11-25 多线路改造后统一在那儿定义） */
 
 /** agnes-image-2.1/2.5-flash 官方支持的全部宽高比（图片生图片下拉用） */
 export const AGNES_IMAGE_RATIOS = ['1:1', '3:4', '4:3', '16:9', '9:16', '2:3', '3:2', '21:9'] as const;
@@ -877,28 +883,111 @@ export class AIServiceUtil {
   // === Agnes 账号级串行锁 + 429 退避重试（2026-11-11 P0 修复）===
   // Agnes 账号级串行（约 4~5 分钟/张），并发打必秒级 429。用 promise 链把所有 Agnes
   // 生图调用排队串行；链上任务成败都不卡死后续调用。AIServiceUtil 为单例，锁全局共享。
-  private agnesSerial: Promise<unknown> = Promise.resolve();
+  //
+  // 2026-11-25 多线路改造：锁从「全局一条链」改成「每条线路一条链」。
+  // 一个账号 = 一条串行泳道；第二个 key 属于另一个账号，因此第二条链是**独立泳道**，
+  // 两条并行即接近翻倍吞吐（而不是把同一个账号打出 429）。
+  // 未配置第二把 key 时只存在 cn 一条链，行为与改造前完全一致。
+  private agnesSerialByLane = new Map<string, Promise<unknown>>();
+  /** laneId → 该线路上已排队（含正在执行）的任务数，用于「挑最闲的线路」做负载分担 */
+  private agnesLanePending = new Map<string, number>();
 
-  private withAgnesSerial<T>(fn: () => Promise<T>): Promise<T> {
-    const next = this.agnesSerial.then(() => fn(), () => fn());
-    this.agnesSerial = next.then(() => undefined, () => undefined);
+  private withAgnesSerial<T>(laneId: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.agnesSerialByLane.get(laneId) ?? Promise.resolve();
+    const next = prev.then(() => fn(), () => fn());
+    this.agnesSerialByLane.set(laneId, next.then(() => undefined, () => undefined));
     return next;
   }
 
-  /** 单张图对 Agnes 的 POST：遇 429/503/网络抖动按指数退避重试（最多 4 次 ≈ 5 分钟）；
+  /** 线路排队数（供挑线路与日志观测用） */
+  private lanePending(laneId: string): number {
+    return this.agnesLanePending.get(laneId) ?? 0;
+  }
+
+  /**
+   * 解析可用生图线路。第二条线路仅当 system_configs 里
+   * agnes_intl_api_key 与 agnes_intl_api_endpoint **都配好**时才启用（详见 agnes-image-lanes.ts）。
+   */
+  private async resolveAgnesLanes(cnApiKey: string) {
+    const [intlKey, intlEndpoint] = await Promise.all([
+      this.getApiKey('agnes_intl_api_key'),
+      this.getConfigValue('agnes_intl_api_endpoint'),
+    ]);
+    return resolveAgnesImageLanes(cnApiKey, intlKey, intlEndpoint);
+  }
+
+  /** 线路冷却判定：复用 providerCooldowns，但用 agnes-lane: 前缀避免与 provider 级冷却互相干扰 */
+  private isLaneOnCooldown(laneId: string): boolean {
+    return this.isProviderOnCooldown(`agnes-lane:${laneId}`);
+  }
+
+  /**
+   * 公共入口：按「最闲线路优先 + 失败转移到其余线路」执行。
+   * 三条既有调用点（346/373/408）签名不变，线路在本方法内部解析。
+   *
+   * 失败转移的边界（重要）：
+   *  - 内容安全类错误（err.noRetry）→ 立即上抛，**绝不换线路**。问题在提示词本身，
+   *    换账号重打只会再失败一次，还可能给第二个账号留下违规记录。
+   *  - 429/503/网络抖动且该线路退避重试已耗尽 → 给该线路打冷却，再试下一条。
+   */
+  private async generateImageWithAgnes(
+    apiKey: string,
+    options: ImageGenerationOptions,
+  ): Promise<string[]> {
+    const lanes = await this.resolveAgnesLanes(apiKey);
+    const first = pickAgnesImageLane(
+      lanes,
+      Object.fromEntries(lanes.map((l) => [l.id, this.lanePending(l.id)])),
+      (id) => this.isLaneOnCooldown(id),
+    );
+    const order = agnesLaneAttemptOrder(lanes, first);
+
+    if (!first && lanes.length > 1) {
+      this.logger.warn(`全部 ${lanes.length} 条 Agnes 线路都在冷却中，仍按顺序各试一次`);
+    } else if (lanes.length > 1) {
+      this.logger.log(
+        `Agnes 线路选择 → ${first!.label}（排队 ` +
+        lanes.map((l) => `${l.id}=${this.lanePending(l.id)}`).join(' ') + `）`,
+      );
+    }
+
+    let lastError: any;
+    for (const lane of order) {
+      this.agnesLanePending.set(lane.id, this.lanePending(lane.id) + 1);
+      try {
+        return await this.withAgnesSerial(lane.id, () => this.generateImageWithAgnesImpl(lane, options));
+      } catch (err: any) {
+        lastError = err;
+        if (err?.noRetry) throw err; // 内容安全：不换线路，直接上抛
+        if (lane !== order[order.length - 1]) {
+          // 还有下一条可试 → 把刚失败的线路短暂冷却，避免下个任务又撞上
+          this.cooldownProvider(`agnes-lane:${lane.id}`, 30_000);
+          this.logger.warn(`Agnes ${lane.label} 失败（${err?.message}），转移到下一条线路`);
+        }
+      } finally {
+        const left = this.lanePending(lane.id) - 1;
+        if (left > 0) this.agnesLanePending.set(lane.id, left);
+        else this.agnesLanePending.delete(lane.id);
+      }
+    }
+    throw lastError || new Error('Agnes 无可用线路');
+  }
+
+  /** 单张图对指定线路的 POST：遇 429/503/网络抖动按指数退避重试（最多 4 次 ≈ 5 分钟）；
    *  内容安全立即抛 noRetry；其他 4xx（鉴权等）不重试直接上抛。 */
   private async postAgnesWithRetry(
     apiKey: string,
     body: Record<string, unknown>,
     model: string,
     idx: number,
+    endpoint: string = AGNES_IMAGE_ENDPOINT_CN,
     maxAttempts = 4,
   ): Promise<string> {
     let lastErr: any;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const res = await axios.post(
-          AGNES_IMAGE_ENDPOINT,
+          endpoint,
           body,
           { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, timeout: 120000 },
         );
@@ -927,18 +1016,12 @@ export class AIServiceUtil {
     throw lastErr || new Error('Agnes 重试耗尽');
   }
 
-  /** 公共入口：经串行锁调用（346/373/408 三处均通过此入口） */
-  private async generateImageWithAgnes(
-    apiKey: string,
-    options: ImageGenerationOptions,
-  ): Promise<string[]> {
-    return this.withAgnesSerial(() => this.generateImageWithAgnesImpl(apiKey, options));
-  }
-
   private async generateImageWithAgnesImpl(
-    apiKey: string,
+    lane: AgnesImageLane,
     options: ImageGenerationOptions,
   ): Promise<string[]> {
+    const apiKey = lane.apiKey;
+
     const requested = options.model && AGNES_IMAGE_MODELS.includes(options.model as AgnesImageModel) ? [options.model] : [];
     const models: string[] = requested.length ? [...requested] : [...AGNES_IMAGE_MODELS];
     const { size, ratio: autoRatio } = this.pickAgnesImageSize(options.width, options.height, options.imageSize);
@@ -964,7 +1047,7 @@ export class AIServiceUtil {
           },
         };
         try {
-          const url = await this.postAgnesWithRetry(apiKey, body, model, i + 1);
+          const url = await this.postAgnesWithRetry(apiKey, body, model, i + 1, lane.endpoint);
           urls.push(url);
         } catch (err: any) {
           lastError = err;
